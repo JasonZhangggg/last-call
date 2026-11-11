@@ -172,6 +172,10 @@ export function log(html) {
   while (ul.children.length > 5) ul.lastChild.remove();
 }
 export const clearLog = () => { $('#log').innerHTML = ''; };
+/** Screen effects the director can call instead of reaching into the DOM. */
+export function flash() { const f = $('#flash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go'); }
+export const setBlackout = (on) => $('#blackout').classList.toggle('on', on);
+export const setTense = (on) => document.body.classList.toggle('tense', on);
 export function setHint(html) { $('#hint').innerHTML = html || ''; }
 
 /** Screen positions for the name tags, eased so they glide instead of jittering with the camera. */
@@ -264,6 +268,7 @@ export function recordResult(won) {
   showRecord(s);
   return s;
 }
+const listJoin = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 export function showEnd({ won, rounds, survivors, recap }) {
   const end = $('#end');
   end.classList.toggle('won', won); end.classList.toggle('lost', !won);
@@ -271,7 +276,7 @@ export function showEnd({ won, rounds, survivors, recap }) {
   $('#end-title').textContent = won ? 'Last One Sitting' : 'Lights Out';
   $('#end-text').textContent = won
     ? `You outlasted the table in ${rounds} ${rounds === 1 ? 'round' : 'rounds'}. The Lantern pours you one on the house.`
-    : `${survivors.join(' and ')} ${survivors.length === 1 ? 'keeps' : 'keep'} the table. You lasted ${rounds} ${rounds === 1 ? 'round' : 'rounds'}.`;
+    : `${listJoin(survivors)} ${survivors.length === 1 ? 'keeps' : 'keep'} the table. You lasted ${rounds} ${rounds === 1 ? 'round' : 'rounds'}.`;
   $('#recap').innerHTML = recap.map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join('');
   openOverlay('end');
 }
