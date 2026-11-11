@@ -111,10 +111,12 @@ const CURIO_ART = [
     ctx.fillStyle = '#4a3010'; for (const [x, y] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) dot(ctx, x * s * 0.09, y * s * 0.09, s * 0.045);
   },
   (ctx, s) => { // clay pipe
-    ctx.strokeStyle = '#efe6d4'; ctx.lineCap = 'round'; ctx.lineWidth = s * 0.07;
-    ctx.beginPath(); ctx.moveTo(-s * 0.42, -s * 0.3); ctx.quadraticCurveTo(-s * 0.05, s * 0.1, s * 0.16, s * 0.12); ctx.stroke();
-    ctx.lineWidth = 2.5; ctx.strokeStyle = '#6a5a48'; ctx.stroke();
-    ctx.fillStyle = '#efe6d4'; ctx.beginPath(); ctx.moveTo(s * 0.1, s * 0.16); ctx.lineTo(s * 0.16, -s * 0.2); ctx.lineTo(s * 0.4, -s * 0.2); ctx.quadraticCurveTo(s * 0.38, s * 0.26, s * 0.16, s * 0.24); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-s * 0.42, -s * 0.3); ctx.quadraticCurveTo(-s * 0.05, s * 0.1, s * 0.16, s * 0.12);
+    ctx.strokeStyle = '#4a3a2a'; ctx.lineWidth = s * 0.07 + 5; ctx.stroke();
+    ctx.strokeStyle = '#d8c8a8'; ctx.lineWidth = s * 0.07; ctx.stroke();
+    ctx.lineWidth = 3.5; ctx.strokeStyle = '#4a3a2a';
+    ctx.fillStyle = '#d8c8a8'; ctx.beginPath(); ctx.moveTo(s * 0.1, s * 0.16); ctx.lineTo(s * 0.16, -s * 0.2); ctx.lineTo(s * 0.4, -s * 0.2); ctx.quadraticCurveTo(s * 0.38, s * 0.26, s * 0.16, s * 0.24); ctx.closePath(); ctx.fill(); ctx.stroke();
     ctx.fillStyle = '#3a2a1a'; ctx.beginPath(); ctx.ellipse(s * 0.28, -s * 0.2, s * 0.12, s * 0.035, 0, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = 'rgba(120,120,120,0.6)'; ctx.lineWidth = 2;
     for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(s * (0.26 + i * 0.03), -s * 0.26); ctx.bezierCurveTo(s * (0.16 + i * 0.05), -s * 0.36, s * (0.36 + i * 0.03), -s * 0.4, s * (0.26 + i * 0.04), -s * 0.5); ctx.stroke(); }

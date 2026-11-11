@@ -142,7 +142,7 @@ function hud(T) {
     else if (g.card && g.bids[s].length) state = `<span class="bid">bid ${bidOf(g, s)}</span>`;
     if (v === 0) {
       const purse = sc ? sc.money[s] : sum(g.hand);
-      list.push(`<span>Purse <b>${purse}</b>${!sc && g.bids[s].length ? ` · <span class="bid">bid ${bidOf(g, s)}</span>` : ''}</span>${wonSummary(g, s)}`);
+      list.push(`<span>Purse <b>${purse}</b>${sc?.castOut[s] ? ' · <span class="passed">cast out</span>' : !sc && g.bids[s].length ? ` · <span class="bid">bid ${bidOf(g, s)}</span>` : ''}</span>${wonSummary(g, s)}`);
     } else list.push(`${state ? `${state}` : ''}${wonSummary(g, s)}`);
   }
   ui.setSeatDetails(list);
@@ -159,7 +159,7 @@ function top(T, pulse = false) {
   });
   if (!g.card) { ui.setClaim(''); return; }
   const hi = highBid(g), lead = leader(g);
-  if (isDisgrace(g.card)) ui.setClaim(hi ? `<b>${hi}</b> · ${Name(T, lead)}. The first to pass takes it.` : 'The first to pass takes it.', 'Disgrace');
+  if (isDisgrace(g.card)) ui.setClaim(hi ? `<b>${hi}</b> · ${Name(T, lead)} · first to pass takes it` : 'First to pass takes it', 'Disgrace');
   else ui.setClaim(hi ? `<b>${hi}</b> · ${Name(T, lead)}` : 'No bids yet', 'High bid');
 }
 
@@ -225,7 +225,7 @@ async function reveal(T, msg) {
   await T.landed(body.mover);
   const gilded = c.kind === 'favour' || c.kind === 'scandal';
   if (gilded) { setGilded(n); gildChime(n === 4); }
-  setGlow(isDisgrace(c) ? 0.8 : gilded ? 0.85 : 0.55, GLOW[c.kind]);
+  setGlow(isDisgrace(c) ? 0.8 : gilded ? 0.8 : 0.35, GLOW[c.kind]);
   top(T, true);
   if (msg.final) {
     ui.toast('The fourth gilded card. The bidding is over.', 'liar');
@@ -292,7 +292,6 @@ async function raise(T, msg) {
     if (fresh) setTimeout(() => audio.card(pan), (d + 0.4) * 1000);
   });
   say(T, seat, voice(T, seat, 'raise'));
-  T.recap.bids += T.isMe(seat) ? 1 : 0;
   ui.log(`<b>${Name(T, seat)}</b> ${verb(T, seat, 'raise', 'raises')} to <b>${msg.bid}</b>.`);
   hud(T); T.refresh();
   await T.step(520 + 80 * cards.length);
@@ -329,7 +328,7 @@ async function taken(T, msg) {
   if (body) {
     const k = g.won[seat].findIndex((c) => c.kind === card.kind && c.value === card.value);
     const n = g.won[seat].length + (spilled != null && card.kind === 'curio' ? 1 : 0);
-    sendTo(body, 'won', { view: v, k: k < 0 ? n - 1 : k, n, dur: 0.75, arc: 0.22 });
+    sendTo(body, 'won', { view: v, k: k < 0 ? n - 1 : k, n, dur: 0.75, arc: 0.1 });
   }
   if (ch) { if (disgrace) { react(ch, 'flinch'); tell(ch, 1); } else react(ch, 'lean'); }
   const what = statusName(card), cost = sum(paid[seat]);
@@ -344,7 +343,6 @@ async function taken(T, msg) {
     ui.toast(`${me ? 'You take' : `${T.name(seat)} takes`} ${what}${cost ? ` for ${cost}` : ' for nothing'}`, me ? 'gold' : 'small');
     ui.log(`<b>${Name(T, seat)}</b> ${verb(T, seat, 'take', 'takes')} <b>${cardLabel(card)}</b> for ${cost || 'nothing'}.`);
     say(T, seat, voice(T, seat, 'win'));
-    if (me) T.recap.won++;
   }
   await T.step(450);
   let d = 0;
@@ -417,6 +415,8 @@ async function scoring(T, msg) {
     const v = T.view(w);
     for (let k = STATUS_BASE; k < table.bodies.length; k++) { const b = table.bodies[k]; if (b.place === 'won' && b.view === v) setTint(b, 1.45, 1.3, 1.0); }
     T.setActor(w); T.focusSeat(w, 0.5);
+    if (T.isMe(w)) ui.setHint(`You win with <b>${fmtStatus(msg.status[w])}</b> status`);
+    else ui.setStatus(v, `<b>wins</b> · status <b>${fmtStatus(msg.status[w])}</b>`);
     ui.toast(`${T.isMe(w) ? 'You win' : `${T.name(w)} wins`} with ${fmtStatus(msg.status[w])} status`, 'gold');
     ui.log(`<b>${Name(T, w)}</b> ${verb(T, w, 'win', 'wins')} with <b>${fmtStatus(msg.status[w])}</b> status.`);
     if (!T.isMe(w)) { react(T.char(w), 'lean'); say(T, w, voice(T, w, 'winner')); }
@@ -424,7 +424,6 @@ async function scoring(T, msg) {
   } else ui.toast('A dead heat: no winner tonight', 'small');
   await T.step(1600);
   if (token === T.token() && w != null && !T.isMe(w)) react(T.char(w), 'lean', false);
-  ui.setHint('');
 }
 
 /* ---------- rebuild ---------- */
@@ -433,7 +432,7 @@ function rebuild(T, { fresh }) {
   me = T.me;
   pending = null;
   table.ui.enabled = false; table.ui.selected.clear(); table.ui.hover = null;
-  $('#bid-actions').hidden = true;
+  $('#bid-actions').hidden = true; ui.setHint('');
   setGlow(0);
   rig.zoomTarget = 1; rig.rollTarget = 0; focusOn(null);
   for (const b of table.bodies) setTint(b, 1);
@@ -444,7 +443,7 @@ function rebuild(T, { fresh }) {
   if (g.scoring) g.scoring.castOut.forEach((x, s) => ui.setStatus(T.view(s), x ? 'cast out' : `status <b>${fmtStatus(g.scoring.status[s])}</b>`));
   else for (let s = 1; s < 4; s++) ui.setStatus(s, '');
   hud(T);
-  if (g.card) setGlow(0.55, GLOW[g.card.kind]);
+  if (g.card) setGlow(isDisgrace(g.card) || g.card.kind === 'favour' ? 0.8 : 0.35, GLOW[g.card.kind]);
 }
 
 /* ---------- the mode ---------- */
@@ -452,8 +451,9 @@ let bound = null;
 export const auctionMode = {
   mode: 'auction',
   ready: true,
+  table, // read by scripts/verify.mjs
   reduce: reduceAuction,
-  newRecap: () => ({ bids: 0, won: 0, dodged: 0 }),
+  newRecap: () => ({ dodged: 0 }),
   enter(T) {
     me = T.me;
     gun.obj.visible = false;
