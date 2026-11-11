@@ -5,7 +5,8 @@ import * as THREE from 'three';
 import { scene, canvasTex } from './core.js';
 import { mats, Kit, place, mergeGeometries } from './world.js';
 import { normalCanvas, weaveHeight, hammeredHeight, poreHeight, mottleCanvas, maskCanvas, vnoise } from './textures.js';
-import { rand, clamp, damp, quatE, UP } from '../util.js';
+import { smoothDamp } from './motion.js';
+import { rand, clamp, quatE, UP } from '../util.js';
 
 export const SEAT_RADIUS = 1.32;
 const _a = new THREE.Vector3(), _d = new THREE.Vector3(), _q = new THREE.Quaternion(), _c = new THREE.Color();
@@ -60,27 +61,45 @@ function sweep(points, radius, seg = 24, radial = 8) {
   g.computeVertexNormals(); return g;
 }
 
-/**
- * A right hand in its own frame: palm facing +z, fingers along +y, thumb on +x.
- * Fingers curl gently toward +z so they wrap the back of a held card fan; the thumb crosses to
- * the front. Mirror with a negative x scale for the left hand.
+/*
+ * Hands are one mesh each with a morph target between two finger poses, so a hand can relax or
+ * close smoothly in one draw call. Both poses are built from the same parts list (same segment
+ * counts), which keeps their topology identical.
  */
-function handGeometry({ palm = [0.042, 0.046, 0.02], r = 0.0085 } = {}) {
+const MIRROR_X = new THREE.Matrix4().makeScale(-1, 1, 1);
+function morphHand(base, target, mat, mirror) {
+  if (mirror) { base.applyMatrix4(MIRROR_X); target.applyMatrix4(MIRROR_X); flipWinding(base); }
+  if (base.attributes.position.count !== target.attributes.position.count) throw new Error('hand poses differ in topology');
+  base.morphAttributes.position = [target.attributes.position];
+  base.morphAttributes.normal = [target.attributes.normal];
+  base.computeBoundingSphere();
+  const m = new THREE.Mesh(base, mat); m.castShadow = m.receiveShadow = true;
+  return m;
+}
+function flipWinding(g) { const ix = g.index.array; for (let i = 0; i < ix.length; i += 3) { const t = ix[i]; ix[i] = ix[i + 2]; ix[i + 2] = t; } }
+
+/**
+ * A right hand in its own frame: palm facing +z, fingers along +y, thumb on +x. Fingers curl
+ * toward +z by `base` at the knuckle plus `step` per joint; `thumb` picks the thumb's two joints.
+ * Mirror in x for the left hand.
+ */
+const OPEN_THUMB = [V(0.046, 0.004, 0.016), V(0.05, 0.026, 0.024)];
+function handGeometry({ palm = [0.042, 0.046, 0.02], r = 0.0085 } = {}, { base = 0.18, step = 0.32, thumb = [V(0.05, 0.008, 0.026), V(0.045, 0.03, 0.042)] } = {}) {
   const parts = [ball(V(0, 0, 0), 1, [palm[0], palm[1], palm[2]], 16)];
   const fingers = [[0.026, [0.03, 0.022, 0.018], 0.08], [0.009, [0.033, 0.024, 0.019], 0.02], [-0.009, [0.03, 0.022, 0.018], -0.05], [-0.026, [0.024, 0.018, 0.015], -0.12]];
   for (const [x, lens, splay] of fingers) {
-    const p = V(x, palm[1] * 0.72, -0.002); let ang = 0.18;
+    const p = V(x, palm[1] * 0.72, -0.002); let ang = base;
     const rr = x < -0.02 ? r * 0.88 : r;
-    const base = p.clone();
+    const knuckle = p.clone();
     lens.forEach((len, i) => {
       _d.set(Math.sin(splay) * Math.cos(ang), Math.cos(splay) * Math.cos(ang), Math.sin(ang));
       const q = p.clone().addScaledVector(_d, len);
       parts.push(tube(p, q, rr * (1 - i * 0.08), rr * (1 - (i + 1) * 0.08), 8), ball(q, rr * (1 - (i + 1) * 0.08), 1, 8));
-      p.copy(q); ang += 0.32;
+      p.copy(q); ang += step;
     });
-    parts.push(ball(base, rr * 1.02, 1, 8));
+    parts.push(ball(knuckle, rr * 1.02, 1, 8));
   }
-  const t0 = V(0.03, -0.018, 0.006), t1 = V(0.05, 0.008, 0.026), t2 = V(0.045, 0.03, 0.042);
+  const t0 = V(0.03, -0.018, 0.006), [t1, t2] = thumb;
   parts.push(ball(V(0.024, -0.012, 0.004), 1, [0.018, 0.024, 0.016], 10), tube(t0, t1, r * 1.25, r * 1.1, 8), ball(t1, r * 1.1, 1, 8), tube(t1, t2, r * 1.1, r * 0.95, 8), ball(t2, r * 0.95, 1, 8));
   parts.push(tube(V(0, -0.075, -0.004), V(0, -0.03, -0.002), palm[0] * 0.62, palm[0] * 0.78, 12));
   return mergeGeometries(parts);
@@ -94,24 +113,34 @@ function ring(p, dir, R, r) {
 }
 
 /*
- * The right fist, authored in the grip frame that gun.js parents the revolver to: origin where the
+ * The right hand, in the grip frame that gun.js parents the revolver to: origin where the
  * revolver's own origin sits, +z along the barrel, +y up, the raked grip running down and back
- * from about (0, -0.005, -0.072) to (0, -0.087, -0.04). The palm wraps the grip's right side,
- * three fingers curl round the front strap, the index finger rests in the trigger guard and the
- * thumb lies along the left of the frame.
+ * from about (0, -0.005, -0.072) to (0, -0.087, -0.04). Authored with the palm on +x and then
+ * mirrored, so the palm ends up on the grip's right (-x, since +x is the shooter's left here).
+ * Closed: three fingers curl round the front strap, the index finger rests in the trigger guard,
+ * the thumb wraps the far side. Open: the same fingers lie loose and half-curled, as on a table.
  */
-const FIST_WRIST = V(0.016, -0.062, -0.115);
-function fistGeometry({ r = 0.0085, palm = [0.042, 0.046, 0.02] } = {}) {
+const FIST_WRIST = V(-0.016, -0.062, -0.115);
+function fistGeometry({ r = 0.0085, palm = [0.042, 0.046, 0.02] } = {}, open = false) {
   const gz = (y) => -0.072 + ((-0.005 - y) / 0.082) * 0.032;
-  const k = palm[1] / 0.046;
+  const k = palm[1] / 0.046, w = V(-FIST_WRIST.x, FIST_WRIST.y, FIST_WRIST.z);
   const parts = [ball(V(0.024, -0.05, -0.078), 1, [palm[2] * 1.05, palm[1] * 1.0, palm[0] * 0.95], 16)];
   [-0.036, -0.054, -0.071].forEach((y, i) => {
     const z = gz(y), rr = r * (1 - i * 0.07) * 1.05, R = 0.024;
-    parts.push(sweep([V(0.026, y, z - 0.012), V(0.026, y, z + 0.012), V(0.013, y, z + R), V(-0.006, y, z + R * 0.95), V(-0.02, y + 0.002, z + 0.008)], rr, 14, 8), ball(V(-0.02, y + 0.002, z + 0.008), rr * 0.95, 1, 8));
+    const pts = open
+      ? [V(0.026, y, z - 0.012), V(0.025, y, z + 0.014), V(0.017, y, z + 0.036), V(0.006, y, z + 0.053), V(-0.004, y + 0.001, z + 0.062)]
+      : [V(0.026, y, z - 0.012), V(0.026, y, z + 0.012), V(0.013, y, z + R), V(-0.006, y, z + R * 0.95), V(-0.02, y + 0.002, z + 0.008)];
+    parts.push(sweep(pts, rr, 14, 8), ball(pts[4], rr * 0.95, 1, 8));
   });
-  parts.push(sweep([V(0.024, -0.02, -0.05), V(0.019, -0.022, -0.02), V(0.012, -0.026, 0.0), V(0.002, -0.03, 0.008)], r * 0.95, 12, 8), ball(V(0.002, -0.03, 0.008), r * 0.85, 1, 8));
-  parts.push(sweep([V(0.022, -0.018, -0.098), V(0.0, -0.006, -0.086), V(-0.019, -0.008, -0.062), V(-0.021, -0.012, -0.038)], (t) => r * (1.35 - t * 0.4), 14, 8), ball(V(-0.021, -0.012, -0.038), r * 0.95, 1, 8));
-  parts.push(tube(FIST_WRIST.clone().add(V(0, -0.006, -0.04)), FIST_WRIST.clone().lerp(V(0.024, -0.05, -0.078), 0.6), palm[0] * 0.6 * k, palm[0] * 0.72, 12));
+  const index = open
+    ? [V(0.024, -0.02, -0.05), V(0.023, -0.019, -0.022), V(0.015, -0.019, 0.002), V(0.004, -0.02, 0.018)]
+    : [V(0.024, -0.02, -0.05), V(0.019, -0.022, -0.02), V(0.012, -0.026, 0.0), V(0.002, -0.03, 0.008)];
+  parts.push(sweep(index, r * 0.95, 12, 8), ball(index[3], r * 0.85, 1, 8));
+  const thumb = open
+    ? [V(0.022, -0.018, -0.098), V(0.016, -0.004, -0.083), V(0.009, 0.001, -0.064), V(0.002, -0.001, -0.046)]
+    : [V(0.022, -0.018, -0.098), V(0.0, -0.006, -0.086), V(-0.019, -0.008, -0.062), V(-0.021, -0.012, -0.038)];
+  parts.push(sweep(thumb, (t) => r * (1.35 - t * 0.4), 14, 8), ball(thumb[3], r * 0.95, 1, 8));
+  parts.push(tube(w.clone().add(V(0, -0.006, -0.04)), w.clone().lerp(V(0.024, -0.05, -0.078), 0.6), palm[0] * 0.6 * k, palm[0] * 0.72, 12));
   return mergeGeometries(parts);
 }
 
@@ -166,7 +195,7 @@ const DESIGNS = {
     const tipMat = standard({ color: 0x300, emissive: 0xff3a22, emissiveIntensity: 2 });
     const dialMat = standard({ color: 0xe8dcbc, roughness: 0.5, emissive: 0x2a2010, emissiveIntensity: 0.3 });
     return {
-      sleeve: body, hand: body, arm: { shoulder: 0.055, elbow: 0.046, wrist: 0.036 }, handOpts: { palm: [0.044, 0.046, 0.021], r: 0.0088 },
+      sleeve: body, hand: body, arm: { shoulder: 0.055, elbow: 0.046, wrist: 0.036 }, handOpts: { palm: [0.044, 0.046, 0.021], r: 0.0088 }, temple: V(-0.146, 0.06, 0.03),
       tint: [body, iron, copper, dialMat],
       cuff(k, el, wr) { k.add(iron, ring(wr.clone().lerp(el, 0.12), _d.subVectors(el, wr), 0.043, 0.008)); },
       torso(k, up) {
@@ -236,7 +265,7 @@ const DESIGNS = {
     const irisMat = standard({ color: 0x2a1400, emissive: 0xffa632, emissiveIntensity: 2.6 });
     const gemMat = standard({ color: 0x0a3a38, emissive: 0x2fd6c0, emissiveIntensity: 1.2, roughness: 0.1 });
     return {
-      sleeve: velvet, hand: porcelain, arm: { shoulder: 0.045, elbow: 0.037, wrist: 0.03 }, handOpts: { palm: [0.036, 0.042, 0.016], r: 0.0072 },
+      sleeve: velvet, hand: porcelain, arm: { shoulder: 0.045, elbow: 0.037, wrist: 0.03 }, handOpts: { palm: [0.036, 0.042, 0.016], r: 0.0072 }, temple: V(-0.143, 0.045, 0.03),
       tint: [velvet, velvetDark, lace, porcelain, mask, pearl, hat, ribbon, plume],
       torso(k) {
         k.add(velvet, lathe([[0, -0.3], [0.18, -0.3], [0.185, -0.22], [0.145, -0.1], [0.15, 0.0], [0.178, 0.12], [0.17, 0.24], [0.13, 0.32], [0.06, 0.37], [0, 0.375]], 36, [0, 0, 0], [0, 0, 0], [1.1, 1, 0.84]));
@@ -317,7 +346,7 @@ const DESIGNS = {
     const SX = 1.16, SZ = 0.86, R = (y) => (y < -0.08 ? 0.21 + (y + 0.3) * 0.06 : y < 0.12 ? 0.225 : 0.225 - (y - 0.12) * 0.4);
     const front = (x, y) => Math.sqrt(Math.max(0, 1 - (x / (R(y) * SX)) ** 2)) * R(y) * SZ;
     return {
-      sleeve: coat, hand: skin, arm: { shoulder: 0.06, elbow: 0.05, wrist: 0.04 }, handOpts: { palm: [0.046, 0.05, 0.022], r: 0.0098 },
+      sleeve: coat, hand: skin, arm: { shoulder: 0.06, elbow: 0.05, wrist: 0.04 }, handOpts: { palm: [0.046, 0.05, 0.022], r: 0.0098 }, temple: V(-0.156, 0.065, 0.025),
       tint: [coat, facing, skin, beard, linen, felt],
       torso(k) {
         k.add(coat, lathe([[0, -0.3], [0.2, -0.3], [0.215, -0.2], [0.225, -0.05], [0.228, 0.12], [0.215, 0.24], [0.17, 0.32], [0.08, 0.38], [0, 0.385]], 36, [0, 0, 0], [0, 0, 0], [SX, 1, SZ]));
@@ -398,18 +427,48 @@ const DESIGNS = {
 
 /** Where the opponent's fan sits, relative to handAnchor (cards.js holds them at this frame). */
 const FAN_FRAME = quatE(-0.42, Math.PI, 0);
-const FAN_AT = V(0.07, 0.155, 0.37), LEFT_GRIP = { p: V(-0.004, -0.074, -0.021), roll: 0.22 };
+// The hand sits on the player's side of the fan's base, palm to the card backs, fingers across
+// them toward the holder's right and the thumb round the front.
+const FAN_AT = V(0.07, 0.155, 0.37), LEFT_GRIP = { p: V(-0.035, -0.064, -0.021), roll: -1.0 };
 const SHOULDER = 0.215, L1 = 0.27, L2 = 0.26;
+const LEFT_WRIST = V(0, -0.068, -0.004);
+// Left-hand finger poses: lying loose on the table, and wrapped round the base of a fan.
+const LEFT_OPEN = { base: 0.12, step: 0.24, thumb: OPEN_THUMB };
+const LEFT_FAN = { base: 0.2, step: 0.38, thumb: [V(0.05, 0.012, 0.03), V(0.04, 0.034, 0.05)] };
+
+/** Frame from where its +y and +z should point (z is made orthogonal to y). */
+function frame(y, z, out = new THREE.Quaternion()) {
+  _y.copy(y).normalize(); _z.copy(z); _z.addScaledVector(_y, -_z.dot(_y)).normalize(); _x.crossVectors(_y, _z);
+  return out.setFromRotationMatrix(_m1.makeBasis(_x, _y, _z));
+}
+
+/** Two bone groups and a hand bone hung under `upper` at shoulder `at`, posed by solveArm(). */
+function buildArm(upper, at, design, handMesh) {
+  const A = design.arm, O = V(0, 0, 0);
+  const uArm = new THREE.Group(); uArm.position.copy(at); upper.add(uArm);
+  const fArm = new THREE.Group(); fArm.position.y = -L1; uArm.add(fArm);
+  const hand = new THREE.Group(); fArm.add(hand);
+  const ka = new Kit(), kf = new Kit();
+  ka.add(design.sleeve, tube(O, V(0, -L1, 0), A.shoulder, A.elbow, 16), ball(O, A.shoulder, 1, 16), ball(V(0, -L1, 0), A.elbow, 1, 14));
+  design.shoulder?.(ka, O);
+  kf.add(design.sleeve, tube(O, V(0, -L2, 0), A.elbow, A.wrist, 16));
+  design.cuff(kf, O, V(0, -L2, 0));
+  for (const [kit, bone] of [[ka, uArm], [kf, fArm]]) for (const m of kit.build(bone, { cast: true })) m.receiveShadow = true;
+  hand.add(handMesh);
+  return { upper: uArm, fore: fArm, hand, handMesh, pos: V(0, 0, 0), quat: new THREE.Quaternion() };
+}
 
 /**
- * Character reactions. Each is a 0..1 envelope the update loop eases toward its target:
+ * Character reactions. Each is a 0..1 envelope driven by a critically damped spring toward its
+ * target, so none starts or stops at full speed:
  *   lean     leaning in over the table (calling Liar, the reveal)
  *   tremble  holding the revolver
- *   flinch   one-shot jolt on the trigger click
+ *   flinch   one-shot jolt on the trigger click (a scripted pulse, see flinchAt)
  *   relief   sagging back after surviving
  *   reach    right hand moves to ch.reachTarget (world), to pick the revolver up
- *   aim      right hand raised beside the head, barrel at the right temple
- *   out      eliminated: lights out, eyes shut, slumped, arm limp, drained of colour
+ *   aim      right hand raised beside the head, the muzzle a few centimetres off the right temple
+ *   out      eliminated: lights out, eyes shut, slumped, arms limp, drained of colour
+ * Two more follow the props: hold (cards in the left hand) and grip (right hand closed).
  */
 export function buildCharacter(designKey, angle) {
   const design = DESIGNS[designKey]();
@@ -426,66 +485,72 @@ export function buildCharacter(designKey, angle) {
   const parts = design.torso(ku, upper) || {};
   if (parts.gem) upper.add(parts.gem);
   const face = design.head(kh, head, neck);
-  const A = design.arm;
-
-  // Left arm: static, its hand pinching the base of the card fan. handAnchor hangs off the hand.
-  const fan = new THREE.Matrix4().compose(FAN_AT, FAN_FRAME, V(1, 1, 1));
-  const lm = new THREE.Matrix4().compose(LEFT_GRIP.p, quatE(0, 0, LEFT_GRIP.roll), V(-1, 1, 1)).premultiply(fan);
-  const lh = handGeometry(design.handOpts).applyMatrix4(lm);
-  { const ix = lh.index.array; for (let i = 0; i < ix.length; i += 3) { const t = ix[i]; ix[i] = ix[i + 2]; ix[i + 2] = t; } }
-  ku.add(design.hand, lh);
-  const lwr = V(0, -0.068, -0.004).applyMatrix4(lm), lsh = V(SHOULDER, 0.245, -0.01), lel = V(0.255, 0.03, 0.13);
-  ku.add(design.sleeve, tube(lsh, lel, A.shoulder, A.elbow, 16), ball(lsh, A.shoulder, 1, 16), ball(lel, A.elbow, 1, 14), tube(lel, lwr, A.elbow, A.wrist, 16));
-  design.shoulder?.(ku, lsh); design.cuff(ku, lel, lwr);
-  const leftHand = new THREE.Group(); upper.add(leftHand);
-  lm.decompose(leftHand.position, leftHand.quaternion, _a);
-  leftHand.updateMatrix();
-  const handAnchor = new THREE.Group(); leftHand.add(handAnchor);
-  new THREE.Matrix4().copy(leftHand.matrix).invert().multiply(new THREE.Matrix4().makeTranslation(FAN_AT.x, FAN_AT.y, FAN_AT.z)).decompose(handAnchor.position, handAnchor.quaternion, handAnchor.scale);
-
-  // Right arm: shoulder, upper arm, forearm and fist, posed every frame by two-bone IK.
-  const uArm = new THREE.Group(); uArm.position.set(-SHOULDER, 0.245, -0.01); upper.add(uArm);
-  const fArm = new THREE.Group(); fArm.position.y = -L1; uArm.add(fArm);
-  const rHand = new THREE.Group(); fArm.add(rHand);
-  const grip = new THREE.Object3D(); rHand.add(grip);
-  const ka = new Kit(), kf = new Kit(), kr = new Kit(), O = V(0, 0, 0);
-  ka.add(design.sleeve, tube(O, V(0, -L1, 0), A.shoulder, A.elbow, 16), ball(O, A.shoulder, 1, 16), ball(V(0, -L1, 0), A.elbow, 1, 14));
-  design.shoulder?.(ka, O);
-  kf.add(design.sleeve, tube(O, V(0, -L2, 0), A.elbow, A.wrist, 16));
-  design.cuff(kf, O, V(0, -L2, 0));
-  kr.add(design.hand, fistGeometry(design.handOpts));
-  for (const [kit, bone] of [[ka, uArm], [kf, fArm], [kr, rHand]]) for (const m of kit.build(bone, { cast: true })) m.receiveShadow = true;
   for (const m of ku.build(upper, { cast: true })) m.receiveShadow = true;
   for (const m of kh.build(head, { cast: true })) m.receiveShadow = true;
+
+  // Left arm: rests on the table edge, rises to hold the fan while it has cards. handAnchor hangs
+  // off the hand at the fan's pivot; in the holding pose its frame is the upper body's own.
+  const left = buildArm(upper, V(SHOULDER, 0.245, -0.01), design,
+    morphHand(handGeometry(design.handOpts, LEFT_OPEN), handGeometry(design.handOpts, LEFT_FAN), design.hand, true));
+  const fanPose = new THREE.Matrix4().compose(FAN_AT, FAN_FRAME, V(1, 1, 1)).multiply(new THREE.Matrix4().compose(LEFT_GRIP.p, quatE(0, 0, LEFT_GRIP.roll), V(1, 1, 1)));
+  const fan = { pos: V(0, 0, 0), quat: new THREE.Quaternion() };
+  fanPose.decompose(fan.pos, fan.quat, _a);
+  const handAnchor = new THREE.Group(); left.hand.add(handAnchor);
+  new THREE.Matrix4().copy(fanPose).invert().multiply(new THREE.Matrix4().makeTranslation(FAN_AT.x, FAN_AT.y, FAN_AT.z)).decompose(handAnchor.position, handAnchor.quaternion, handAnchor.scale);
+
+  // Right arm: shoulder, upper arm, forearm and the revolver hand, posed every frame by two-bone IK.
+  const right = buildArm(upper, V(-SHOULDER, 0.245, -0.01), design,
+    morphHand(fistGeometry(design.handOpts, false), fistGeometry(design.handOpts, true), design.hand, true));
+  const grip = new THREE.Object3D(); right.hand.add(grip);
+
+  // Aim in head space: barrel level and pointing into the temple, the muzzle 6.5 cm off it.
+  // The revolver's bore runs 0.058 above its grip origin and the muzzle is 0.261 ahead of it.
+  const aimDir = V(1, -0.04, -0.16).normalize(), aimQ = basis(V(0, 0, -1), aimDir);
+  const muzzle = design.temple.clone().addScaledVector(aimDir, -0.065);
+  const aimLocal = new THREE.Matrix4().compose(muzzle.addScaledVector(aimDir, -0.261).addScaledVector(V(0, 1, 0).applyQuaternion(aimQ), -0.058), aimQ, V(1, 1, 1));
 
   const chair = new THREE.Mesh(chairGeometry(), mats.chair); chair.castShadow = true; chair.receiveShadow = true; group.add(chair);
 
   const glowMats = [...new Set([face.eyes[0].material, ...face.extraGlow])];
   const tints = design.tint.map((m) => ({ m, base: m.color.clone(), sheen: m.sheenColor?.clone() }));
   return {
-    group, waist, upper, neck, head, eyes: face.eyes, handAnchor, leftHand,
-    arm: { upper: uArm, fore: fArm, hand: rHand, pos: V(0, 0, 0), quat: new THREE.Quaternion() }, grip, reachTarget: new THREE.Vector3(),
+    group, waist, upper, neck, head, eyes: face.eyes, handAnchor, leftHand: left.hand,
+    arm: right, leftArm: left, fan, aimLocal, grip, reachTarget: new THREE.Vector3(),
     lids: face.lids, lidOpen: face.lidOpen, lidClosed: face.lidClosed,
     parts, design, tints, tintAt: 0,
     glow: glowMats.map((m) => ({ m, base: m.emissiveIntensity })),
     eyeMat: face.eyes[0].material,
     lookTarget: new THREE.Vector3(),
-    yaw: 0, pitch: 0, phase: Math.random() * 6, blinkAt: rand(1, 4), blink: 0, flicker: 0,
-    env: { lean: 0, tremble: 0, flinch: 0, relief: 0, out: 0, aim: 0, reach: 0 },
+    yaw: 0, pitch: 0, lv: {}, phase: Math.random() * 6, blinkAt: rand(1, 4), blink: 0, flicker: 0,
+    flinchT: Infinity, flinchFrom: 0,
+    env: { lean: 0, tremble: 0, flinch: 0, relief: 0, out: 0, aim: 0, reach: 0, hold: 0, grip: 0 },
     target: { lean: 0, tremble: 0, relief: 0, out: 0, aim: 0, reach: 0 },
+    vel: {},
   };
 }
 
 export function react(ch, kind, on = true) {
-  if (kind === 'flinch') { ch.env.flinch = 1; return; }
+  if (kind === 'flinch') { ch.flinchT = 0; ch.flinchFrom = ch.env.flinch; return; }
   ch.target[kind] = on ? 1 : 0;
 }
 export function resetCharacter(ch) {
   for (const k of Object.keys(ch.target)) ch.target[k] = 0;
-  ch.env.flinch = 0; ch.flicker = 0;
+  ch.flicker = 0;
 }
 export const tell = (ch, seconds = 1.3) => { ch.flicker = seconds; };
 export const headWorld = (ch, out) => ch.head.getWorldPosition(out);
+
+/**
+ * The flinch pulse at `t` seconds after the click: a 90 ms rise that leaves and arrives at rest
+ * (smootherstep), then a critically damped fall that also leaves at rest. Velocity is continuous
+ * throughout, and the rise's peak acceleration stays within what the head can do smoothly.
+ */
+const FLINCH_RISE = 0.09, FLINCH_W = 9;
+function flinchAt(t, from) {
+  if (t < FLINCH_RISE) { const u = t / FLINCH_RISE; return from + (1 - from) * u * u * u * (u * (u * 6 - 15) + 10); }
+  const x = (t - FLINCH_RISE) * FLINCH_W;
+  return (1 + x) * Math.exp(-x);
+}
 
 /** Drains colour toward a dim grey as a character goes out. Only touches materials on change. */
 function applyTint(ch, k) {
@@ -498,13 +563,13 @@ function applyTint(ch, k) {
   }
 }
 
-/* ---------- right arm ---------- */
-const _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _p1 = new THREE.Vector3(), _p2 = new THREE.Vector3(), _s1 = new THREE.Vector3();
-const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion();
+/* ---------- arms ---------- */
+const _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _m3 = new THREE.Matrix4(), _p1 = new THREE.Vector3(), _p2 = new THREE.Vector3(), _s1 = new THREE.Vector3();
+const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _q4 = new THREE.Quaternion();
 const _S = new THREE.Vector3(), _W = new THREE.Vector3(), _E = new THREE.Vector3(), _n = new THREE.Vector3(), _pole = new THREE.Vector3();
 const _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3();
 
-/** Grip-frame orientation from the back-of-hand (+x) and barrel (+z) directions. */
+/** Grip-frame orientation from the grip's +x (the shooter's left) and barrel (+z) directions. */
 function basis(x, z, out = new THREE.Quaternion()) {
   _z.copy(z).normalize(); _y.crossVectors(_z, _x.copy(x)).normalize(); _x.crossVectors(_y, _z);
   return out.setFromRotationMatrix(_m1.makeBasis(_x, _y, _z));
@@ -515,26 +580,53 @@ function boneQuat(from, to, bend, out) {
   return out.setFromRotationMatrix(_m1.makeBasis(_x, _y, _z));
 }
 
-// Grip poses in upper-body space: resting palm-down on the table right of the fan, and hanging limp.
-const REST = { pos: V(-0.2, 0.034, 0.41), quat: basis(V(0, 1, 0), V(-0.25, 0, 1)) };
-const LIMP = { pos: V(-0.27, -0.2, 0.12), quat: basis(V(-1, 0, 0), V(0, -1, 0.25)) };
-// In head space: barrel aimed at the right temple, the muzzle (0.205 m up the barrel) 7 cm away.
-const AIM_DIR = V(0.97, -0.14, 0.2).normalize();
-const AIM_LOCAL = new THREE.Matrix4().compose(V(-0.155, 0.035, 0.035).addScaledVector(AIM_DIR, -0.265), basis(V(0, 0, -1), AIM_DIR), V(1, 1, 1));
+// Poses resting on the table are in seat (group) space so they stay put when the body leans; the
+// rest are in upper-body space.
+// Right hand, palm down beside the fan with the fingers loose; its grip x points down.
+const REST = { pos: V(-0.2, 0.017, 0.41), quat: basis(V(0, -1, 0), V(-0.25, 0, 1)) };
+const LIMP = { pos: V(-0.27, -0.2, 0.12), quat: basis(V(1, 0, 0), V(0, -1, 0.25)) };
+// Left hand, palm down on the table edge, fingers toward the table's middle.
+const LEFT_REST = { pos: V(0.19, 0.03, 0.355), quat: frame(V(-0.28, -0.06, 1), V(0, -1, 0)) };
+const LEFT_LIMP = { pos: V(0.26, -0.19, 0.1), quat: frame(V(0, -1, 0.25), V(-1, 0, 0)) };
 
-function poseArm(ch, t) {
-  const E = ch.env, arm = ch.arm, live = 1 - E.out;
+/** Brings a seat-space pose into upper-body space (the body may be leaning or slumped). */
+function fromSeat(ch, pose, pos, quat) {
+  _m3.copy(ch.upper.matrixWorld).invert().multiply(ch.group.matrixWorld);
+  pos.copy(pose.pos).applyMatrix4(_m3);
+  return quat.setFromRotationMatrix(_m3).multiply(pose.quat);
+}
+
+/** Two-bone IK from the shoulder to the wrist the hand pose implies, elbow bent toward `pole`. */
+function solveArm(arm, wrist, pole) {
+  const { pos, quat } = arm;
+  _W.copy(wrist).applyQuaternion(quat).add(pos);
+  _S.copy(arm.upper.position);
+  _d.subVectors(_W, _S); const dist = clamp(_d.length(), 0.08, L1 + L2 - 0.002); _d.normalize();
+  _W.copy(_S).addScaledVector(_d, dist);
+  const cosA = clamp((L1 * L1 + dist * dist - L2 * L2) / (2 * L1 * dist), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
+  _n.copy(pole).addScaledVector(_d, -pole.dot(_d)).normalize();
+  _E.copy(_S).addScaledVector(_d, cosA * L1).addScaledVector(_n, sinA * L1);
+  boneQuat(_S, _E, _n, _q2); arm.upper.quaternion.copy(_q2);
+  boneQuat(_E, _W, _n, _q3); arm.fore.quaternion.copy(_q2).invert().multiply(_q3);
+  arm.hand.quaternion.copy(_q3).invert().multiply(quat);
+  arm.hand.position.copy(wrist).applyQuaternion(arm.hand.quaternion).negate(); arm.hand.position.y -= L2;
+}
+
+function poseArms(ch, t) {
+  const E = ch.env, live = 1 - E.out;
   ch.group.updateMatrixWorld(true);
   _m2.copy(ch.upper.matrixWorld).invert();
-  const pos = arm.pos.copy(REST.pos), quat = arm.quat.copy(REST.quat);
-  pos.y += Math.sin(t * 0.9 + ch.phase) * 0.002 * live;
+
+  const arm = ch.arm, pos = arm.pos, quat = arm.quat;
+  fromSeat(ch, REST, pos, quat);
+  pos.y += Math.sin(t * 0.9 + ch.phase) * 0.0015 * live;
   if (E.reach > 0.001) {
     _p1.copy(ch.reachTarget).applyMatrix4(_m2);
-    basis(_p2.set(0, 1, 0), _s1.set(_p1.x + SHOULDER, 0, _p1.z + 0.01), _q1);
+    basis(_p2.set(0, -1, 0), _s1.set(_p1.x + SHOULDER, 0, _p1.z + 0.01), _q1);
     pos.lerp(_p1.add(_s1.set(0, 0.02, 0)), E.reach); quat.slerp(_q1, E.reach);
   }
   if (E.aim > 0.001) {
-    _m1.multiplyMatrices(_m2, ch.head.matrixWorld).multiply(AIM_LOCAL).decompose(_p1, _q1, _s1);
+    _m1.multiplyMatrices(_m2, ch.head.matrixWorld).multiply(ch.aimLocal).decompose(_p1, _q1, _s1);
     const sh = E.tremble * live;
     _p1.x += (Math.sin(t * 41) + Math.sin(t * 23.7)) * 0.0022 * sh;
     _p1.y += (Math.sin(t * 37.3) + Math.sin(t * 13.1)) * 0.0028 * sh;
@@ -542,45 +634,50 @@ function poseArm(ch, t) {
     pos.lerp(_p1, E.aim); quat.slerp(_q1, E.aim);
   }
   if (E.out > 0.001) { pos.lerp(LIMP.pos, E.out); quat.slerp(LIMP.quat, E.out); }
+  // elbow out to the side and down; raised to the temple it swings out and lifts a little
+  solveArm(arm, FIST_WRIST, _pole.set(-1, -0.75 + E.aim * 0.3, -0.25 + E.aim * 0.05).normalize());
+  arm.handMesh.morphTargetInfluences[0] = 1 - E.grip;
 
-  // wrist from the grip pose, then two-bone IK with the elbow pushed out and down
-  _W.copy(FIST_WRIST).applyQuaternion(quat).add(pos);
-  _S.copy(arm.upper.position);
-  _d.subVectors(_W, _S); const dist = clamp(_d.length(), 0.08, L1 + L2 - 0.002); _d.normalize();
-  _W.copy(_S).addScaledVector(_d, dist);
-  const cosA = clamp((L1 * L1 + dist * dist - L2 * L2) / (2 * L1 * dist), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
-  _pole.set(-1, -0.75 + E.aim * 0.35, -0.25 + E.aim * 0.1).normalize();
-  _n.copy(_pole).addScaledVector(_d, -_pole.dot(_d)).normalize();
-  _E.copy(_S).addScaledVector(_d, cosA * L1).addScaledVector(_n, sinA * L1);
-  boneQuat(_S, _E, _n, _q2); arm.upper.quaternion.copy(_q2);
-  boneQuat(_E, _W, _n, _q3); arm.fore.quaternion.copy(_q2).invert().multiply(_q3);
-  arm.hand.quaternion.copy(_q3).invert().multiply(quat);
-  arm.hand.position.copy(FIST_WRIST).applyQuaternion(arm.hand.quaternion).negate(); arm.hand.position.y -= L2;
+  const la = ch.leftArm;
+  fromSeat(ch, LEFT_REST, la.pos, la.quat);
+  la.pos.y += Math.sin(t * 0.8 + ch.phase + 2) * 0.0012 * live;
+  if (E.hold > 0.001) { la.pos.lerp(ch.fan.pos, E.hold); la.quat.slerp(ch.fan.quat, E.hold); }
+  if (E.out > 0.001) { la.pos.lerp(LEFT_LIMP.pos, E.out); la.quat.slerp(LEFT_LIMP.quat, E.out); }
+  solveArm(la, LEFT_WRIST, _pole.set(1, -0.75, -0.25).normalize());
+  la.handMesh.morphTargetInfluences[0] = E.hold;
 }
 
-const EASED = ['lean', 'tremble', 'relief', 'aim', 'reach'];
+// Smoothing time per envelope (s): about how long it takes to arrive, leaving and landing at rest.
+const SMOOTH = { lean: 0.3, tremble: 0.25, relief: 0.3, aim: 0.3, reach: 0.27, out: 0.55, hold: 0.3, grip: 0.09 };
+const LOOK_SMOOTH = 0.3;
+const smoothstep = (a, b, v) => { const u = clamp((v - a) / (b - a), 0, 1); return u * u * (3 - 2 * u); };
+
 export function updateCharacter(ch, dt, t) {
-  const E = ch.env, T = ch.target;
-  for (const k of EASED) E[k] += (T[k] - E[k]) * damp(dt, 4);
-  E.out += (T.out - E.out) * damp(dt, 2.4);
-  E.flinch *= Math.exp(-dt * 6);
+  const E = ch.env, T = ch.target, vel = ch.vel;
+  // the right hand closes as it arrives at the revolver and stays closed while it holds it
+  const holding = ch.grip.children.length > 0;
+  const grip = holding || T.aim ? 1 : T.reach ? smoothstep(0.45, 0.9, E.reach) : 0;
+  const hold = ch.handAnchor.children.length > 0 && !T.out ? 1 : 0;
+  for (const k in SMOOTH) E[k] = clamp(smoothDamp(E[k], k === 'grip' ? grip : k === 'hold' ? hold : T[k], vel, k, SMOOTH[k], dt), 0, 1);
+  ch.flinchT += dt;
+  E.flinch = ch.flinchT < 3 ? flinchAt(ch.flinchT, ch.flinchFrom) : 0;
   const live = 1 - E.out;
 
   ch.group.worldToLocal(_a.copy(ch.lookTarget)); _a.y -= 0.5;
   const yaw = clamp(Math.atan2(_a.x, _a.z), -1, 1), pitch = clamp(-Math.atan2(_a.y, Math.hypot(_a.x, _a.z)), -0.45, 0.6);
-  const k = damp(dt, 3.2);
-  ch.yaw += (yaw - ch.yaw) * k; ch.pitch += (pitch - ch.pitch) * k;
+  ch.yaw = smoothDamp(ch.yaw, yaw, ch.lv, 'y', LOOK_SMOOTH, dt);
+  ch.pitch = smoothDamp(ch.pitch, pitch, ch.lv, 'p', LOOK_SMOOTH, dt);
 
   const jitter = E.tremble * live;
   const tx = (Math.sin(t * 47) + Math.sin(t * 31.3)) * 0.004 * jitter;
   const breath = Math.sin(t * (1.7 + jitter * 2) + ch.phase);
-  ch.neck.rotation.y = ch.yaw * live * (1 - E.aim * 0.65) + tx * 3 + E.out * 0.25;
-  ch.head.rotation.x = ch.pitch * 0.7 * live + E.out * 0.75 - E.flinch * 0.25 + E.relief * -0.12;
-  ch.head.rotation.z = E.out * 0.32 + Math.sin(t * 0.7 + ch.phase) * 0.02 * live + tx * 4;
-  ch.waist.rotation.x = E.out * 0.42 + E.lean * 0.16 - E.flinch * 0.12 - E.relief * 0.08;
+  ch.neck.rotation.y = ch.yaw * live * (1 - E.aim * 0.65) + tx * 2 + E.out * 0.25;
+  ch.head.rotation.x = ch.pitch * 0.7 * live + E.out * 0.75 - E.flinch * 0.085 + E.relief * -0.12;
+  ch.head.rotation.z = E.out * 0.32 + Math.sin(t * 0.7 + ch.phase) * 0.02 * live + tx * 2.5;
+  ch.waist.rotation.x = E.out * 0.42 + E.lean * 0.16 - E.flinch * 0.045 - E.relief * 0.08;
   ch.waist.rotation.z = tx * 2 + E.out * 0.12;
-  ch.upper.position.y = 0.3 + breath * 0.005 * live - E.out * 0.04;
-  poseArm(ch, t);
+  ch.upper.position.y = 0.3 + breath * 0.005 * live - E.out * 0.04 - E.flinch * 0.008;
+  poseArms(ch, t);
 
   if (t > ch.blinkAt) { ch.blink = 1; ch.blinkAt = t + rand(2.5, 6); if (Math.random() < 0.2) ch.blinkAt = t + 0.28; }
   ch.blink = Math.max(0, ch.blink - dt * 7);
