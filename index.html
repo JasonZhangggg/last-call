@@ -165,6 +165,12 @@ body:not(.in-game) .hud.game-only { opacity: 0; }
 @keyframes rise { from { opacity: 0; transform: translateY(12px); } }
 #actions .btn { min-width: 160px; }
 #liar-btn .ic { font-size: 1.1em; }
+/* Holds your hand up to read (Space on a keyboard); bottom right, clear of the hand and the actions. */
+#cards-btn { position: fixed; z-index: 5; right: calc(var(--gut-r) + 4px); bottom: calc(var(--safe-b) + 16px); min-width: 0; min-height: 40px; padding: 0 16px; font-size: 12px; letter-spacing: 0.1em; animation: rise .45s var(--ease-out); }
+#cards-btn[aria-pressed="true"] { border-color: var(--brass); }
+#cards-btn.nudge { border-color: var(--brass); animation: rise .45s var(--ease-out), nudge 1.8s ease-in-out .5s infinite; }
+@keyframes nudge { 50% { box-shadow: 0 0 0 1px rgba(216, 164, 70, 0.45), 0 0 24px rgba(216, 164, 70, 0.3), 0 4px 16px rgba(0, 0, 0, 0.35); } }
+#hint .kb { white-space: nowrap; opacity: 0.8; margin-left: 4px; }
 #trigger-btn { min-width: 290px; min-height: 54px; font-size: 15px; color: var(--ink); background: linear-gradient(180deg, #2c1610, #140806); border-color: var(--blood); box-shadow: 0 0 0 1px rgba(196, 64, 44, 0.35), 0 0 28px rgba(196, 64, 44, 0.3), 0 8px 24px rgba(0, 0, 0, 0.5); touch-action: none; animation: rise .45s var(--ease-out), throb 1.8s ease-in-out .5s infinite; }
 @keyframes throb { 50% { box-shadow: 0 0 0 1px rgba(196, 64, 44, 0.6), 0 0 40px rgba(196, 64, 44, 0.5), 0 8px 24px rgba(0, 0, 0, 0.5); } }
 #trigger-btn .fill { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(160, 40, 24, 0.85), rgba(240, 110, 70, 0.95)); transform-origin: left; transform: scaleX(var(--p, 0)); }
@@ -361,6 +367,9 @@ body.mode-auction #rules .panel:not(.auction-rules), body:not(.mode-auction) #ru
   .icon-btn .lbl { display: none; }
   .icon-btn svg { width: 18px; height: 18px; }
   .btn .k { display: none; }
+  #hint .kb { display: none; }
+  /* the actions span the width here, so the cards button moves up under the menu */
+  #cards-btn { bottom: auto; top: calc(var(--hud-top) + 52px); min-height: 36px; padding: 0 12px; font-size: 11px; }
   #table-card { gap: 8px; padding: 4px 13px 4px 4px; }
   #table-card img { width: 30px; height: 30px; }
   #table-name { font-size: 15px; }
@@ -398,6 +407,7 @@ body.mode-auction #rules .panel:not(.auction-rules), body:not(.mode-auction) #ru
   .me-card .turn { font-size: 8px; letter-spacing: 0.06em; padding: 2px 5px 1px; }
   .me-card .odds { font-size: 11.5px; white-space: nowrap; }
   #top { left: calc(var(--gut-l) + 134px); transform: none; align-items: flex-start; max-width: calc(100vw - var(--gut-l) - var(--gut-r) - 134px - 96px); }
+  #cards-btn { top: calc(var(--hud-top) + 122px); }
   #claim { position: fixed; left: 50%; top: calc(var(--hud-top) + 70px); transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); box-sizing: border-box; text-align: center; }
 }
 @media (max-height: 500px) {
@@ -481,7 +491,7 @@ body.mode-dice #out .dice-only { display: inline; }
 
 /* ---------- reduced motion (set from the OS preference or the in-game toggle) ---------- */
 body.reduce-motion #toast .t.show { animation-name: toastFade; }
-body.reduce-motion :is(#flash.go, .row, .coach, .seat, #net, #timer, #timer.low b, #log li, #hint, #claim, #title-menu, .pip.fresh, #table-card.pulse, .tag.active .nm::before, #trigger-btn) { animation: none; }
+body.reduce-motion :is(#flash.go, .row, .coach, .seat, #net, #timer, #timer.low b, #log li, #hint, #claim, #title-menu, .pip.fresh, #table-card.pulse, .tag.active .nm::before, #trigger-btn, #cards-btn) { animation: none; }
 body.reduce-motion :is(.sheet, .bubble, .btn, .icon-btn, .me-card .turn, .cards-demo img) { transition-property: opacity, border-color, box-shadow, filter, background; }
 body.reduce-motion :is(.overlay.fade .sheet, .btn:hover, .btn:active, .cards-demo figure:hover img) { transform: none !important; }
 body.reduce-motion .recap div { animation: none; opacity: 1; }
@@ -554,6 +564,8 @@ body.reduce-motion .recap div { animation: none; opacity: 1; }
   </div>
 </div>
 
+<button class="btn ghost" id="cards-btn" type="button" aria-pressed="false" hidden>Look at your cards<span class="k" aria-hidden="true">Space</span></button>
+
 <div id="flash"></div>
 <div id="blackout"></div>
 
@@ -605,6 +617,7 @@ body.reduce-motion .recap div { animation: none; opacity: 1; }
         <dt>Hold <kbd>Space</kbd></dt><dd>Drink</dd>
       </dl>
       <dl class="keys deck-only">
+        <dt><kbd>Space</kbd></dt><dd>Look at your cards, or put them down</dd>
         <dt><kbd>1</kbd>–<kbd>5</kbd> or click</dt><dd>Pick cards</dd>
         <dt><kbd>Enter</kbd></dt><dd>Play the picked cards</dd>
         <dt><kbd>L</kbd></dt><dd>Call Liar</dd>

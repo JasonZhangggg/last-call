@@ -3,11 +3,12 @@
 // it stands after `msg` from T.game and never decide anything the server hasn't said.
 import * as THREE from 'three';
 import { pick, settings } from '../util.js';
+import { smoothDamp } from '../render/motion.js';
 import { audio } from '../audio.js';
 import * as ui from '../ui.js';
 import { hands, handUI, gatherToDeck, deal, takeFromHand, discardHand, toPile, toReveal, settleRevealed, setGlow, clearGlows, setDeckSize, bodyOf, setFace, myHand, layoutHands, pickCard, placeTable } from '../render/cards.js';
 import { react, tell } from '../render/characters.js';
-import { rig, focusOn, centerLook } from '../render/camera.js';
+import { rig, focusOn, centerLook, lockLook } from '../render/camera.js';
 import { gun, gunHome, gunToCharacter, gunSlideTo, slideSpotFor, lieAt, gunToGrip, gunSetDown, gunDrop, spinDrum, cockHammer, fire } from '../render/gun.js';
 import { arm, armReach, armRaise, armHide } from '../render/playerArm.js';
 import { RANK_STYLE } from '../render/textures.js';
@@ -67,6 +68,34 @@ let holder = null; // the seat holding the revolver, or null when it lies on the
 let beating = false;
 let pendingTurn = null; // your turn's options while the controls are up
 
+/*
+ * Your hand rests low by the table edge while you look around; Space (or the cards button) holds
+ * it up close to read and pick from, with the head held still on the table. `k` is the blend the
+ * layout eases along, so it rises and settles instead of jumping.
+ */
+const hand = { up: false, k: 0, v: {}, btn: null };
+function setCardsUp(T, up) {
+  if (up && (!hands[0].length || holder === T.me)) return;
+  if (hand.up === up) return;
+  hand.up = up;
+  lockLook(up);
+  if (!up) handUI.hover = null;
+  const kb = document.querySelector('#hint .kb'); if (kb) kb.hidden = up;
+  audio.card(0);
+  syncHandButton(T);
+}
+const handButtonShown = (T) => hands[0].length > 0 && holder !== T.me;
+function syncHandButton(T) {
+  const show = handButtonShown(T), btn = hand.btn;
+  if (!btn) return;
+  const yours = !!pendingTurn?.canPlay && !hand.up;
+  if (btn.hidden !== !show) btn.hidden = !show;
+  btn.classList.toggle('nudge', yours);
+  btn.setAttribute('aria-pressed', String(hand.up));
+  const label = hand.up ? 'Put cards down' : 'Look at your cards';
+  if (btn.firstChild.textContent !== label) btn.firstChild.textContent = label;
+}
+
 /* ---------- deal ---------- */
 async function round(T, msg) {
   const game = T.game;
@@ -116,15 +145,18 @@ function turn(T, msg) {
 
 function syncControls(T) {
   const o = pendingTurn; if (!o) return;
+  syncHandButton(T);
   const lp = lastPlay(T.game);
   ui.showActions({
     canPlay: o.canPlay, canChallenge: o.canChallenge, selected: handUI.selected.size, max: o.maxCards,
     rank: T.game.tableRank, last: lp ? `<b>${T.name(lp.seat)}</b> ${verb(T, lp.seat, 'claim', 'claims')} ${claimText(lp.claim, T.game.tableRank)}` : null,
   });
+  if (o.canPlay) ui.setHint(`${document.getElementById('hint').innerHTML} <span class="kb"${hand.up ? ' hidden' : ''}><kbd>Space</kbd> look at your cards</span>`);
 }
 
 function clearPrompt(T) {
   pendingTurn = null;
+  syncHandButton(T);
   handUI.enabled = false;
   ui.dismissCoach();
   for (let v = 1; v < 4; v++) ui.setStatus(v, '');
@@ -245,7 +277,7 @@ async function buildUp(T, seat) {
   const human = T.isMe(seat), token = T.token();
   audio.setTension(1); ui.setTense(true);
   ui.toast(`${human ? 'You' : T.name(seat)} ${verb(T, seat, 'pick', 'picks')} up the revolver`, 'small');
-  if (human) { rig.rollTarget = 0.05; focusOn(null); centerLook(0.5); rig.zoomTarget = 1.05; }
+  if (human) { setCardsUp(T, false); rig.rollTarget = 0.05; focusOn(null); centerLook(0.5); rig.zoomTarget = 1.05; }
   else { T.setWatch(null); T.focusSeat(seat, 0.8); rig.zoomTarget = 1.3; }
   if (holder != null) await putDownGun(T, holder);
   holder = seat;
@@ -377,6 +409,7 @@ function rebuild(T, { fresh }) {
   const game = T.game;
   beating = false; holder = null; pendingTurn = null;
   handUI.enabled = false; handUI.selected.clear();
+  setCardsUp(T, false);
   setDeckSize(createDeck(game.variant).length);
   clearGlows(); armHide(); gunHome(); gun.cockTarget = 0;
   audio.setTension(0); ui.setTense(false);
@@ -412,11 +445,15 @@ export const deckMode = {
     holder = null;
     if (!bound) {
       bound = T;
+      hand.btn = document.getElementById('cards-btn');
       document.getElementById('play-btn').addEventListener('click', () => submitPlay(bound));
       document.getElementById('liar-btn').addEventListener('click', () => submitChallenge(bound));
+      hand.btn.addEventListener('click', (e) => { e.currentTarget.blur(); setCardsUp(bound, !hand.up); });
     }
   },
-  exit() {
+  exit(T) {
+    setCardsUp(T, false); hand.k = 0;
+    if (hand.btn) hand.btn.hidden = true;
     beating = false; holder = null; pendingTurn = null;
     handUI.enabled = false; clearGlows(); armHide(); gunHome(); gatherToDeck();
   },
@@ -454,16 +491,28 @@ export const deckMode = {
     };
   },
   /* input */
-  pointerEnabled: () => handUI.enabled,
+  pointerEnabled: () => handUI.enabled && hand.up,
+  handUp: () => hand.up,
   pick: (raycaster, current) => pickCard(raycaster, current),
   hover(token) { handUI.hover = token; },
   select: (T, token) => toggleCard(T, token),
   keydown(T, e) {
+    // Space belongs to the trigger while you hold the revolver
+    if (e.code === 'Space' && holder !== T.me) {
+      e.preventDefault();
+      if (!e.repeat) setCardsUp(T, !hand.up);
+      return true;
+    }
     if (!handUI.enabled && !pendingTurn) return false;
     if (e.key >= '1' && e.key <= '9') { const b = myHand()[+e.key - 1]; if (b) toggleCard(T, b.token); return true; }
     if (e.key === 'Enter') { e.preventDefault(); submitPlay(T); return true; }
     if (e.key === 'l' || e.key === 'L') { submitChallenge(T); return true; }
     return false;
   },
-  frame(T, reservePx) { layoutHands(T.viewChars, reservePx); },
+  frame(T, reservePx, dt) {
+    if (hand.up && !hands[0].length) setCardsUp(T, false);
+    if (hand.btn && hand.btn.hidden === handButtonShown(T)) syncHandButton(T);
+    hand.k = smoothDamp(hand.k, +hand.up, hand.v, 'k', 0.2, dt);
+    layoutHands(T.viewChars, reservePx, hand.k);
+  },
 };

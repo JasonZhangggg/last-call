@@ -2,6 +2,7 @@
 // two browser pages, hosts on one and joins by code on the other, adds a bot, plays a whole game
 // with each page answering only its own prompts, and checks both saw the same public game.
 //   npm run build && node scripts/e2e-online.mjs [--port 8799] [--size 640x360] [--out artifacts]
+//   --presence-only stops after checking that the guest sees where the host looks and their cards held up.
 // Exits 0 when the game finished and both pages agree; screenshots land in artifacts/online-*.png.
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
@@ -82,7 +83,8 @@ const code = await host.textContent('#lobby-code');
 assert.match(new URL(host.url()).search, new RegExp(`room=${code}`), 'the host URL carries the room');
 console.log(`  hosted table ${code}`);
 
-await guest.goto(`${BASE}/?room=${code}`);
+// a page loading beside a live table can starve on a software renderer
+await guest.goto(`${BASE}/?room=${code}`, { timeout: 360000 });
 await shown(guest, 'enter');
 assert.equal(await guest.inputValue('#code-input'), code, 'the invite link fills the code');
 await guest.fill('#name-input', 'Bea');
@@ -99,6 +101,31 @@ await host.waitForFunction(() => !document.getElementById('lobby-start-btn').dis
 await shot(guest, '02-lobby-guest');
 await host.click('#lobby-start-btn');
 console.log('  dealt');
+
+// Presence: the guest sees where the host looks and the host's cards held up, then put down.
+await host.waitForFunction(() => window.__lastcall.cards.hands[0].length > 0 && window.__lastcall.D.mode?.handUp);
+const hostSeat = await host.evaluate(() => window.__lastcall.D.me);
+const seenFromGuest = () => guest.evaluate((s) => {
+  const { D, T } = window.__lastcall, l = D.looks[s];
+  return l && { yaw: l.yaw, hand: l.hand, inspect: T.char(s).env.inspect };
+}, hostSeat);
+await host.mouse.move(W * 0.08, H * 0.35, { steps: 4 });
+await guest.waitForFunction((s) => window.__lastcall.D.looks[s]?.yaw > 0.3, hostSeat);
+console.log(`  guest sees the host look left: ${JSON.stringify(await seenFromGuest())}`);
+await host.keyboard.press('Space');
+await guest.waitForFunction((s) => { const { D, T } = window.__lastcall; return D.looks[s]?.hand === 'up' && T.char(s).env.inspect > 0.9; }, hostSeat);
+const raised = await seenFromGuest();
+assert.ok(Math.abs(raised.yaw) < 0.1, 'holding the cards up centres the host\'s head');
+console.log(`  guest sees the host read their cards: ${JSON.stringify(raised)}`);
+await shot(guest, '03-guest-sees-host-reading');
+await host.keyboard.press('Space');
+await guest.waitForFunction((s) => { const { D, T } = window.__lastcall; return D.looks[s]?.hand === 'down' && T.char(s).env.inspect < 0.1; }, hostSeat);
+assert.equal((await host.evaluate(() => window.__wire)).map((f) => JSON.parse(f)).some((m) => m.type === 'look' && m.seat === hostSeat), false, 'nobody is sent their own look');
+if (args['presence-only']) {
+  if (problems.length) await finish(1, 'PROBLEMS:\n' + problems.join('\n'));
+  console.log('e2e-online: presence passed');
+  await finish(0);
+}
 
 /** One step of a person at the table: act on this page's own prompt, if it has one. */
 async function act(page, label, seen) {

@@ -447,6 +447,8 @@ const FAN_FRAME = quatE(-0.42, Math.PI, 0);
 // The hand sits on the player's side of the fan's base, palm to the card backs, fingers across
 // them toward the holder's right and the thumb round the front.
 const FAN_AT = V(0.07, 0.155, 0.37), LEFT_GRIP = { p: V(-0.035, -0.064, -0.021), roll: -1.0 };
+// Reading the hand (inspect): the fan's base raised toward the chin and the cards turned up to the eyes.
+const FAN_UP = V(0.05, 0.3, 0.27), FAN_UP_TURN = quatE(-0.3, 0, 0);
 const SHOULDER = 0.215, L1 = 0.27, L2 = 0.26;
 const LEFT_WRIST = V(0, -0.068, -0.004);
 // Left-hand finger poses: lying loose on the table, and wrapped round the base of a fan.
@@ -485,6 +487,7 @@ function buildArm(upper, at, design, handMesh) {
  *   reach    right hand goes to ch.reachTarget / ch.reachQuat (world), to pick the revolver up or lay it down
  *   aim      right hand raised beside the head, the muzzle at the right temple
  *   out      eliminated: lights out, eyes shut, slumped, arms limp, drained of colour
+ *   inspect  the held fan raised close to the face to read it (only while it holds cards)
  * Two more follow the props: hold (cards in the left hand) and grip (right hand closed).
  */
 export function buildCharacter(designKey, angle) {
@@ -512,6 +515,8 @@ export function buildCharacter(designKey, angle) {
   const fanPose = new THREE.Matrix4().compose(FAN_AT, FAN_FRAME, V(1, 1, 1)).multiply(new THREE.Matrix4().compose(LEFT_GRIP.p, quatE(0, 0, LEFT_GRIP.roll), V(1, 1, 1)));
   const fan = { pos: V(0, 0, 0), quat: new THREE.Quaternion() };
   fanPose.decompose(fan.pos, fan.quat, _a);
+  const fanUp = { pos: V(0, 0, 0), quat: new THREE.Quaternion() };
+  new THREE.Matrix4().compose(FAN_UP, FAN_UP_TURN, V(1, 1, 1)).multiply(new THREE.Matrix4().makeTranslation(-FAN_AT.x, -FAN_AT.y, -FAN_AT.z)).multiply(fanPose).decompose(fanUp.pos, fanUp.quat, _a);
   const handAnchor = new THREE.Group(); left.hand.add(handAnchor);
   new THREE.Matrix4().copy(fanPose).invert().multiply(new THREE.Matrix4().makeTranslation(FAN_AT.x, FAN_AT.y, FAN_AT.z)).decompose(handAnchor.position, handAnchor.quaternion, handAnchor.scale);
 
@@ -530,7 +535,7 @@ export function buildCharacter(designKey, angle) {
   const tints = design.tint.map((m) => ({ m, base: m.color.clone(), sheen: m.sheenColor?.clone() }));
   return {
     group, waist, upper, neck, head, eyes: face.eyes, handAnchor, leftHand: left.hand,
-    arm: right, leftArm: left, fan, aimLocal, grip, reachTarget: new THREE.Vector3(), reachQuat: new THREE.Quaternion(),
+    arm: right, leftArm: left, fan, fanUp, aimLocal, grip, reachTarget: new THREE.Vector3(), reachQuat: new THREE.Quaternion(),
     lids: face.lids, lidOpen: face.lidOpen, lidClosed: face.lidClosed,
     parts, design, tints, tintAt: 0,
     glow: glowMats.map((m) => ({ m, base: m.emissiveIntensity })),
@@ -538,8 +543,8 @@ export function buildCharacter(designKey, angle) {
     lookTarget: new THREE.Vector3(),
     yaw: 0, pitch: 0, lv: {}, phase: Math.random() * 6, breath: 0, blinkAt: rand(1, 4), blink: 0, flicker: 0,
     flinchT: Infinity, flinchFrom: 0,
-    env: { lean: 0, tremble: 0, flinch: 0, relief: 0, out: 0, aim: 0, reach: 0, hold: 0, grip: 0 },
-    target: { lean: 0, tremble: 0, relief: 0, out: 0, aim: 0, reach: 0 },
+    env: { lean: 0, tremble: 0, flinch: 0, relief: 0, out: 0, aim: 0, reach: 0, hold: 0, grip: 0, inspect: 0 },
+    target: { lean: 0, tremble: 0, relief: 0, out: 0, aim: 0, reach: 0, inspect: 0 },
     vel: {},
   };
 }
@@ -670,13 +675,15 @@ function poseArms(ch, t) {
   fromSeat(ch, LEFT_REST, la.pos, la.quat);
   la.pos.y += Math.sin(t * 0.8 + ch.phase + 2) * 0.0012 * live;
   if (E.hold > 0.001) { la.pos.lerp(ch.fan.pos, E.hold); la.quat.slerp(ch.fan.quat, E.hold); }
+  const up = E.inspect * E.hold;
+  if (up > 0.001) { la.pos.lerp(ch.fanUp.pos, up); la.quat.slerp(ch.fanUp.quat, up); }
   if (E.out > 0.001) { la.pos.lerp(LEFT_LIMP.pos, E.out); la.quat.slerp(LEFT_LIMP.quat, E.out); }
   solveArm(la, LEFT_WRIST, _pole.set(1, -0.75, -0.25).normalize());
   la.handMesh.morphTargetInfluences[0] = E.hold;
 }
 
 // Smoothing time per envelope (s): about how long it takes to arrive, leaving and landing at rest.
-const SMOOTH = { lean: 0.3, tremble: 0.25, relief: 0.3, aim: 0.3, reach: 0.27, out: 0.55, hold: 0.3, grip: 0.09 };
+const SMOOTH = { lean: 0.3, tremble: 0.25, relief: 0.3, aim: 0.3, reach: 0.27, out: 0.55, hold: 0.3, grip: 0.09, inspect: 0.3 };
 const LOOK_SMOOTH = 0.3;
 const smoothstep = (a, b, v) => { const u = clamp((v - a) / (b - a), 0, 1); return u * u * (3 - 2 * u); };
 
