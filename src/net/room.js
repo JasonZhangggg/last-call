@@ -11,7 +11,7 @@
 // has elapsed, move the game on) or 'auto' (a bot, a timeout, or a forced call acts for the
 // prompted seat). The timer is serialized, so a restored Room carries on where it stopped.
 import { ENGINES } from './engines.js';
-import { DEFAULT_OPTIONS, ERR, FATAL, MAX_SEATS, TURN_SECONDS, cleanName, cryptoRng, parseClientMessage, randomToken } from './protocol.js';
+import { DEFAULT_OPTIONS, ERR, FATAL, GAME_ACTIONS, MAX_SEATS, TURN_SECONDS, cleanName, cryptoRng, parseClientMessage, randomToken } from './protocol.js';
 
 export const START_DELAY_MS = 500;
 export const ROULETTE_SECONDS = 20;
@@ -21,7 +21,6 @@ const realClock = { now: () => Date.now(), setTimeout: (fn, ms) => setTimeout(fn
 
 const HOST_ONLY = new Set(['start', 'addBot', 'removeBot', 'setOptions']);
 const SETUP = new Set(['setReady', 'setOptions', 'start', 'addBot', 'removeBot']);
-const GAME = new Set(['play', 'challenge', 'pull']);
 
 class Refusal extends Error {
   constructor(code, message) { super(message); this.code = code; }
@@ -98,7 +97,7 @@ export class Room {
     if (seat == null) refuse(ERR.notSeated, 'Say hello first.');
     if (HOST_ONLY.has(msg.type) && seat !== this.host) refuse(ERR.notHost, 'Only the host can do that.');
     if (SETUP.has(msg.type) && this.phase === 'playing') refuse(ERR.wrongPhase, 'The game is already running.');
-    if (GAME.has(msg.type)) return this.humanAction(seat, msg);
+    if (Object.hasOwn(GAME_ACTIONS, msg.type)) return this.humanAction(seat, msg);
     switch (msg.type) {
       case 'setReady': this.seats[seat] = { ...this.seats[seat], ready: msg.ready }; return this.broadcastLobby();
       case 'setOptions': return this.setOptions(msg.options);
@@ -272,7 +271,8 @@ export class Room {
   humanAction(seat, msg) {
     const p = this.prompt;
     if (this.phase !== 'playing' || !p || p.seat !== seat) refuse(ERR.notYourTurn, 'It is not your move.');
-    const action = msg.type === 'play' ? { type: 'play', tokens: msg.tokens } : { type: msg.type };
+    const action = { type: msg.type };
+    for (const k of GAME_ACTIONS[msg.type]) action[k] = msg[k];
     let ev;
     try { ev = this.engine.applyAction(this.game, seat, action); } catch (e) { refuse(ERR.illegal, e.message); }
     this.commit(ev);

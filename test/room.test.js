@@ -383,7 +383,7 @@ test('lobby: options, bots, joining full tables, and a rematch', () => {
   assert.deepEqual(a.last('lobby').options, { mode: 'deck', variant: 'basic', turnSeconds: 30, private: true });
   a.send({ type: 'setOptions', options: { turnSeconds: 5 } });
   assert.equal(a.errors().at(-1).code, ERR.badOption);
-  a.send({ type: 'setOptions', options: { mode: 'dice' } });
+  a.send({ type: 'setOptions', options: { mode: 'poker' } });
   assert.equal(a.errors().at(-1).code, ERR.badOption);
   a.send({ type: 'setOptions', options: { private: false } });
   assert.equal(a.last('lobby').options.private, false);
