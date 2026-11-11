@@ -77,11 +77,14 @@ const dieURL = (face) => `data:image/svg+xml,${encodeURIComponent(dieSVG(face).r
 // it after the character's own pose: the reach and aim poses only hold things palm-down or at the temple.
 const L1 = 0.27, L2 = 0.26, FIST_WRIST = new THREE.Vector3(0.016, -0.062, -0.115);
 const Y = new THREE.Vector3(0, 1, 0);
-// a glass sitting in a fist's grip: its base below the hand, its axis along the hand's (raked) grip
+// a glass in a fist: its axis along the hand's (raked) grip, its base low in the fist so the
+// upper half stands clear of the fingers (a fist is taller than a shot glass)
 const GRIP_UP = new THREE.Vector3(0, 0.932, -0.364);
-const CH_GLASS = { pos: new THREE.Vector3(0, -0.046, -0.056).addScaledVector(GRIP_UP, -0.028), quat: new THREE.Quaternion().setFromUnitVectors(Y, GRIP_UP) };
+const CH_GLASS = { pos: new THREE.Vector3(0, -0.046, -0.056).addScaledVector(GRIP_UP, 0.004), quat: new THREE.Quaternion().setFromUnitVectors(Y, GRIP_UP) };
 const ARM_UP = new THREE.Vector3(0, Math.cos(0.38), -Math.sin(0.38));
-const ARM_GLASS = { pos: ARM_UP.clone().multiplyScalar(-0.028), quat: new THREE.Quaternion().setFromUnitVectors(Y, ARM_UP) };
+const ARM_GLASS = { pos: ARM_UP.clone().multiplyScalar(0.014), quat: new THREE.Quaternion().setFromUnitVectors(Y, ARM_UP) };
+// your held hand turns a little outward, so the glass shows beside the knuckles rather than behind them
+const HOLD_TURN = new THREE.Quaternion().setFromAxisAngle(Y, -0.6);
 // your arm's poses in camera space: glass held up in front of you, and tipped to your lips
 const HOLD = { pos: new THREE.Vector3(0.1, -0.065, -0.34), quat: new THREE.Quaternion() };
 const LIPS = { pos: new THREE.Vector3(0.035, -0.075, -0.15), quat: new THREE.Quaternion() };
@@ -648,8 +651,8 @@ export const diceMode = {
   newRecap: () => ({ caught: 0, held: 0, survived: 0 }),
   enter(T) {
     held = null; peeking = false;
-    HOLD.quat.copy(arm.aimQuat);
-    LIPS.quat.setFromAxisAngle(AX, 1.05).multiply(arm.aimQuat);
+    HOLD.quat.copy(HOLD_TURN).multiply(arm.aimQuat);
+    LIPS.quat.setFromAxisAngle(AX, 1.05).multiply(HOLD.quat);
     if (!bound) { bound = T; bindControls(); }
     document.body.classList.add('mode-dice');
     gun.obj.visible = false;
