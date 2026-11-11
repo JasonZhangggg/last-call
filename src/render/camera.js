@@ -20,6 +20,8 @@ export const rig = {
   focus: DEFAULT_FOCUS.clone(), focusTarget: DEFAULT_FOCUS.clone(), fv: {},
   // player head turn (radians) relative to the director's framing
   lookYaw: 0, lookPitch: 0, lookYawTarget: 0, lookPitchTarget: 0, lv: {}, lookSmooth: 0.22,
+  // the last pointer position (-1..1), kept while the head is locked so unlocking can turn back to it
+  px: 0, py: 0, pointerSeen: false,
   zoom: 1, zoomTarget: 1, zv: {},
   roll: 0, rollTarget: 0, rv: {},
   shake: 0, shakeEnv: 0, sv: {},
@@ -49,6 +51,7 @@ const range = () => (settings.reducedMotion ? 0.35 : 1);
  * hand and the buttons, the turn fades to a fraction so picking cards doesn't swing the room.
  */
 export function lookFromPointer(nx, ny) {
+  rig.px = nx; rig.py = ny; rig.pointerSeen = true;
   rig.lookSmooth = settings.reducedMotion ? 0.4 : 0.22;
   if (!rig.lookEnabled || rig.lookLocked) { rig.lookYawTarget = rig.lookPitchTarget = 0; return; }
   const g = 0.18 + 0.82 * (1 - smoothstep(0.36, 0.72, ny)), r = range();
@@ -64,9 +67,17 @@ export function lookByDelta(dx, dy) {
   rig.lookPitchTarget = clamp(rig.lookPitchTarget - dy * 0.004 * r, -PITCH_DOWN * r, PITCH_UP * r);
 }
 /** Ease the head back to the director's framing (finger lifted, pointer gone, a cinematic beat). */
-export function centerLook(smooth = 0.6) { rig.lookYawTarget = 0; rig.lookPitchTarget = 0; rig.lookSmooth = smooth; }
-/** Hold the head on the table's centre until unlocked; the pointer stops turning it. */
-export function lockLook(on) { rig.lookLocked = on; if (on) centerLook(0.35); }
+export function centerLook(smooth = 0.6) { rig.lookYawTarget = 0; rig.lookPitchTarget = 0; rig.lookSmooth = smooth; rig.pointerSeen = false; }
+/**
+ * Hold the head on the table's centre until unlocked; the pointer stops turning it. Unlocking turns
+ * the head back to where the pointer rests at an unhurried pace, instead of whipping round on the
+ * next twitch of the mouse.
+ */
+export function lockLook(on) {
+  rig.lookLocked = on;
+  if (on) { rig.lookYawTarget = 0; rig.lookPitchTarget = 0; rig.lookSmooth = 0.35; }
+  else if (rig.pointerSeen) { lookFromPointer(rig.px, rig.py); rig.lookSmooth = settings.reducedMotion ? 0.6 : 0.45; }
+}
 
 const noise = (t, s) => Math.sin(t * 1.7 + s) * 0.5 + Math.sin(t * 3.1 + s * 2.3) * 0.3 + Math.sin(t * 5.3 + s * 0.7) * 0.2;
 const softLimit = (x, l) => l * Math.tanh(x / l);
