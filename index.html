@@ -288,7 +288,7 @@ input[type=range]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--
 .room-code { font-family: var(--display); font-weight: 900; font-size: clamp(54px, 13vw, 96px); letter-spacing: 0.32em; padding-left: 0.32em; margin: -6px 0 0; line-height: 1; background: linear-gradient(180deg, #fff6df 0%, #f3d79a 45%, #d8a446 72%, #9a6a26 100%); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 4px 24px rgba(216, 164, 70, 0.28)) drop-shadow(0 2px 2px rgba(0, 0, 0, 0.8)); user-select: text; -webkit-user-select: text; }
 .btn.slim { min-height: 36px; font-size: 12px; justify-self: center; min-width: 0; padding: 0 16px; }
 .seats { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.seat { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-height: 42px; padding: 4px 6px 4px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(0, 0, 0, 0.22); font-size: 15.5px; animation: rise .35s var(--ease-out); }
+.seat { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-height: 42px; padding: 4px 6px 4px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(0, 0, 0, 0.22); font-size: 15.5px; }
 .seat.me { border-color: var(--line-strong); background: rgba(216, 164, 70, 0.07); }
 .seat.empty { border-style: dashed; color: var(--ink-faint); }
 .seat .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
@@ -399,8 +399,13 @@ input.text::placeholder { color: var(--ink-faint); opacity: 0.5; }
   .coach { left: var(--gut-l); bottom: calc(var(--safe-b) + 104px); transform: none; max-width: min(30vw, 240px); font-size: 13px; padding: 8px 11px; text-align: left; }
   .coach small { display: none; }
   #title-menu .btn { min-width: 150px; }
-  .room-code { font-size: clamp(40px, 14vh, 64px); }
-  .seat { min-height: 36px; }
+  .room-code, .code-row .room-code { font-size: clamp(36px, 11vh, 56px); }
+  .seat { min-height: 32px; padding-block: 2px; font-size: 14.5px; }
+  .mini { min-height: 28px; }
+  .lobby-panel { padding: 12px 16px; gap: 8px; }
+  .lobby-panel .col { gap: 7px; }
+  .lobby-panel .seg button { min-height: 30px; }
+  #lobby .sheet { gap: 10px; }
 }
 
 /* ---------- reduced motion (set from the OS preference or the in-game toggle) ---------- */

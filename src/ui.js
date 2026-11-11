@@ -371,15 +371,17 @@ export function renderLobby(L, me, { modes, label, variantLabel, note, connectin
     return;
   }
   const host = L.host === me, opt = L.options;
-  $('#lobby-seats').innerHTML = L.seats.map((x, s) => {
+  const rows = L.seats.map((x, s) => {
     const you = s === me, isHost = s === L.host;
-    if (x.kind === 'empty') return `<li class="seat empty"><i class="dot"></i><span class="nm">Open seat</span><span class="st">A bot sits in at the start</span>${host ? `<button class="mini" type="button" data-add="${s}">Add a bot</button>` : ''}</li>`;
+    if (x.kind === 'empty') return `<li class="seat empty"><i class="dot"></i><span class="nm">Open seat</span><span class="st">Bot at the start</span>${host ? `<button class="mini" type="button" data-add="${s}">Add a bot</button>` : ''}</li>`;
     const bot = x.kind === 'bot';
     const tags = [you && 'You', isHost && 'Host', bot && 'Bot'].filter(Boolean).join(' · ');
     const st = bot ? 'Ready' : !x.connected ? 'Away' : isHost ? 'Hosting' : x.ready ? 'Ready' : 'Not ready';
     const removable = host && !you && (bot || !x.connected);
     return `<li class="seat${you ? ' me' : ''}${x.connected ? '' : ' away'}${bot || x.ready || isHost ? ' ready' : ''}"><i class="dot${x.connected ? ' on' : ''}"></i><span class="nm">${esc(x.name)}${tags ? ` <small>${tags}</small>` : ''}</span><span class="st">${st}</span>${removable ? `<button class="mini x" type="button" data-remove="${s}" aria-label="Remove ${esc(x.name)}">Remove</button>` : ''}</li>`;
   }).join('');
+  // redraw only on change, so a focused button survives an unrelated lobby update
+  if ($('#lobby-seats').dataset.html !== rows) { $('#lobby-seats').innerHTML = rows; $('#lobby-seats').dataset.html = rows; }
   fillSeg('mode-seg', modes.map((m) => ({ v: m.mode, label: label(m.mode) })), opt.mode, !host);
   const cur = modes.find((m) => m.mode === opt.mode);
   fillSeg('variant-seg', (cur?.variants || [opt.variant]).map((v) => ({ v, label: variantLabel(opt.mode, v) })), opt.variant, !host);
