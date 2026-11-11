@@ -55,7 +55,16 @@ if (args.soak) {
   const games = +args.soak;
   await page.goto(url + (DICE ? (args.variant === 'traditional' ? '#autoplay-dice-traditional' : '#autoplay-dice') : args.variant === 'devil' ? '#autoplay-devil' : '#autoplay'));
   for (let i = 0; i < games; i++) {
-    await page.waitForFunction(() => { const e = document.getElementById('end'); return !e.classList.contains('fade'); });
+    // a slow software renderer can take many minutes per game, so fail on a stall, not on a clock
+    for (let last = '', still = 0; ;) {
+      const p = await page.evaluate(() => {
+        const D = window.__lastcall?.D, g = D?.shown;
+        return { end: !document.getElementById('end').classList.contains('fade'), mark: JSON.stringify([g?.round, (g?.plays ?? g?.bids)?.length, g?.pulls ?? g?.drinks, D?.queue.length, D?.prompt?.type]) };
+      });
+      if (p.end) break;
+      if (p.mark !== last) { last = p.mark; still = 0; } else if (++still > 30) throw new Error(`soak stalled at ${p.mark}`);
+      await page.waitForTimeout(10000);
+    }
     const s = await state();
     console.log(`  game ${i + 1}: ${s.alive[s.me] ? 'player won' : 'player lost'}`);
     if (i < games - 1) await page.click('#again-btn');
