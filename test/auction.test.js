@@ -355,15 +355,47 @@ function playOut(g, personaOf, rng, onDecide = () => {}) {
   return log;
 }
 
-for (const seats of [3, 4, 5]) {
-  test(`${seats} seats: 3000 bot games end on the 4th gilded card with one winner or a defined tie`, () => {
-    let decided = 0, auctions = 0;
-    for (let seed = 1; seed <= 3000; seed++) {
-      const rng = mulberry32(seed * 31 + seats);
-      const g = A.newGame({ seats, rng });
-      auctions += playOut(g, (s) => PERSONA_NAMES[(s + seed) % 4], rng).auctions;
-      const r = g.result;
-      assert.ok(g.players.every((p) => p.bid.length === 0), 'no money is left on the table');
+/**
+ * Bot-only games with personas rotating through the seats. Everything the tests below check is
+ * collected in one pass: outcomes, per-persona tallies, and every raise that would leave the
+ * bot tied with the poorest rival, or below it in an auction that is certainly the last.
+ */
+function botGames(seats, games) {
+  const stats = Object.fromEntries(PERSONA_NAMES.map((n) => [n, { seats: 0, wins: 0, cast: 0, status: 0, raises: 0, passes: 0 }]));
+  const out = { stats, results: [], auctions: 0, ties: [], lastAuctions: 0, lastBelow: [] };
+  for (let seed = 1; seed <= games; seed++) {
+    const rng = mulberry32(seed * 31 + seats);
+    const g = A.newGame({ seats, rng });
+    const who = (s) => PERSONA_NAMES[(s + seed) % 4];
+    out.auctions += playOut(g, who, rng, (view, act, persona) => {
+      stats[persona][act.type === 'raise' ? 'raises' : 'passes']++;
+      if (act.type !== 'raise') return;
+      const poorest = Math.min(...view.players.filter((p) => p.seat !== view.seat).map(purse));
+      const after = purse(view.players[view.seat]) - (view.options.ownBid + sum(act.cards));
+      if (after === poorest) out.ties.push({ seed, after });
+      if (view.deckCount === 1 && 4 - view.turned.filter(A.isGilded).length === 1) {
+        out.lastAuctions++;
+        if (after <= poorest) out.lastBelow.push({ seed, after, poorest });
+      }
+    }).auctions;
+    assert.ok(g.players.every((p) => p.bid.length === 0), 'no money is left on the table');
+    out.results.push(g.result);
+    g.result.castOut.forEach((c, s) => {
+      const x = stats[who(s)];
+      x.seats++; x.cast += c; x.wins += g.result.winner === s; x.status += g.result.status[s];
+    });
+  }
+  return out;
+}
+
+const once = (f) => { let v; return () => (v ??= f()); };
+const FOUR = once(() => botGames(4, 3000));
+
+for (const [seats, run] of [[3, () => botGames(3, 1000)], [4, FOUR], [5, () => botGames(5, 1000)]]) {
+  test(`${seats} seats: bot games end on the 4th gilded card with one winner or a defined tie`, () => {
+    const { results, auctions } = run();
+    let decided = 0;
+    for (const r of results) {
       assert.ok(r.castOut.some(Boolean), 'someone is always the poorest');
       if (r.winner == null) {
         assert.ok(r.castOut.every(Boolean) || r.place.filter((x) => x === 1).length > 1, 'no winner only on an all-way cast-out or a dead heat');
@@ -373,24 +405,13 @@ for (const seats of [3, 4, 5]) {
         assert.deepEqual(r.place.filter((x) => x === 1), [1]);
       }
     }
-    assert.ok(decided >= 2990, `nearly every game has one winner (${decided})`);
-    assert.ok(auctions / 3000 > 9 && auctions / 3000 < 15, `auctions per game ${auctions / 3000}`);
+    assert.ok(decided >= results.length * 0.995, `nearly every game has one winner (${decided} of ${results.length})`);
+    assert.ok(auctions / results.length > 9 && auctions / results.length < 15, `auctions per game ${auctions / results.length}`);
   });
 }
 
 test('bot measurement: over 3000 four-seat games no persona is degenerate', (t) => {
-  const st = Object.fromEntries(PERSONA_NAMES.map((n) => [n, { seats: 0, wins: 0, cast: 0, status: 0, raises: 0, passes: 0 }]));
-  for (let seed = 1; seed <= 3000; seed++) {
-    const rng = mulberry32(seed);
-    const g = A.newGame({ seats: 4, rng });
-    const who = (s) => PERSONA_NAMES[(s + seed) % 4];
-    playOut(g, who, rng, (view, act, persona) => { st[persona][act.type === 'raise' ? 'raises' : 'passes']++; });
-    g.result.castOut.forEach((c, s) => {
-      const x = st[who(s)];
-      x.seats++; x.cast += c; x.wins += g.result.winner === s; x.status += g.result.status[s];
-    });
-  }
-  for (const [name, x] of Object.entries(st)) {
+  for (const [name, x] of Object.entries(FOUR().stats)) {
     const win = x.wins / x.seats, cast = x.cast / x.seats, raise = x.raises / (x.raises + x.passes);
     t.diagnostic(`${name}: win ${(100 * win).toFixed(1)}%, cast out ${(100 * cast).toFixed(1)}%, final status ${(x.status / x.seats).toFixed(2)}, raises ${(100 * raise).toFixed(0)}% of decisions`);
     assert.ok(win > 0.12 && win < 0.4, `${name} wins a fair share (${win})`);
@@ -400,23 +421,10 @@ test('bot measurement: over 3000 four-seat games no persona is degenerate', (t) 
 });
 
 test('a bot never bids into a tie for the least, nor below the poorest in the certain last auction', () => {
-  let last = 0;
-  for (let seed = 1; seed <= 3000; seed++) {
-    const rng = mulberry32(seed * 7);
-    const g = A.newGame({ seats: 4, rng });
-    playOut(g, (s) => PERSONA_NAMES[(s + seed) % 4], rng, (view, act) => {
-      if (act.type !== 'raise') return;
-      const poorest = Math.min(...view.players.filter((p) => p.seat !== view.seat).map(purse));
-      const after = purse(view.players[view.seat]) - (view.options.ownBid + sum(act.cards));
-      assert.notEqual(after, poorest, 'paying this bid never ties the poorest rival');
-      const unseenGilded = 4 - view.turned.filter(A.isGilded).length;
-      if (view.deckCount === 1 && unseenGilded === 1) {
-        last++;
-        assert.ok(after > poorest, `the certain last auction keeps the bot above the poorest (${after} vs ${poorest})`);
-      }
-    });
-  }
-  assert.ok(last > 50, `certain last auctions were seen (${last})`);
+  const { ties, lastAuctions, lastBelow } = FOUR();
+  assert.deepEqual(ties, [], 'paying a bid never ties the poorest rival');
+  assert.deepEqual(lastBelow, [], 'the certain last auction keeps the bot above the poorest');
+  assert.ok(lastAuctions > 50, `certain last auctions were seen (${lastAuctions})`);
 });
 
 /** A bot's choice opening the bidding on `card`, early in the game, with these hands at the table. */

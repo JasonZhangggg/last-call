@@ -317,6 +317,8 @@ test('dice: illegal and out-of-turn actions get an error and change nothing', ()
   refusedWithoutChange(t, host, { type: 'play', tokens: ['x'] }, ERR.illegal);
   refusedWithoutChange(t, host, { type: 'pull' }, ERR.illegal);
   refusedWithoutChange(t, host, { type: 'spotOn' }, ERR.illegal);
+  refusedWithoutChange(t, host, { type: 'raise', cards: [1] }, ERR.illegal);
+  refusedWithoutChange(t, host, { type: 'pass' }, ERR.illegal);
   if (!o.canChallenge) refusedWithoutChange(t, host, { type: 'challenge' }, ERR.illegal);
   const minFor3 = o.raises.find((r) => r.face === 3).minQuantity;
   host.send({ type: 'bid', quantity: minFor3, face: 3 });
@@ -354,6 +356,57 @@ test('protocol: bid and spotOn have their shapes checked at the boundary', () =>
   assert.ok(parseClientMessage({ type: 'spotOn' }).msg);
 });
 
+test('protocol: raise and pass have their shapes checked at the boundary', () => {
+  assert.ok(parseClientMessage({ type: 'raise', cards: [1, 25] }).msg);
+  assert.ok(parseClientMessage({ type: 'pass' }).msg);
+  for (const cards of [undefined, [], ['1'], [1.5], 3, new Array(12).fill(1)]) assert.ok(parseClientMessage({ type: 'raise', cards }).error, JSON.stringify(cards));
+});
+
+test('auction: two people get two bots, and everyone starts with the same eleven money cards', () => {
+  const { t, people, host } = seatTable({ seed: 5, humans: 2, mode: 'auction', variant: 'classic' });
+  host.send({ type: 'start' });
+  assert.deepEqual(host.last('lobby').seats.map((s) => s.kind), ['human', 'human', 'bot', 'bot']);
+  for (const p of people) {
+    const g = p.last('state').game;
+    assert.deepEqual([g.hand, g.handCounts, g.turned, g.deckCount, g.card], [MONEY, [11, 11, 11, 11], [], 16, null]);
+  }
+  t.clock.runUntil(finished(people));
+  for (const p of people) {
+    assert.equal(p.log.filter((m) => m.type === 'scoring').length, 1, 'the purses are opened once, before the result');
+    assert.deepEqual(p.log.slice(-3).map((m) => m.type), ['scoring', 'over', 'lobby']);
+    assert.equal(p.last('reveal').final, true, 'the last card turned ends the game');
+  }
+});
+
+test('auction: illegal and out-of-turn actions get an error and change nothing', () => {
+  let beaten = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    const { t, people, host } = seatTable({ seed, humans: 2, mode: 'auction', variant: 'classic', opts: { 0: { idle: true }, 1: { idle: true } } });
+    const other = people[1];
+    host.send({ type: 'start' });
+    refusedWithoutChange(t, host, { type: 'raise', cards: [1] }, ERR.notYourTurn);
+    const o = toTurn(t, host);
+    refusedWithoutChange(t, other, { type: 'pass' }, ERR.notYourTurn);
+    refusedWithoutChange(t, host, { type: 'raise', cards: [5] }, ERR.illegal);
+    refusedWithoutChange(t, host, { type: 'raise', cards: [25, 25] }, ERR.illegal);
+    refusedWithoutChange(t, host, { type: 'raise', cards: [] }, ERR.badMessage);
+    refusedWithoutChange(t, host, { type: 'raise', cards: ['1'] }, ERR.badMessage);
+    for (const msg of [{ type: 'play', tokens: ['x'] }, { type: 'bid', quantity: 1, face: 2 }, { type: 'challenge' }, { type: 'spotOn' }, { type: 'pull' }]) refusedWithoutChange(t, host, msg, ERR.illegal);
+    const short = host.money.find((v) => o.ownBid + v <= o.highBid);
+    if (short) { refusedWithoutChange(t, host, { type: 'raise', cards: [short] }, ERR.illegal); beaten++; }
+    const cards = [];
+    for (const v of host.money.slice().reverse()) if (o.ownBid + cards.reduce((a, b) => a + b, 0) <= o.highBid) cards.push(v);
+    host.send({ type: 'raise', cards });
+    const bid = o.ownBid + cards.reduce((a, b) => a + b, 0);
+    assert.deepEqual(host.last('raise'), { type: 'raise', seat: host.seat, cards, bid, handCounts: t.room.game.g.players.map((p) => p.hand.length) }, 'a legal raise goes through');
+    refusedWithoutChange(t, host, { type: 'raise', cards: [host.money[0]] }, ERR.notYourTurn);
+    for (const p of people) p.idle = false;
+    t.clock.runUntil(finished(people));
+    assert.ok(people.every((p) => p.over && p.errors().length === 0));
+  }
+  assert.ok(beaten > 3, `raises that fail to beat the high bid were tried (${beaten})`);
+});
+
 test('lobby: the host picks a mode and a variant; a mode change resets the variant', () => {
   const { host } = seatTable({ seed: 3, humans: 1, mode: 'dice', variant: 'traditional' });
   assert.deepEqual(host.last('lobby').options, { mode: 'dice', variant: 'traditional', turnSeconds: 30, private: true });
@@ -367,10 +420,10 @@ test('lobby: the host picks a mode and a variant; a mode change resets the varia
   assert.deepEqual([host.last('lobby').options.mode, host.last('lobby').options.variant], ['dice', 'traditional']);
 });
 
-test('dice: a room restored from its JSON mid-game plays on to the end', () => {
-  const { t, people, host } = seatTable({ seed: 8, humans: 2, mode: 'dice', variant: 'traditional' });
+for (const [mode, variant, event] of [['dice', 'traditional', 'drink'], ['auction', 'classic', 'taken']]) test(`${mode}: a room restored from its JSON mid-game plays on to the end`, () => {
+  const { t, people, host } = seatTable({ seed: 8, humans: 2, mode, variant });
   host.send({ type: 'start' });
-  t.clock.runUntil(() => host.log.filter((m) => m.type === 'drink').length >= 2);
+  t.clock.runUntil(() => host.log.filter((m) => m.type === event).length >= 2);
   const saved = JSON.parse(JSON.stringify(t.room.toJSON()));
   const clock2 = new FakeClock();
   clock2.t = t.clock.now() + 50;
