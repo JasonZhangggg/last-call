@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as A from '../src/model/auction.js';
+import * as AI from '../src/model/auction-ai.js';
 import { mulberry32 } from '../src/model/rules.js';
 
 const C = (value) => ({ kind: 'curio', value });
@@ -324,4 +325,134 @@ test('the public view holds only your own hand, plus everything on the table', (
   assert.deepEqual(v.turned, [C(7)]);
   assert.equal(v.options.seat, 1);
   assert.equal(A.publicView(g, 2).options, null);
+});
+
+/* ---------- whole games and the bots ---------- */
+
+const PERSONA_NAMES = ['brass', 'noctua', 'gristle', 'player'];
+const purse = (p) => 106 - sum(p.spent);
+
+/** Plays a game to the end with bots, checking the table's invariants after every step. */
+function playOut(g, personaOf, rng, onDecide = () => {}) {
+  const log = { auctions: 0 };
+  for (let steps = 0; g.phase !== 'over'; steps++) {
+    assert.ok(steps < 2000, 'the game ends');
+    for (const p of g.players) assert.equal(sum(p.hand) + sum(p.bid) + sum(p.spent), 106, 'money is held, bid or spent');
+    if (g.phase === 'reveal') { A.reveal(g); continue; }
+    if (g.phase === 'settle') { A.settle(g); log.auctions++; continue; }
+    if (g.phase === 'scoring') {
+      assert.ok(A.isGilded(g.final));
+      assert.equal(g.turned.filter(A.isGilded).length, 4, 'the game ends on the 4th gilded card');
+      A.score(g);
+      continue;
+    }
+    const seat = g.turn, view = A.publicView(g, seat);
+    const act = AI.decide(view, AI.PERSONAS[personaOf(seat)], AI.newMemory(), rng);
+    onDecide(view, act, personaOf(seat));
+    if (act.type === 'raise') A.raise(g, seat, act.cards);
+    else { assert.equal(act.type, 'pass'); A.pass(g, seat); }
+  }
+  return log;
+}
+
+for (const seats of [3, 4, 5]) {
+  test(`${seats} seats: 3000 bot games end on the 4th gilded card with one winner or a defined tie`, () => {
+    let decided = 0, auctions = 0;
+    for (let seed = 1; seed <= 3000; seed++) {
+      const rng = mulberry32(seed * 31 + seats);
+      const g = A.newGame({ seats, rng });
+      auctions += playOut(g, (s) => PERSONA_NAMES[(s + seed) % 4], rng).auctions;
+      const r = g.result;
+      assert.ok(g.players.every((p) => p.bid.length === 0), 'no money is left on the table');
+      assert.ok(r.castOut.some(Boolean), 'someone is always the poorest');
+      if (r.winner == null) {
+        assert.ok(r.castOut.every(Boolean) || r.place.filter((x) => x === 1).length > 1, 'no winner only on an all-way cast-out or a dead heat');
+      } else {
+        decided++;
+        assert.equal(r.castOut[r.winner], false);
+        assert.deepEqual(r.place.filter((x) => x === 1), [1]);
+      }
+    }
+    assert.ok(decided >= 2990, `nearly every game has one winner (${decided})`);
+    assert.ok(auctions / 3000 > 9 && auctions / 3000 < 15, `auctions per game ${auctions / 3000}`);
+  });
+}
+
+test('bot measurement: over 3000 four-seat games no persona is degenerate', (t) => {
+  const st = Object.fromEntries(PERSONA_NAMES.map((n) => [n, { seats: 0, wins: 0, cast: 0, status: 0, raises: 0, passes: 0 }]));
+  for (let seed = 1; seed <= 3000; seed++) {
+    const rng = mulberry32(seed);
+    const g = A.newGame({ seats: 4, rng });
+    const who = (s) => PERSONA_NAMES[(s + seed) % 4];
+    playOut(g, who, rng, (view, act, persona) => { st[persona][act.type === 'raise' ? 'raises' : 'passes']++; });
+    g.result.castOut.forEach((c, s) => {
+      const x = st[who(s)];
+      x.seats++; x.cast += c; x.wins += g.result.winner === s; x.status += g.result.status[s];
+    });
+  }
+  for (const [name, x] of Object.entries(st)) {
+    const win = x.wins / x.seats, cast = x.cast / x.seats, raise = x.raises / (x.raises + x.passes);
+    t.diagnostic(`${name}: win ${(100 * win).toFixed(1)}%, cast out ${(100 * cast).toFixed(1)}%, final status ${(x.status / x.seats).toFixed(2)}, raises ${(100 * raise).toFixed(0)}% of decisions`);
+    assert.ok(win > 0.12 && win < 0.4, `${name} wins a fair share (${win})`);
+    assert.ok(cast > 0.1 && cast < 0.4, `${name} is cast out sometimes, not always (${cast})`);
+    assert.ok(raise > 0.3 && raise < 0.85, `${name} both raises and passes (${raise})`);
+  }
+});
+
+test('a bot never bids into a tie for the least, nor below the poorest in the certain last auction', () => {
+  let last = 0;
+  for (let seed = 1; seed <= 3000; seed++) {
+    const rng = mulberry32(seed * 7);
+    const g = A.newGame({ seats: 4, rng });
+    playOut(g, (s) => PERSONA_NAMES[(s + seed) % 4], rng, (view, act) => {
+      if (act.type !== 'raise') return;
+      const poorest = Math.min(...view.players.filter((p) => p.seat !== view.seat).map(purse));
+      const after = purse(view.players[view.seat]) - (view.options.ownBid + sum(act.cards));
+      assert.notEqual(after, poorest, 'paying this bid never ties the poorest rival');
+      const unseenGilded = 4 - view.turned.filter(A.isGilded).length;
+      if (view.deckCount === 1 && unseenGilded === 1) {
+        last++;
+        assert.ok(after > poorest, `the certain last auction keeps the bot above the poorest (${after} vs ${poorest})`);
+      }
+    });
+  }
+  assert.ok(last > 50, `certain last auctions were seen (${last})`);
+});
+
+/** A bot's choice opening the bidding on `card`, early in the game, with these hands at the table. */
+function botChoice(card, hands, persona, seed) {
+  const g = stacked([card, FAV, C(5), FAV, C(8), C(1), C(3), FAV, SCAN, C(2)], { starter: 0 });
+  hands.forEach((hand, s) => { g.players[s].hand = hand; g.players[s].spent = A.MONEY.filter((v) => !hand.includes(v)); });
+  A.reveal(g);
+  return AI.decide(A.publicView(g, 0), AI.PERSONAS[persona], AI.newMemory(), mulberry32(seed)).type;
+}
+
+test('bots pay to dodge a disgrace when rich, and take it on the chin when poor', () => {
+  const rich = A.MONEY.slice(), poor = [1, 2, 4], middling = [3, 6, 10, 12, 15];
+  for (const persona of PERSONA_NAMES) for (let seed = 1; seed <= 30; seed++) {
+    for (const card of [DEBT, ALE]) {
+      assert.equal(botChoice(card, [rich, middling, middling, middling], persona, seed), 'raise', `${persona} pays to dodge ${card.kind}`);
+      assert.equal(botChoice(card, [poor, middling, middling, middling], persona, seed), 'pass', `${persona} keeps its last crowns`);
+    }
+    assert.equal(botChoice(C(10), [rich, middling, middling, middling], persona, seed), 'raise', `${persona} bids on a 10 curio`);
+    assert.equal(botChoice(C(10), [poor, middling, middling, middling], persona, seed), 'pass', `${persona} will not buy its way out of the game`);
+  }
+});
+
+test('a curio that Spilled Ale will take is worth nothing to the bot that owes it', () => {
+  for (const persona of PERSONA_NAMES) for (let seed = 1; seed <= 30; seed++) {
+    const g = stacked([C(9), FAV, C(5), FAV, FAV, SCAN], { starter: 0 });
+    g.players[0].won = [ALE];
+    g.players[0].aleOwed = true;
+    A.reveal(g);
+    assert.equal(AI.decide(A.publicView(g, 0), AI.PERSONAS[persona], AI.newMemory(), mulberry32(seed)).type, 'pass');
+  }
+});
+
+test('bot odds: what is still to come, from the cards turned so far', () => {
+  const look = AI.outlook({ turned: [C(1), C(2), FAV], players: [{}, {}, {}, {}] });
+  // 13 face-down cards, 3 of them gilded: the game ends on the last of the three.
+  assert.equal(look.auctionsLeft, (3 * 14) / 4 - 1);
+  assert.equal(look.curios, (55 - 3) * (3 / 4));
+  assert.equal(look.favours, 2 * (2 / 3));
 });
