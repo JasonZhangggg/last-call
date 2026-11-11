@@ -68,6 +68,7 @@ await page.evaluate(({ HZ, THRESH }) => {
   for (const v of L.views.values()) track(`card${v.id}`, 'card', posOf(v.mesh));
   track('gun', 'gun', posOf(L.gun.obj));
   track('muzzle', 'gun', posOf(L.gun.flash));
+  if (L.arm) track('arm', 'gun', posOf(L.arm.root));
   track('camPos', 'camPos', posOf(L.camera));
   track('camRot', 'camRot', rotOf(L.camera));
   for (let s = 1; s < 4; s++) track(`head${s}`, 'head', rotOf(L.characters[s].head));

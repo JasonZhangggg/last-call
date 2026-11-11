@@ -5,6 +5,7 @@ import { buildWorld, updateWorld, setShadowSize } from './render/world.js';
 import { buildCharacter, updateCharacter } from './render/characters.js';
 import { buildCards, layoutHands, updateCards, pickCard, handUI, warmCards, views, sortForDisplay } from './render/cards.js';
 import { buildGun, updateGun, gun } from './render/gun.js';
+import { buildPlayerArm, updatePlayerArm, arm } from './render/playerArm.js';
 import { rig, updateCamera, fitToViewport, lookFromPointer, lookByDelta, centerLook } from './render/camera.js';
 import { dampVec3 } from './render/motion.js';
 import { audio } from './audio.js';
@@ -36,6 +37,7 @@ function simulate(dt, t) {
   }
   layoutHands(D.game || EMPTY_GAME, characters, innerWidth < 720 ? 112 : 124);
   updateCards(dt);
+  updatePlayerArm(dt);
   updateGun(dt);
   camera.updateMatrixWorld();
   updateHover(dt);
@@ -186,6 +188,7 @@ async function boot() {
   setCharacters(characters);
   buildCards(createDeck());
   buildGun();
+  buildPlayerArm();
   ui.initUI();
   quality.onShadowSize = setShadowSize;
   fitToViewport(); applyQuality();
@@ -205,7 +208,7 @@ async function boot() {
   renderer.setAnimationLoop(frame);
   $('#loading').hidden = true; $('#title-menu').hidden = false;
   $('#start-btn').focus({ preventScroll: true });
-  window.__lastcall = { D, quality, hooks, views, gun, rig, camera, renderer, characters, handUI };
+  window.__lastcall = { D, quality, hooks, views, gun, arm, rig, camera, renderer, characters, handUI };
   if (settings.autoplay) startGame();
 }
 boot().catch((err) => {

@@ -10,6 +10,7 @@ import { clamp, settings } from '../util.js';
 const DEFAULT_FOCUS = new THREE.Vector3(0, 0.08, -0.25);
 const INTRO_POS = new THREE.Vector3(0, 1.45, 2.7);
 const EYE_FROM_NECK = new THREE.Vector3(0, 0.1, -0.09);
+const LEAN = new THREE.Vector3(0.03, -0.06, -0.24);
 const MAX_YAW = 1.0, YAW_LIMIT = 1.25, PITCH_UP = 0.34, PITCH_DOWN = 0.3;
 const _dir = new THREE.Vector3(), _eye = new THREE.Vector3(), _off = new THREE.Vector3(), _ref = new THREE.Vector3();
 const _e = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -23,6 +24,8 @@ export const rig = {
   roll: 0, rollTarget: 0, rv: {},
   shake: 0, shakeEnv: 0, sv: {},
   intro: 0, introTarget: 0, iv: {},
+  // leaning in over the table (reaching for the revolver), 0..1
+  lean: 0, leanTarget: 0, lnv: {},
   lookEnabled: true,
 };
 
@@ -69,11 +72,12 @@ export function updateCamera(dt, t) {
   rig.lookPitch = smoothDamp(rig.lookPitch, rig.lookPitchTarget, rig.lv, 'p', rig.lookSmooth, dt);
   rig.zoom = smoothDamp(rig.zoom, rig.zoomTarget, rig.zv, 'z', 0.6, dt);
   rig.roll = smoothDamp(rig.roll, rig.rollTarget, rig.rv, 'r', 0.5, dt);
+  rig.lean = smoothDamp(rig.lean, rig.leanTarget, rig.lnv, 'l', 0.3, dt);
   rig.shake *= Math.exp(-dt * 3.2);
   rig.shakeEnv = smoothDamp(rig.shakeEnv, rig.shake, rig.sv, 's', 0.025, dt);
   const sh = Math.max(0, rig.shakeEnv) * motion;
 
-  _eye.lerpVectors(INTRO_POS, rig.seat, rig.intro);
+  _eye.lerpVectors(INTRO_POS, rig.seat, rig.intro).addScaledVector(LEAN, rig.lean);
   _dir.subVectors(rig.focus, _eye);
   const baseYaw = Math.atan2(-_dir.x, -_dir.z), basePitch = Math.atan2(_dir.y, Math.hypot(_dir.x, _dir.z));
   // The player's own turn takes over from the director's framing instead of stacking on top of it.
