@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { $, pick, clamp, damp, settings } from '../util.js';
 import { audio } from '../audio.js';
 import * as ui from '../ui.js';
-import { react, tell } from '../render/characters.js';
+import { react, tell, poseRightHand } from '../render/characters.js';
 import { rig, focusOn, centerLook } from '../render/camera.js';
 import { camera } from '../render/core.js';
 import { gun } from '../render/gun.js';
@@ -73,9 +73,6 @@ export function dieSVG(face, cls = '') {
 const dieURL = (face) => `data:image/svg+xml,${encodeURIComponent(dieSVG(face).replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '))}`;
 
 /* ---------- the arms ---------- */
-// The right-arm rig of characters.js (bone lengths, wrist in the grip frame), so a drink can re-solve
-// it after the character's own pose: the reach and aim poses only hold things palm-down or at the temple.
-const L1 = 0.27, L2 = 0.26, FIST_WRIST = new THREE.Vector3(0.016, -0.062, -0.115);
 const Y = new THREE.Vector3(0, 1, 0);
 // a glass in a fist: its axis along the hand's (raked) grip, its base low in the fist so the
 // upper half stands clear of the fingers (a fist is taller than a shot glass)
@@ -90,33 +87,11 @@ const HOLD = { pos: new THREE.Vector3(0.1, -0.065, -0.34), quat: new THREE.Quate
 const LIPS = { pos: new THREE.Vector3(0.035, -0.075, -0.15), quat: new THREE.Quaternion() };
 const MOUTH = new THREE.Vector3(0, -0.07, 0.12);
 const LOOK_UP = new THREE.Vector3(0, 2.6, -0.2);
-const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion();
-const _W = new THREE.Vector3(), _S = new THREE.Vector3(), _E = new THREE.Vector3(), _d = new THREE.Vector3(), _n = new THREE.Vector3(), _pole = new THREE.Vector3();
-const _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3(), _m1 = new THREE.Matrix4();
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
+const _y = new THREE.Vector3(), _z = new THREE.Vector3();
 const _gp = new THREE.Vector3(), _gq = new THREE.Quaternion(), AX = new THREE.Vector3(1, 0, 0);
 const ROW_AT = new THREE.Vector3(0, 0.02, 0.1);
 const DIM = new THREE.Color(0.42, 0.4, 0.38), LIT = new THREE.Color(1.25, 1.12, 0.9), WHITE = new THREE.Color(1, 1, 1);
-
-function boneQuat(from, to, bend, out) {
-  _y.subVectors(from, to).normalize(); _z.copy(bend).addScaledVector(_y, -bend.dot(_y)).normalize(); _x.crossVectors(_y, _z);
-  return out.setFromRotationMatrix(_m1.makeBasis(_x, _y, _z));
-}
-/** Two-bone IK for a grip pose in upper-body space, elbow out and down. */
-function solveArm(ch, pos, quat) {
-  const a = ch.arm;
-  _W.copy(FIST_WRIST).applyQuaternion(quat).add(pos);
-  _S.copy(a.upper.position);
-  _d.subVectors(_W, _S); const dist = clamp(_d.length(), 0.08, L1 + L2 - 0.002); _d.normalize();
-  _W.copy(_S).addScaledVector(_d, dist);
-  const cosA = clamp((L1 * L1 + dist * dist - L2 * L2) / (2 * L1 * dist), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
-  _pole.set(-1, -0.7, -0.1).normalize();
-  _n.copy(_pole).addScaledVector(_d, -_pole.dot(_d)).normalize();
-  _E.copy(_S).addScaledVector(_d, cosA * L1).addScaledVector(_n, sinA * L1);
-  boneQuat(_S, _E, _n, _q2); a.upper.quaternion.copy(_q2);
-  boneQuat(_E, _W, _n, _q3); a.fore.quaternion.copy(_q2).invert().multiply(_q3);
-  a.hand.quaternion.copy(_q3).invert().multiply(quat);
-  a.hand.position.copy(FIST_WRIST).applyQuaternion(a.hand.quaternion).negate(); a.hand.position.y -= L2;
-}
 
 /**
  * A character's drink, layered over their own pose each frame: `w` blends the right hand from
@@ -143,7 +118,7 @@ function poseSip(s, dt) {
   _b.sub(_z.copy(CH_GLASS.pos).applyQuaternion(_q));
   _gp.copy(ch.arm.pos).lerp(_b, s.w);
   _gq.copy(ch.arm.quat).slerp(_q, s.w);
-  solveArm(ch, _gp, _gq);
+  poseRightHand(ch, _gp, _gq);
   return true;
 }
 

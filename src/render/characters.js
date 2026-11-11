@@ -612,6 +612,12 @@ function solveArm(arm, wrist, pole) {
   arm.hand.position.copy(wrist).applyQuaternion(arm.hand.quaternion).negate(); arm.hand.position.y -= L2;
 }
 
+/** Re-solve a character's right arm to a grip pose in upper-body space, over its own pose this frame. */
+export function poseRightHand(ch, pos, quat) {
+  ch.arm.pos.copy(pos); ch.arm.quat.copy(quat);
+  solveArm(ch.arm, FIST_WRIST, _pole.set(-1, -0.7, -0.1).normalize());
+}
+
 function poseArms(ch, t) {
   const E = ch.env, live = 1 - E.out;
   ch.group.updateMatrixWorld(true);
