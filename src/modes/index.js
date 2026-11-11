@@ -29,7 +29,7 @@
 //   frame(T, reservePx)          per-frame layout (no allocations); reservePx is the HUD's bottom band
 //
 // T gives: me, game, prompt, recap, viewChars, view(seat), seatAt(view), isMe, name, char(seat),
-// design(seat), pan(seat), step, landed, alive() (the current token), send(action), setActor,
+// design(seat), pan(seat), step, landed, token() (changes when a rebuild cancels the flow), send(action), setActor,
 // setWatch, focusSeat, refresh() (redraws the seat HUD), eliminated() (offers Watch or Leave).
 import { deckMode } from './deck.js';
 

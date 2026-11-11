@@ -61,7 +61,7 @@ export const T = {
   },
   /** Waits for a flight to land, so a hand never closes on a thing that hasn't arrived when frames run late. */
   async landed(mover) { const token = D.token; while (mover.flying) await T.step(20, token); },
-  alive: () => D.token,
+  token: () => D.token,
   send: (msg) => D.send(msg),
   setActor(seat) { D.actor = seat == null ? null : view(seat); },
   setWatch(point) { D.watch = point; },
@@ -199,7 +199,7 @@ function enterTable(mode) {
   if (D.mode && D.mode !== mode) D.mode.exit(T);
   D.mode = mode;
   D.recap = mode.newRecap?.() || {};
-  D.out = false; D.ended = false;
+  D.out = false; D.ended = false; D.recorded = false;
   const others = [1, 2, 3].map(seatAt), taken = new Set();
   D.designOf = [];
   for (const s of others) {
@@ -256,7 +256,9 @@ async function playOver(msg) {
   await T.step(400);
   const seated = D.me != null && msg.seats[D.me];
   const won = msg.winner === D.me;
-  const stats = seated ? ui.recordResult(won) : null;
+  // a reconnect to a finished table shows the result again but must not count it twice
+  const stats = seated && !D.recorded ? ui.recordResult(won) : null;
+  D.recorded = true;
   won ? audio.win() : audio.lose();
   const summary = D.mode.summary(T, msg, stats);
   ui.setBlackout(false); ui.setTense(false);

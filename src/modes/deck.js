@@ -175,7 +175,7 @@ async function played(T, msg) {
  */
 async function challenge(T, msg) {
   const { caller, accused, forced, lie, cards, shooters } = msg, game = T.game;
-  const token = T.alive();
+  const token = T.token();
   T.refresh();
   if (T.isMe(accused)) T.recap.pendingBluff = false;
   if (T.isMe(caller) && lie) T.recap.caught++;
@@ -197,7 +197,7 @@ async function challenge(T, msg) {
   bodies.forEach((b, i) => toReveal(b, i, bodies.length, i * stagger));
   audio.reveal();
   await T.step(800 + bodies.length * 120);
-  bodies.forEach((b, i) => setTimeout(() => { if (token === T.alive()) setGlow(b, 0.9, matches[i] ? 0x7fd06a : 0xff4a30); }, i * stagger * 1000));
+  bodies.forEach((b, i) => setTimeout(() => { if (token === T.token()) setGlow(b, 0.9, matches[i] ? 0x7fd06a : 0xff4a30); }, i * stagger * 1000));
   audio.verdict(lie);
   const devil = cards.some((c) => c.rank === 'devil');
   if (lie) rig.shake = Math.max(rig.shake, devil ? 0.35 : 0.12);
@@ -221,14 +221,14 @@ async function challenge(T, msg) {
 
 /* ---------- the revolver ---------- */
 async function roulette(T, msg) {
-  const { seat } = msg, token = T.alive();
+  const { seat } = msg, token = T.token();
   T.setActor(seat);
   const odds = CHAMBERS - T.game.pulls[seat];
   await buildUp(T, seat);
   if (T.isMe(seat)) {
     if (settings.autoplay) return;
     ui.awaitTrigger(`One chamber in ${odds === 1 ? 'one. It is loaded' : odds} is loaded. Hold to pull.`).then((pulled) => {
-      if (!pulled || token !== T.alive() || T.prompt?.seat !== T.me) return;
+      if (!pulled || token !== T.token() || T.prompt?.seat !== T.me) return;
       cockHammer();
       T.send({ type: 'pull' });
     });
@@ -242,7 +242,7 @@ async function roulette(T, msg) {
 /** The revolver comes up, the drum spins, the heart starts pounding. */
 async function buildUp(T, seat) {
   if (holder === seat) return;
-  const human = T.isMe(seat), ch = T.char(seat), token = T.alive();
+  const human = T.isMe(seat), ch = T.char(seat), token = T.token();
   audio.setTension(1); ui.setTense(true);
   ui.toast(`${human ? 'You' : T.name(seat)} ${verb(T, seat, 'pick', 'picks')} up the revolver`, 'small');
   if (human) { rig.rollTarget = 0.05; focusOn(null); centerLook(0.5); rig.zoomTarget = 1.05; }
@@ -254,7 +254,7 @@ async function buildUp(T, seat) {
   await T.step(1050);
   beating = true;
   let rate = 1;
-  const beat = () => { if (!beating || token !== T.alive()) return; audio.heartbeat(rate); rate = Math.min(2.2, rate + 0.15); setTimeout(beat, 900 / rate); };
+  const beat = () => { if (!beating || token !== T.token()) return; audio.heartbeat(rate); rate = Math.min(2.2, rate + 0.15); setTimeout(beat, 900 / rate); };
   beat();
 }
 

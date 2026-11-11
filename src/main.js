@@ -157,6 +157,7 @@ function togglePause(force) {
   const open = force ?? !ui.isOpen('pause');
   // only a solo table can stop; a hosted one carries on for everyone else
   settings.paused = open && solo();
+  $('#pause-h').textContent = solo() ? 'Paused' : 'Table menu';
   if (open) { ui.openOverlay('pause'); centerLook(0.5); } else ui.closeOverlay('pause');
 }
 
