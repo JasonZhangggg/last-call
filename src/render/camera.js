@@ -27,6 +27,9 @@ export const rig = {
   // leaning in over the table (reaching for the revolver), 0..1
   lean: 0, leanTarget: 0, lnv: {},
   lookEnabled: true,
+  // where the head points this frame, framing and the player's turn together, before shake:
+  // yaw + is to the left, pitch + is up (what other seats see, via the `look` message)
+  viewYaw: 0, viewPitch: 0,
 };
 
 /** Point the base view at a world position (or back at the table with null). `weight` 0..1. */
@@ -84,6 +87,7 @@ export function updateCamera(dt, t) {
   const own = Math.min(1, Math.abs(rig.lookYaw) / MAX_YAW);
   const yaw = softLimit(baseYaw * (1 - 0.6 * own) + rig.lookYaw, YAW_LIMIT);
   const pitch = clamp(basePitch + rig.lookPitch, -1.1, 0.45);
+  rig.viewYaw = yaw; rig.viewPitch = pitch;
 
   _dir.subVectors(DEFAULT_FOCUS, rig.seat);
   const restPitch = Math.atan2(_dir.y, Math.hypot(_dir.x, _dir.z));

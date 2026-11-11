@@ -1,11 +1,11 @@
 // The connection to a table: one transport at a time (a Room in this tab for solo play, or a
 // WebSocket to a hosted table), the lobby as the server last described it, and the routing of
-// every server message. Lobby and connection news is handled at once; game messages go to the
+// every server message. Lobby, connection and `look` news is handled at once; game messages go to the
 // director's queue, which plays them in order.
 import { createLocalTransport, createSocketTransport, createRoomCode } from './net/client.js';
 import { FATAL, TURN_SECONDS } from './net/protocol.js';
 import { settings, store } from './util.js';
-import { D, receive, setLobby, refused, resetDirector } from './director.js';
+import { D, receive, setLobby, setLook, refused, resetDirector } from './director.js';
 
 export const S = { transport: null, kind: null, lobby: null, code: null, down: false, hooks: {} };
 
@@ -69,6 +69,7 @@ function route(msg) {
   switch (msg.type) {
     case 'welcome': D.me = msg.seat; S.code = msg.roomCode ?? S.code; return;
     case 'lobby': S.lobby = msg; setLobby(msg); return S.hooks.onLobby?.(msg);
+    case 'look': return setLook(msg);
     case 'error':
       if (FATAL.has(msg.code)) return;
       refused(msg);
