@@ -6,6 +6,7 @@ import { scene, canvasTex } from './core.js';
 import { mats, Kit, place, mergeGeometries } from './world.js';
 import { normalCanvas, weaveHeight, hammeredHeight, poreHeight, mottleCanvas, maskCanvas, vnoise } from './textures.js';
 import { smoothDamp } from './motion.js';
+import { GRIP as GUN_GRIP, MUZZLE } from './gun.js';
 import { rand, clamp, quatE, UP } from '../util.js';
 
 export const SEAT_RADIUS = 1.32;
@@ -113,36 +114,52 @@ function ring(p, dir, R, r) {
 }
 
 /*
- * The right hand, in the grip frame that gun.js parents the revolver to: origin where the
- * revolver's own origin sits, +z along the barrel, +y up, the raked grip running down and back
- * from about (0, -0.005, -0.072) to (0, -0.087, -0.04). Authored with the palm on +x and then
- * mirrored, so the palm ends up on the grip's right (-x, since +x is the shooter's left here).
- * Closed: three fingers curl round the front strap, the index finger rests in the trigger guard,
- * the thumb wraps the far side. Open: the same fingers lie loose and half-curled, as on a table.
+ * The right hand round the revolver's grip, authored in the gun's model space (see gun.js: +z
+ * along the barrel, +y up, the plough-handle grip under the hammer) and moved into the grip frame
+ * the revolver is parented by. Authored with the hand on +x and then mirrored, so it ends up on
+ * the grip's right (-x, since +x is the shooter's left). Closed: the heel wraps the backstrap,
+ * three fingers curl round the front strap onto the far panel, the index finger lies in the
+ * trigger guard against the trigger, and the thumb crosses behind the hammer to the far side.
+ * Open: the same fingers lie straight and loose along the near side, as on a table.
  */
-const FIST_WRIST = V(-0.016, -0.062, -0.115);
+const GRIP_HALF = 0.013;
+// the grip's front and back straps at height y, from the outline in gun.js (bevel included)
+const frontZ = (y) => -0.0265 + (y + 0.03) * 0.3, backZ = (y) => -0.0715 + (y + 0.03) * 0.35, RAKE = 0.3;
+const FIST_WRIST = V(-0.01, -0.07, -0.12).sub(GUN_GRIP);
 function fistGeometry({ r = 0.0085, palm = [0.042, 0.046, 0.02] } = {}, open = false) {
-  const gz = (y) => -0.072 + ((-0.005 - y) / 0.082) * 0.032;
-  const k = palm[1] / 0.046, w = V(-FIST_WRIST.x, FIST_WRIST.y, FIST_WRIST.z);
-  const parts = [ball(V(0.024, -0.05, -0.078), 1, [palm[2] * 1.05, palm[1] * 1.0, palm[0] * 0.95], 16)];
-  [-0.036, -0.054, -0.071].forEach((y, i) => {
-    const z = gz(y), rr = r * (1 - i * 0.07) * 1.05, R = 0.024;
+  const w = GRIP_HALF, wrist = V(-FIST_WRIST.x, FIST_WRIST.y, FIST_WRIST.z).add(GUN_GRIP);
+  // the back of the hand: a flattened rounded slab along the near panel, leaning with the grip
+  const palmAt = V(w + palm[2] * 0.7, -0.058, backZ(-0.058) + palm[0] * 0.42);
+  const parts = [
+    place(roundBox(palm[2] * 1.5, palm[1] * 1.75, palm[0] * 1.45, 0.42), [palmAt.x, palmAt.y, palmAt.z], [RAKE, 0, 0]),
+    ball(V(w * 0.3, -0.066, backZ(-0.066) - palm[2] * 0.5), 1, [palm[2] * 1.05, palm[1] * 0.62, palm[2] * 0.95], 12),
+  ];
+  [-0.039, -0.058, -0.077].forEach((y, i) => {
+    const z = frontZ(y), rr = r * (1 - i * 0.07);
     const pts = open
-      ? [V(0.026, y, z - 0.012), V(0.025, y, z + 0.014), V(0.017, y, z + 0.036), V(0.006, y, z + 0.053), V(-0.004, y + 0.001, z + 0.062)]
-      : [V(0.026, y, z - 0.012), V(0.026, y, z + 0.012), V(0.013, y, z + R), V(-0.006, y, z + R * 0.95), V(-0.02, y + 0.002, z + 0.008)];
-    parts.push(sweep(pts, rr, 14, 8), ball(pts[4], rr * 0.95, 1, 8));
+      ? [V(w + rr * 1.3, y + 0.002, z - 0.012), V(w + rr * 1.3, y, z + 0.004), V(w + rr * 1.15, y - 0.002, z + 0.02), V(w + rr * 0.6, y - 0.003, z + 0.034), V(w - rr * 0.2, y - 0.004, z + 0.045)]
+      : [V(w + rr * 1.3, y + 0.002, z - 0.012), V(w + rr * 0.95, y, z + 0.003), V(w * 0.3, y - 0.002, z + rr), V(-w * 0.6, y - 0.003, z + rr * 0.7), V(-w - rr * 0.7, y - 0.004, z - 0.01)];
+    parts.push(sweep(pts, rr, 16, 8), ball(pts[4], rr * 0.95, 1, 8), ball(pts[0], rr * 1.08, 1, 8));
   });
+  // closed, the index finger runs along the frame, bends down into the guard and lies on the trigger
   const index = open
-    ? [V(0.024, -0.02, -0.05), V(0.023, -0.019, -0.022), V(0.015, -0.019, 0.002), V(0.004, -0.02, 0.018)]
-    : [V(0.024, -0.02, -0.05), V(0.019, -0.022, -0.02), V(0.012, -0.026, 0.0), V(0.002, -0.03, 0.008)];
-  parts.push(sweep(index, r * 0.95, 12, 8), ball(index[3], r * 0.85, 1, 8));
+    ? [V(w + r * 1.3, -0.02, -0.044), V(w + r * 1.25, -0.022, -0.022), V(w + r * 1.0, -0.024, -0.002), V(w + r * 0.5, -0.026, 0.014)]
+    : [V(w + r * 1.3, -0.02, -0.044), V(w + r * 1.05, -0.023, -0.026), V(w * 0.45 + r * 0.6, -0.032, -0.008), V(0.001, -0.04, 0.007)];
+  parts.push(sweep(index, r * 0.92, 14, 8), ball(index[3], r * 0.85, 1, 8), ball(index[0], r * 1.02, 1, 8));
   const thumb = open
-    ? [V(0.022, -0.018, -0.098), V(0.016, -0.004, -0.083), V(0.009, 0.001, -0.064), V(0.002, -0.001, -0.046)]
-    : [V(0.022, -0.018, -0.098), V(0.0, -0.006, -0.086), V(-0.019, -0.008, -0.062), V(-0.021, -0.012, -0.038)];
-  parts.push(sweep(thumb, (t) => r * (1.35 - t * 0.4), 14, 8), ball(thumb[3], r * 0.95, 1, 8));
-  parts.push(tube(w.clone().add(V(0, -0.006, -0.04)), w.clone().lerp(V(0.024, -0.05, -0.078), 0.6), palm[0] * 0.6 * k, palm[0] * 0.72, 12));
-  return mergeGeometries(parts);
+    ? [V(w + 0.013, -0.036, -0.09), V(w + 0.011, -0.018, -0.078), V(w + 0.01, -0.008, -0.062), V(w + 0.008, -0.005, -0.046), V(w + 0.006, -0.005, -0.034)]
+    : [V(w + 0.013, -0.036, -0.09), V(0.01, -0.012, -0.084), V(-0.012, -0.004, -0.07), V(-0.025, -0.006, -0.048), V(-0.027, -0.008, -0.032)];
+  parts.push(sweep(thumb, (t) => r * (1.4 - t * 0.45), 16, 8), ball(thumb[4], r * 0.95, 1, 8));
+  // the wrist ends in a ball, so the forearm can arrive from any side without a cut end showing
+  parts.push(tube(wrist, wrist.clone().lerp(palmAt, 0.6), palm[0] * 0.62, palm[0] * 0.72, 12), ball(wrist, palm[0] * 0.64, 1, 12));
+  const g = mergeGeometries(parts);
+  return g.translate(-GUN_GRIP.x, -GUN_GRIP.y, -GUN_GRIP.z);
 }
+
+/** A right hand for the revolver, in its grip frame: morph influence 0 is closed on it, 1 open. */
+export const revolverHand = (opts, mat) => morphHand(fistGeometry(opts, false), fistGeometry(opts, true), mat, true);
+/** Where that hand's wrist is, in the grip frame. */
+export const REVOLVER_WRIST = FIST_WRIST;
 
 /* ---------- detail textures shared by every character ---------- */
 let TEX = null;
@@ -465,8 +482,8 @@ function buildArm(upper, at, design, handMesh) {
  *   tremble  holding the revolver
  *   flinch   one-shot jolt on the trigger click (a scripted pulse, see flinchAt)
  *   relief   sagging back after surviving
- *   reach    right hand moves to ch.reachTarget (world), to pick the revolver up
- *   aim      right hand raised beside the head, the muzzle a few centimetres off the right temple
+ *   reach    right hand goes to ch.reachTarget / ch.reachQuat (world), to pick the revolver up or lay it down
+ *   aim      right hand raised beside the head, the muzzle at the right temple
  *   out      eliminated: lights out, eyes shut, slumped, arms limp, drained of colour
  * Two more follow the props: hold (cards in the left hand) and grip (right hand closed).
  */
@@ -499,15 +516,13 @@ export function buildCharacter(designKey, angle) {
   new THREE.Matrix4().copy(fanPose).invert().multiply(new THREE.Matrix4().makeTranslation(FAN_AT.x, FAN_AT.y, FAN_AT.z)).decompose(handAnchor.position, handAnchor.quaternion, handAnchor.scale);
 
   // Right arm: shoulder, upper arm, forearm and the revolver hand, posed every frame by two-bone IK.
-  const right = buildArm(upper, V(-SHOULDER, 0.245, -0.01), design,
-    morphHand(fistGeometry(design.handOpts, false), fistGeometry(design.handOpts, true), design.hand, true));
+  const right = buildArm(upper, V(-SHOULDER, 0.245, -0.01), design, revolverHand(design.handOpts, design.hand));
   const grip = new THREE.Object3D(); right.hand.add(grip);
 
-  // Aim in head space: barrel level and pointing into the temple, the muzzle 6.5 cm off it.
-  // The revolver's bore runs 0.058 above its grip origin and the muzzle is 0.261 ahead of it.
+  // Aim in head space: barrel level and pointing into the temple, the muzzle 3 cm off it.
   const aimDir = V(1, -0.04, -0.16).normalize(), aimQ = basis(V(0, 0, -1), aimDir);
-  const muzzle = design.temple.clone().addScaledVector(aimDir, -0.065);
-  const aimLocal = new THREE.Matrix4().compose(muzzle.addScaledVector(aimDir, -0.261).addScaledVector(V(0, 1, 0).applyQuaternion(aimQ), -0.058), aimQ, V(1, 1, 1));
+  const muzzle = design.temple.clone().addScaledVector(aimDir, -0.03);
+  const aimLocal = new THREE.Matrix4().compose(muzzle.sub(MUZZLE.clone().applyQuaternion(aimQ)), aimQ, V(1, 1, 1));
 
   const chair = new THREE.Mesh(chairGeometry(), mats.chair); chair.castShadow = true; chair.receiveShadow = true; group.add(chair);
 
@@ -515,7 +530,7 @@ export function buildCharacter(designKey, angle) {
   const tints = design.tint.map((m) => ({ m, base: m.color.clone(), sheen: m.sheenColor?.clone() }));
   return {
     group, waist, upper, neck, head, eyes: face.eyes, handAnchor, leftHand: left.hand,
-    arm: right, leftArm: left, fan, aimLocal, grip, reachTarget: new THREE.Vector3(),
+    arm: right, leftArm: left, fan, aimLocal, grip, reachTarget: new THREE.Vector3(), reachQuat: new THREE.Quaternion(),
     lids: face.lids, lidOpen: face.lidOpen, lidClosed: face.lidClosed,
     parts, design, tints, tintAt: 0,
     glow: glowMats.map((m) => ({ m, base: m.emissiveIntensity })),
@@ -564,7 +579,7 @@ function applyTint(ch, k) {
 }
 
 /* ---------- arms ---------- */
-const _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _m3 = new THREE.Matrix4(), _p1 = new THREE.Vector3(), _p2 = new THREE.Vector3(), _s1 = new THREE.Vector3();
+const _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _m3 = new THREE.Matrix4(), _p1 = new THREE.Vector3(), _s1 = new THREE.Vector3();
 const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _q4 = new THREE.Quaternion();
 const _S = new THREE.Vector3(), _W = new THREE.Vector3(), _E = new THREE.Vector3(), _n = new THREE.Vector3(), _pole = new THREE.Vector3();
 const _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3();
@@ -596,12 +611,17 @@ function fromSeat(ch, pose, pos, quat) {
   return quat.setFromRotationMatrix(_m3).multiply(pose.quat);
 }
 
+// A wrist target out of reach eases onto the straight arm instead of hitting it: a hard clamp
+// would stop the hand dead mid-move (a kink in its velocity) whenever a pose passes the limit.
+const REACH_MAX = L1 + L2 - 0.002, REACH_KNEE = REACH_MAX - 0.02;
+const reachLimit = (d) => (d <= REACH_KNEE ? d : REACH_KNEE + (REACH_MAX - REACH_KNEE) * (1 - Math.exp((REACH_KNEE - d) / (REACH_MAX - REACH_KNEE))));
+
 /** Two-bone IK from the shoulder to the wrist the hand pose implies, elbow bent toward `pole`. */
 function solveArm(arm, wrist, pole) {
   const { pos, quat } = arm;
   _W.copy(wrist).applyQuaternion(quat).add(pos);
   _S.copy(arm.upper.position);
-  _d.subVectors(_W, _S); const dist = clamp(_d.length(), 0.08, L1 + L2 - 0.002); _d.normalize();
+  _d.subVectors(_W, _S); const dist = Math.max(0.08, reachLimit(_d.length())); _d.normalize();
   _W.copy(_S).addScaledVector(_d, dist);
   const cosA = clamp((L1 * L1 + dist * dist - L2 * L2) / (2 * L1 * dist), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
   _n.copy(pole).addScaledVector(_d, -pole.dot(_d)).normalize();
@@ -627,11 +647,11 @@ function poseArms(ch, t) {
   fromSeat(ch, REST, pos, quat);
   pos.y += Math.sin(t * 0.9 + ch.phase) * 0.0015 * live;
   if (E.reach > 0.001) {
+    // the grip frame lands on the revolver's own pose (palm down on its upturned right panel) a
+    // little above it, so closing the hand lifts it straight up without turning it
     _p1.copy(ch.reachTarget).applyMatrix4(_m2);
-    // thumb up and the back of the hand turned out, so the revolver lying on its side turns well
-    // under 180 degrees on its way into the palm (a half turn would leave its path ambiguous)
-    basis(_p2.set(1, -0.3, 0), _s1.set(_p1.x + SHOULDER, 0, _p1.z + 0.01), _q1);
-    pos.lerp(_p1.add(_s1.set(0, 0.02, 0)), E.reach); quat.slerp(_q1, E.reach);
+    _q1.setFromRotationMatrix(_m2).multiply(ch.reachQuat);
+    pos.lerp(_p1.add(_s1.set(0, 0.006, 0)), E.reach); quat.slerp(_q1, E.reach);
   }
   if (E.aim > 0.001) {
     _m1.multiplyMatrices(_m2, ch.head.matrixWorld).multiply(ch.aimLocal).decompose(_p1, _q1, _s1);
@@ -642,8 +662,8 @@ function poseArms(ch, t) {
     pos.lerp(_p1, E.aim); quat.slerp(_q1, E.aim);
   }
   if (E.out > 0.001) { pos.lerp(LIMP.pos, E.out); quat.slerp(LIMP.quat, E.out); }
-  // elbow out to the side and down; raised to the temple it swings out and lifts a little
-  solveArm(arm, FIST_WRIST, _pole.set(-1, -0.75 + E.aim * 0.3, -0.25 + E.aim * 0.05).normalize());
+  // elbow out to the side and down; raised to the temple it swings out and a little forward
+  solveArm(arm, FIST_WRIST, _pole.set(-1, -0.75 + E.aim * 0.3, -0.25 + E.aim * 0.5).normalize());
   arm.handMesh.morphTargetInfluences[0] = 1 - E.grip;
 
   const la = ch.leftArm;

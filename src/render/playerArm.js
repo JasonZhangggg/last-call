@@ -1,68 +1,53 @@
-// The player's right forearm, sleeve and hand. It lives off-screen below the view, reaches out
+// The player's right hand, forearm and sleeve. It lives off-screen below the view, reaches out
 // to the revolver when it's your turn to pull, carries it up beside your head, and puts it back.
-// The root's origin is the palm (`arm.grip`), where the gun's own origin sits.
+// The root's origin is the grip (`arm.grip`), where the gun's own origin sits; the hand is the
+// same grip-frame fist the characters use, so the fingers close round the revolver's grip. The
+// forearm hangs off the wrist and runs back toward a shoulder below the view, re-aimed each frame.
 import * as THREE from 'three';
 import { scene, camera } from './core.js';
-import { Mover, easeInOutCubic } from './motion.js';
+import { Mover, easeInOutCubic, smoothDamp } from './motion.js';
+import { revolverHand, REVOLVER_WRIST } from './characters.js';
 import { UP } from '../util.js';
 
 // camera space
 const AIM_POS = new THREE.Vector3(0.22, -0.08, -0.4);
 const AIM_AT = new THREE.Vector3(0.06, 0.02, 0.08);
-const AIM_ARM = new THREE.Vector3(0.4, -0.84, 0.36).normalize();
 const HIDE_POS = new THREE.Vector3(0.38, -0.66, -0.16);
-const SHOULDER = new THREE.Vector3(0.32, -0.62, 0.12);
+const SHOULDER = new THREE.Vector3(0.3, -0.6, 0.14);
+// the hand meets the revolver as it lies, this far above it, and lifts it as the fingers close
+const LIFT = 0.006;
 
 const _v = new THREE.Vector3(), _d = new THREE.Vector3(), _q = new THREE.Quaternion(), _o = new THREE.Object3D();
-export const arm = { root: null, grip: null, mover: null, aimPos: AIM_POS, aimQuat: new THREE.Quaternion(), hidden: true };
+export const arm = { root: null, grip: null, hand: null, fore: null, mover: null, aimQuat: new THREE.Quaternion(), hidden: true, closed: 1, cv: {} };
 
 export function buildPlayerArm() {
   const root = new THREE.Group(); camera.add(root);
   _o.position.copy(AIM_POS); _o.lookAt(AIM_AT); arm.aimQuat.copy(_o.quaternion);
-  const forearm = AIM_ARM.clone().applyQuaternion(arm.aimQuat.clone().invert());
   const skin = new THREE.MeshStandardMaterial({ color: 0xc08a68, roughness: 0.62 });
   const cloth = new THREE.MeshStandardMaterial({ color: 0x2b2027, roughness: 0.92 });
   const linen = new THREE.MeshStandardMaterial({ color: 0xd9cdb6, roughness: 0.85 });
-  const along = (mesh, from, len) => { mesh.quaternion.setFromUnitVectors(UP, forearm); mesh.position.copy(forearm).multiplyScalar(len / 2).add(from); root.add(mesh); return mesh; };
-
-  // the hand closes around the grip, which is tipped back like the gun's own
-  const hand = new THREE.Group(); hand.rotation.x = -0.38; root.add(hand);
-  const palm = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.072, 0.052), skin); palm.position.set(0.004, -0.004, -0.012); hand.add(palm);
-  const finger = new THREE.CapsuleGeometry(0.0105, 0.026, 3, 8);
-  for (let i = 0; i < 4; i++) {
-    const f = new THREE.Mesh(finger, skin); f.rotation.z = Math.PI / 2;
-    f.position.set(0.002, 0.024 - i * 0.019, 0.02); hand.add(f);
-  }
-  const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.011, 0.034, 3, 8), skin);
-  thumb.rotation.x = Math.PI / 2 - 0.5; thumb.position.set(-0.021, 0.026, 0.004); hand.add(thumb);
-
-  const wrist = new THREE.Vector3(0.002, -0.035, -0.03);
-  along(new THREE.Mesh(new THREE.CapsuleGeometry(0.029, 0.2, 4, 12), skin), wrist, 0.24);
-  const cuffAt = forearm.clone().multiplyScalar(0.15).add(wrist);
-  const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.041, 0.043, 0.035, 18), linen);
-  along(cuff, cuffAt, 0.035);
-  // long enough that a reach across the table never shows the sleeve's far end
-  along(new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.07, 1.5, 18), cloth), cuffAt.addScaledVector(forearm, 0.03), 1.5);
-
+  arm.hand = revolverHand({ palm: [0.044, 0.048, 0.021], r: 0.0092 }, skin);
+  root.add(arm.hand);
   arm.grip = new THREE.Object3D(); root.add(arm.grip);
-  root.position.copy(HIDE_POS); root.quaternion.copy(arm.aimQuat); root.visible = false;
+
+  // forearm along +y from the wrist; the group is pointed at the shoulder every frame
+  const fore = new THREE.Group(); camera.add(fore);
+  const along = (mesh, from, len) => { mesh.position.y = from + len / 2; fore.add(mesh); return mesh; };
+  along(new THREE.Mesh(new THREE.CapsuleGeometry(0.029, 0.2, 4, 12), skin), -0.005, 0.24);
+  along(new THREE.Mesh(new THREE.CylinderGeometry(0.041, 0.043, 0.035, 18), linen), 0.15, 0.035);
+  along(new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.06, 1, 18), cloth), 0.18, 1);
+  for (const m of [arm.hand, ...fore.children]) m.castShadow = true;
+  arm.fore = fore;
+
+  root.position.copy(HIDE_POS); root.quaternion.copy(arm.aimQuat); root.visible = fore.visible = false;
   arm.root = root;
   arm.mover = new Mover(root, camera); arm.mover.smooth = arm.mover.rotSmooth = 0.1;
 }
 
-/** Turns the aiming pose so the forearm points along `dir` (camera space), keeping the wrist's roll. */
-function poseToward(dir, out) {
-  return out.setFromUnitVectors(AIM_ARM, dir).multiply(arm.aimQuat);
-}
-
-/** Reach for a world point on the table, the forearm running back toward the shoulder. */
-export function armReach(world) {
+/** Lay the open hand on the revolver where it lies (world position and its lying rotation). */
+export function armReach(world, quat) {
   arm.hidden = false; arm.root.visible = true;
-  camera.updateMatrixWorld();
-  _v.copy(world); camera.worldToLocal(_v);
-  _d.subVectors(SHOULDER, _v).normalize();
-  poseToward(_d, _q).premultiply(camera.quaternion);
-  arm.mover.go(scene, world, _q, 1, { dur: 0.5, ease: easeInOutCubic });
+  arm.mover.go(scene, _v.copy(world).setY(world.y + LIFT), quat, 1, { dur: 0.55, ease: easeInOutCubic });
 }
 /** Raise whatever is in the hand up beside your head, kept inside a narrow (portrait) view. */
 export function armRaise() {
@@ -79,5 +64,16 @@ export function armHide() {
 
 export function updatePlayerArm(dt) {
   arm.mover.update(dt);
-  if (arm.hidden && !arm.mover.flying && arm.root.visible) arm.root.visible = false;
+  const { root, fore } = arm;
+  if (arm.hidden && !arm.mover.flying && root.visible) root.visible = false;
+  fore.visible = root.visible;
+  // open on the way to the revolver, closed while holding it or tucked away
+  const goal = arm.grip.children.length || arm.hidden ? 1 : 0;
+  arm.closed = smoothDamp(arm.closed, goal, arm.cv, 'c', 0.09, dt);
+  arm.hand.morphTargetInfluences[0] = 1 - arm.closed;
+  if (!root.visible) return;
+  root.updateMatrixWorld();
+  camera.worldToLocal(root.localToWorld(_v.copy(REVOLVER_WRIST)));
+  fore.position.copy(_v);
+  fore.quaternion.setFromUnitVectors(UP, _d.subVectors(SHOULDER, _v).normalize());
 }

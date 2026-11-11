@@ -5,9 +5,16 @@ import { quatE } from '../util.js';
 
 // The gun's origin is the middle of its grip, where a hand holds it (ch.grip and the player's arm
 // attach it with an identity transform). Lying on its side its height is the drum's radius.
-const GRIP = new THREE.Vector3(0, -0.046, -0.056);
+// Model space: +z along the barrel, +y up, +x the shooter's left.
+export const GRIP = new THREE.Vector3(0, -0.046, -0.056);
+/** The muzzle on the bore axis, from the grip origin. */
+export const MUZZLE = new THREE.Vector3(0, 0.012, 0.205).sub(GRIP);
+// The grip's side profile (z, y): a plough handle under the hammer, raked back to a rounded butt.
+const GRIP_OUTLINE = [[-0.026, -0.014], [-0.029, -0.03], [-0.035, -0.05], [-0.041, -0.07], [-0.046, -0.087], [-0.053, -0.098], [-0.067, -0.103], [-0.081, -0.099], [-0.087, -0.088], [-0.083, -0.07], [-0.076, -0.05], [-0.069, -0.03], [-0.062, -0.013], [-0.055, -0.002], [-0.044, 0.002]];
 const LYING_Y = 0.026;
-const lying = (yaw, out, side = 1) => quatE(0, yaw, side * Math.PI / 2, out);
+// Every lie is on the left side, right panel up: where a right hand coming down palm-first closes
+// on the grip without turning the gun over, and slides between spots never flip it.
+const lying = (yaw, out) => quatE(0, yaw, -Math.PI / 2, out);
 const HOME_QUAT = lying(0.9);
 const HOME_POS = new THREE.Vector3(0.44, LYING_Y, 0.3).add(GRIP.clone().applyQuaternion(HOME_QUAT));
 const ZERO = new THREE.Vector3(), IDENTITY = new THREE.Quaternion();
@@ -47,13 +54,20 @@ export function buildGun() {
     add(drum, flute, blued, Math.cos(a + Math.PI / 6) * 0.029, Math.sin(a + Math.PI / 6) * 0.029, 0, Math.PI / 2);
   }
   gun.drum = drum;
-  const grip = add(model, new THREE.BoxGeometry(0.026, 0.088, 0.036), wood, 0, -0.046, -0.056, -0.38);
-  add(grip, new THREE.CylinderGeometry(0.004, 0.004, 0.028, 8), brass, 0, 0.01, 0, 0, 0, Math.PI / 2);
+  const outline = new THREE.Shape();
+  outline.moveTo(...GRIP_OUTLINE[0]);
+  outline.splineThru(GRIP_OUTLINE.slice(1).map(([z, y]) => new THREE.Vector2(z, y)));
+  outline.closePath();
+  const gripGeo = new THREE.ExtrudeGeometry(outline, { depth: 0.02, bevelEnabled: true, bevelThickness: 0.003, bevelSize: 0.0025, bevelSegments: 3, curveSegments: 40 });
+  gripGeo.rotateY(-Math.PI / 2).translate(0.01, 0, 0);
+  add(model, gripGeo, wood, 0, 0, 0);
+  add(model, new THREE.CylinderGeometry(0.0042, 0.0042, 0.0275, 10), brass, 0, -0.054, -0.06, 0, 0, Math.PI / 2);
+  add(model, new THREE.BoxGeometry(0.012, 0.013, 0.046), blued, 0, -0.025, 0.003);
   const hammerPivot = new THREE.Group(); hammerPivot.position.set(0, 0.026, -0.044); model.add(hammerPivot);
   add(hammerPivot, new THREE.BoxGeometry(0.008, 0.022, 0.012), blued, 0, 0.009, -0.004, -0.4);
   gun.hammer = hammerPivot;
-  add(model, new THREE.TorusGeometry(0.018, 0.0035, 6, 14, Math.PI), blued, 0, -0.022, 0.006, 0, Math.PI / 2, Math.PI);
-  add(model, new THREE.BoxGeometry(0.004, 0.016, 0.004), blued, 0, -0.024, 0.006, 0.3);
+  add(model, new THREE.TorusGeometry(0.021, 0.0035, 6, 16, Math.PI), blued, 0, -0.03, 0.004, 0, Math.PI / 2, Math.PI);
+  add(model, new THREE.BoxGeometry(0.004, 0.019, 0.0045), steel, 0, -0.034, -0.002, 0.3);
   // No light of its own: the world already uses the four-point-light budget. Bloom carries the flash.
   const flash = new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffe0a0, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
   flash.position.set(0, 0.012, 0.23); flash.visible = false; model.add(flash); gun.flash = flash;
@@ -73,29 +87,31 @@ export const gunWorld = (out) => gun.obj.getWorldPosition(out);
 /** Where the revolver stops when it's slid across the felt to a seat (world xz of the seat). */
 export function slideSpotFor(seatX, seatZ, out) {
   const r = Math.hypot(seatX, seatZ) || 1, ux = seatX / r, uz = seatZ / r;
-  // a little to the seat's right, where a right hand finds it
-  return out.set(ux * 0.88 + uz * 0.16, LYING_Y, uz * 0.88 - ux * 0.16);
+  // out on the felt with the butt clear of its edge, a little to the seat's right: a real reach for
+  // a right hand, which a lean brings within arm's length
+  return out.set(ux * 0.72 + uz * 0.1, LYING_Y, uz * 0.72 - ux * 0.1);
 }
-/** Slide it across the table, still lying on its side, turning its grip toward whoever must pull. */
+/**
+ * How it lies at a seat's spot: grip toward the seat and barrel toward the middle, turned a little
+ * to that seat's left, the way a right hand coming down palm first finds it.
+ */
+export const lieAt = (spot, out) => lying(Math.atan2(-spot.x, -spot.z) + 0.35, out);
+/** Slide it across the table to a seat's spot (see lieAt). */
 export function gunSlideTo(spot) {
   gun.cockTarget = 0;
   // hop it over the pile if the straight slide would plough through it
   gunWorld(_p);
   const dx = spot.x - _p.x, dz = spot.z - _p.z, u = Math.max(0, Math.min(1, -(_p.x * dx + _p.z * dz) / (dx * dx + dz * dz || 1)));
   const arc = Math.hypot(_p.x + dx * u, _p.z + dz * u) < 0.3 ? 0.1 : 0;
-  gun.mover.go(scene, spot, lying(Math.atan2(spot.x, spot.z) + Math.PI * 0.5, _q), 1, { dur: 0.5, arc });
+  gun.mover.go(scene, spot, lieAt(spot, _q), 1, { dur: 0.55, arc });
 }
 /** Into a hand. The hand is already there, so this only settles it into the palm. */
 export function gunToGrip(grip) { gun.mover.go(grip, ZERO, IDENTITY, 1, { dur: 0.32 }); }
-const _q2 = new THREE.Quaternion();
-/** Out of a lowered hand onto the felt right under it, laid on whichever side turns it least. */
+/** Out of a lowered hand onto the felt right under it, heading where its barrel points. */
 export function gunSetDown() {
   onFeltBelow(gunWorld(_p));
-  gun.obj.getWorldQuaternion(_q2);
-  _x.set(0, 0, 1).applyQuaternion(_q2);
-  const yaw = Math.atan2(_x.x, _x.z);
-  const a = Math.abs(lying(yaw, _q, 1).dot(_q2)), b = Math.abs(lying(yaw, _q, -1).dot(_q2));
-  gun.mover.go(scene, _p, lying(yaw, _q, a >= b ? 1 : -1), 1, { dur: 0.35 });
+  _x.set(0, 0, 1).transformDirection(gun.obj.matrixWorld);
+  gun.mover.go(scene, _p, lying(Math.atan2(_x.x, _x.z), _q), 1, { dur: 0.35 });
 }
 function onFeltBelow(p) {
   const r = Math.hypot(p.x, p.z), k = r > 0.86 ? 0.86 / r : 1;
