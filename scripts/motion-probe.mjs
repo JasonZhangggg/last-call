@@ -1,7 +1,7 @@
 // Samples every moving thing at 240 Hz (the frame loop sub-steps its simulation while a probe is
-// attached) across a deal, a human play, a Liar call and a roulette, and counts velocity
+// attached) across a deal, a human play, a Liar call and roulettes, and counts velocity
 // discontinuities: one 1/240 s step whose velocity change is bigger than smooth acceleration allows.
-//   node scripts/motion-probe.mjs [--size 800x450] [--label before] [--seed 7] [--page dist/index.html]
+//   node scripts/motion-probe.mjs [--size 800x450] [--label before] [--seed 7] [--roulettes 1] [--minutes 15] [--page dist/index.html]
 // Writes artifacts/motion-probe-<label>.json. Needs `npm run build` first. While attached, the page
 // draws every two seconds and its frame loop accepts long frames (sub-stepped at 240 Hz), so the
 // simulation keeps pace with the game's real-time pacing on a slow software renderer. Frame
@@ -14,7 +14,7 @@ const { chromium } = require('playwright');
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, arr) => (v.startsWith('--') ? [...a, [v.slice(2), arr[i + 1]?.startsWith('--') ? true : arr[i + 1] ?? true]] : a), []));
 const [W, H] = String(args.size || '800x450').split('x').map(Number);
-const LABEL = args.label || 'run', SEED = +(args.seed || 7);
+const LABEL = args.label || 'run', SEED = +(args.seed || 7), ROULETTES = +(args.roulettes || 1);
 const ROOT = path.resolve('.'), OUT = path.resolve('artifacts');
 mkdirSync(OUT, { recursive: true });
 const PAGE = path.resolve(args.page || 'dist/index.html');
@@ -23,7 +23,7 @@ if (!existsSync(PAGE)) throw new Error(`${PAGE} is missing; run \`npm run build\
 // Per-step velocity change that counts as a discontinuity, at a 1/240 s step.
 // 0.6 m/s per step is 144 m/s^2, several times what any eased flight here needs.
 const HZ = 240;
-const THRESH = { card: 0.6, gun: 0.6, camRot: 0.35, camPos: 0.3, head: 0.5 };
+const THRESH = { card: 0.6, gun: 0.6, hand: 0.6, camRot: 0.35, camPos: 0.3, head: 0.5 };
 
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
 const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
@@ -49,9 +49,13 @@ await page.waitForSelector('#title-menu:not([hidden])');
 
 await page.evaluate(({ HZ, THRESH }) => {
   const L = window.__lastcall, D = L.D;
-  const R = { spikes: {}, maxDv: {}, worst: [], hoverLog: [], frames: [], tagLag: [], hoverChanges: {}, programs0: L.renderer.info.programs.length, textures0: L.renderer.info.memory.textures, t: 0 };
+  const R = { spikes: {}, maxDv: {}, worst: [], hoverLog: [], frames: [], tagLag: [], hoverChanges: {}, roulettes: 0, programs0: L.renderer.info.programs.length, textures0: L.renderer.info.memory.textures, t: 0 };
   window.__probe = R;
-  const seg = () => window.__probeSeg || (D.shown ? (D.prompt?.type === 'roulette' ? 'roulette' : D.watch ? (D.shown.reveal ? 'reveal' : 'deal') : 'play') : 'title');
+  const chars = [null, D.viewChars[1], D.viewChars[2], D.viewChars[3]], scene = L.gun.obj.parent;
+  // the revolver's whole staging (slide, reach, pickup, raise, shot, set down) counts as roulette
+  const gunBusy = () => L.gun.mover.flying || L.gun.obj.parent !== scene || L.arm?.root.visible || chars.some((c) => c.env.reach > 0.01 || c.env.aim > 0.01);
+  let busy = false;
+  const seg = () => window.__probeSeg || (D.shown ? (D.prompt?.type === 'roulette' || gunBusy() ? 'roulette' : D.watch ? (D.shown.reveal ? 'reveal' : 'deal') : 'play') : 'title');
   const tracks = new Map();
   const track = (key, cat, read) => tracks.set(key, { cat, read, p: null, v: null, n: 0 });
   const posOf = (o) => (out) => { o.updateWorldMatrix(true, false); const e = o.matrixWorld.elements; out[0] = e[12]; out[1] = e[13]; out[2] = e[14]; };
@@ -65,13 +69,14 @@ await page.evaluate(({ HZ, THRESH }) => {
     out[0] = (m(2, 1) - m(1, 2)) / (2 * dt); out[1] = (m(0, 2) - m(2, 0)) / (2 * dt); out[2] = (m(1, 0) - m(0, 1)) / (2 * dt);
     prev.set(c); return 'v';
   }; };
-  for (const v of L.views.values()) track(`card${v.id}`, 'card', posOf(v.mesh));
+  for (const b of L.cards.bodies) track(`card${b.slot}`, 'card', posOf(b.mesh));
   track('gun', 'gun', posOf(L.gun.obj));
   track('muzzle', 'gun', posOf(L.gun.flash));
   if (L.arm) track('arm', 'gun', posOf(L.arm.root));
   track('camPos', 'camPos', posOf(L.camera));
   track('camRot', 'camRot', rotOf(L.camera));
-  for (let s = 1; s < 4; s++) track(`head${s}`, 'head', rotOf(L.characters[s].head));
+  for (let s = 1; s < 4; s++) track(`head${s}`, 'head', rotOf(chars[s].head));
+  for (let s = 1; s < 4; s++) track(`hand${s}`, 'hand', posOf(chars[s].arm.hand));
   const tmp = [0, 0, 0];
   let lastHover = null;
   let sinceDraw = 0;
@@ -81,6 +86,7 @@ await page.evaluate(({ HZ, THRESH }) => {
     draw(dt) { sinceDraw += dt; if (sinceDraw < 2) return false; sinceDraw = 0; return true; },
     sample(dt) {
       R.t += dt;
+      const b = gunBusy(); if (b && !busy) R.roulettes++; busy = b;
       const sg = seg();
       for (const [key, tr] of tracks) {
         const kind = tr.read(tmp, dt);
@@ -100,7 +106,7 @@ await page.evaluate(({ HZ, THRESH }) => {
         }
         tr.v = v; tr.n++;
       }
-      const h = L.handUI.hover;
+      const h = L.handUI?.hover ?? null;
       if (h !== lastHover) { R.hoverChanges[sg] = (R.hoverChanges[sg] || 0) + 1; R.hoverLog.push([+R.t.toFixed(3), sg, h]); lastHover = h; }
     },
     frame() {
@@ -110,7 +116,7 @@ await page.evaluate(({ HZ, THRESH }) => {
       for (let s = 1; s < 4; s++) {
         const el = document.querySelectorAll('#tags .tag')[s - 1];
         const m = /translate3d\(([-\d.]+)px, ([-\d.]+)px/.exec(el?.style.transform || ''); if (!m) continue;
-        const ch = L.characters[s], hd = ch.head; hd.updateWorldMatrix(true, false);
+        const ch = chars[s], hd = ch.head; hd.updateWorldMatrix(true, false);
         const e = hd.matrixWorld.elements, a = ch.tagAnchor, w = a ? [a.x, a.y, a.z, 1] : [e[12], e[13] + 0.27, e[14], 1];
         const ve = [0, 1, 2, 3].map((r) => V[r] * w[0] + V[r + 4] * w[1] + V[r + 8] * w[2] + V[r + 12] * w[3]);
         const ce = [0, 1, 3].map((r) => P[r] * ve[0] + P[r + 4] * ve[1] + P[r + 8] * ve[2] + P[r + 12] * ve[3]);
@@ -136,14 +142,20 @@ await page.click('#solo-btn'); await page.click('#solo-start-btn');
 const t0 = Date.now();
 let looked = false, sawRoulette = false, liarCalled = false;
 let lastLog = '';
-while (Date.now() - t0 < 900000) {
+while (Date.now() - t0 < +(args.minutes || 15) * 60000) {
   const s = await state();
   const tagline = `${s.phase} r${s.round} pending=${s.pending}`;
   if (tagline !== lastLog) { console.error(`  [${((Date.now() - t0) / 1000).toFixed(0)}s] ${tagline}`); lastLog = tagline; }
   if (s.end) break;
   if (s.phase === 'roulette') sawRoulette = true;
-  if (looked && sawRoulette && s.phase === 'turn' && s.round >= 2) break;
-  if (s.trigger) { await page.keyboard.down('Space'); await page.waitForTimeout(1000); await page.keyboard.up('Space'); continue; }
+  if (looked && sawRoulette && s.phase === 'turn' && s.round >= 2 && (await page.evaluate(() => window.__probe.roulettes)) >= ROULETTES) break;
+  if (s.trigger) {
+    // hold until the pull registers: on a slow software renderer one frame can outlast a fixed hold
+    await page.keyboard.down('Space');
+    await page.waitForFunction(() => document.getElementById('trigger-row').hidden, null, { timeout: 30000 }).catch(() => {});
+    await page.keyboard.up('Space');
+    continue;
+  }
   if (s.actions) {
     if (!looked) {
       looked = true;
@@ -193,7 +205,7 @@ const summary = {
   tagLagPx: { median: +(lag[Math.floor(lag.length / 2)] || 0).toFixed(1), p95: +(lag[Math.floor(lag.length * 0.95)] || 0).toFixed(1), max: +(lag[lag.length - 1] || 0).toFixed(1) },
   frameMs: { median: +med.toFixed(1), p99: +(iv[Math.floor(iv.length * 0.99)] || 0).toFixed(1), max: +(iv[iv.length - 1] || 0).toFixed(1), over3xMedian: iv.filter((x) => x > 3 * med).length, frames: iv.length },
   shaderProgramsAddedAfterBoot: R.programs1 - R.programs0, texturesAddedAfterBoot: R.textures1 - R.textures0,
-  sawRoulette, problems,
+  sawRoulette, gunStagings: R.roulettes, problems,
 };
 writeFileSync(path.join(OUT, `motion-probe-${LABEL}.json`), JSON.stringify(summary, null, 2));
 console.log(JSON.stringify(summary, null, 2));
