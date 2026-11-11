@@ -270,7 +270,8 @@ function buildDecor() {
   for (let i = 0; i < 3; i++) { const a = i / 3 * Math.PI * 2; sk.push(cyl(0.02, 0.025, 0.72, 8, [Math.cos(a) * 0.12, 0.36, Math.sin(a) * 0.12], [Math.sin(a) * 0.16, 0, -Math.cos(a) * 0.16])); }
   sk.push(place(new THREE.TorusGeometry(0.13, 0.012, 6, 20), [0, 0.25, 0], [Math.PI / 2, 0, 0]));
   const stool = mergeGeometries(sk.map((g) => worldUV(g, 3)));
-  instanced(stool, darkWood, [[[-1.55, FLOOR, -2.95], [0, 0.3, 0]], [[-0.5, FLOOR, -3.0], [0, 1.1, 0]], [[0.55, FLOOR, -2.92], [0, 2.3, 0]], [[1.6, FLOOR, -3.0], [0, 0.6, 0]], [[-3.0, FLOOR, -0.9], [0, 0.1, 0]], [[3.3, FLOOR, -1.6], [0, 0.9, 0]]]);
+  // its own material: one material drawn both instanced and not is re-initialised by three on every switch
+  instanced(stool, darkWood.clone(), [[[-1.55, FLOOR, -2.95], [0, 0.3, 0]], [[-0.5, FLOOR, -3.0], [0, 1.1, 0]], [[0.55, FLOOR, -2.92], [0, 2.3, 0]], [[1.6, FLOOR, -3.0], [0, 0.6, 0]], [[-3.0, FLOOR, -0.9], [0, 0.1, 0]], [[3.3, FLOOR, -1.6], [0, 0.9, 0]]]);
 
   // a rail of glazed stoneware plates on the right wall
   const plates = new THREE.MeshStandardMaterial({ color: 0x4a3a2c, roughness: 0.55 });
