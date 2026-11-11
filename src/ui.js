@@ -129,11 +129,20 @@ export function setTable(rank, round) {
   $('#top').hidden = false;
   const tc = $('#table-card'); tc.classList.remove('pulse'); void tc.offsetWidth; tc.classList.add('pulse');
 }
-export function setClaim(html) { $('#claim').innerHTML = html ? `<span class="lbl">Last claim</span>${html}` : ''; }
+export function setClaim(html, label = 'Last claim') { $('#claim').innerHTML = html ? `<span class="lbl">${label}</span>${html}` : ''; }
+/** The top chip for modes without a table card: any icon, a small line and a big one. */
+export function setTopChip({ icon, alt = '', eyebrow, name }) {
+  $('#table-icon').src = icon; $('#table-icon').alt = alt;
+  $('#table-name').textContent = name;
+  $('#round-label').innerHTML = eyebrow;
+  $('#top').hidden = false;
+  const tc = $('#table-card'); tc.classList.remove('pulse'); void tc.offsetWidth; tc.classList.add('pulse');
+}
 
 function pipsHTML(pulls, fresh) { let s = ''; for (let i = 0; i < 6; i++) s += `<span class="pip${i < pulls ? ' spent' : ''}${fresh && i === pulls - 1 ? ' fresh' : ''}"></span>`; return s; }
 /**
- * Refresh every seat's counters. `list` is by view (0 is you): { alive, cards, pulls }.
+ * Refresh every seat's counters. `list` is by view (0 is you): { alive, cards, pulls }, and
+ * optionally `cnt` (the tag's counter HTML), `odds` (your odds line) and `penalty` (your badge).
  * `active` is { view, gun } for the seat being prompted, or null.
  */
 export function refreshSeats(list, active) {
@@ -142,14 +151,14 @@ export function refreshSeats(list, active) {
     if (fresh) { t.pips.innerHTML = pipsHTML(p.pulls, p.pulls > t.lastPulls); t.lastPulls = p.pulls; }
     const on = active?.view === v && p.alive, gun = on && active.gun, turn = on && !active.gun;
     if (v === 0) {
-      $('#me-odds').innerHTML = p.alive ? `Next pull: <b>1 in ${6 - p.pulls}</b>` : 'Out';
+      $('#me-odds').innerHTML = p.alive ? p.odds ?? `Next pull: <b>1 in ${6 - p.pulls}</b>` : 'Out';
       const card = $('#me-card');
       card.classList.toggle('active', turn);
       card.classList.toggle('gun', gun);
-      $('#me-turn').textContent = gun ? 'Revolver' : 'Your turn';
+      $('#me-turn').textContent = gun ? p.penalty || 'Revolver' : 'Your turn';
       return;
     }
-    const cnt = p.alive ? (p.cards ? '<i></i>'.repeat(p.cards) : 'No cards') : 'Out';
+    const cnt = p.alive ? p.cnt ?? (p.cards ? '<i></i>'.repeat(p.cards) : 'No cards') : 'Out';
     if (t.cnt.innerHTML !== cnt) t.cnt.innerHTML = cnt;
     t.el.classList.toggle('out', !p.alive);
     t.el.classList.toggle('active', turn);
@@ -215,10 +224,11 @@ export function hideActions() { $('#actions').hidden = true; setHint(''); }
 /** Resolves true once the player has held the trigger button (or Space) for the full duration, false if cancelled. */
 let cancelActiveTrigger = null;
 export const cancelTrigger = () => cancelActiveTrigger?.();
-export function awaitTrigger(hintHtml, holdMs = 750) {
+export function awaitTrigger(hintHtml, holdMs = 750, label = 'Hold to pull the trigger') {
   return new Promise((resolve) => {
     const row = $('#trigger-row'), btn = $('#trigger-btn');
     row.hidden = false; setHint(hintHtml);
+    btn.querySelector('.lbl').textContent = label;
     let start = 0, raf = 0, done = false;
     const set = (p) => btn.style.setProperty('--p', p.toFixed(3));
     const tick = () => {

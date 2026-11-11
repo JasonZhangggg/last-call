@@ -6,6 +6,7 @@ import { buildCharacter, updateCharacter } from './render/characters.js';
 import { buildCards, updateCards, warmCards, bodies, hands } from './render/cards.js';
 import { buildGun, updateGun, gun } from './render/gun.js';
 import { buildPlayerArm, updatePlayerArm, arm } from './render/playerArm.js';
+import { buildDiceTable, updateDiceTable, table as diceTable } from './render/diceTable.js';
 import { rig, updateCamera, fitToViewport, lookFromPointer, lookByDelta, centerLook } from './render/camera.js';
 import { dampVec3 } from './render/motion.js';
 import { audio } from './audio.js';
@@ -37,10 +38,11 @@ function simulate(dt, t) {
     dampVec3(ch.lookTarget, lookTargetFor(v, camera, _look), lookVel[v], 0.16, dt);
     updateCharacter(ch, dt, t);
   }
-  D.mode?.frame(T, innerWidth < 720 ? 112 : 124);
+  D.mode?.frame(T, innerWidth < 720 ? 112 : 124, dt);
   updateCards(dt);
   updatePlayerArm(dt);
   updateGun(dt);
+  updateDiceTable(dt, t);
   camera.updateMatrixWorld();
   updateHover(dt);
 }
@@ -311,6 +313,7 @@ async function boot() {
   buildCards();
   buildGun();
   buildPlayerArm();
+  buildDiceTable();
   ui.initUI();
   quality.onShadowSize = setShadowSize;
   fitToViewport(); applyQuality();
@@ -330,9 +333,10 @@ async function boot() {
   renderer.setAnimationLoop(frame);
   $('#loading').hidden = true; $('#title-menu').hidden = false;
   $('#solo-btn').focus({ preventScroll: true });
-  window.__lastcall = { D, S, quality, hooks, gun, arm, rig, camera, renderer, MODES, CATALOG, leaveTable, cards: { bodies, hands } };
+  window.__lastcall = { D, S, quality, hooks, gun, arm, rig, camera, renderer, MODES, CATALOG, leaveTable, cards: { bodies, hands }, diceTable, T };
   const room = new URLSearchParams(location.search).get('room');
-  if (settings.autoplay) startSolo({ mode: 'deck', variant: location.hash === '#autoplay-devil' ? 'devil' : 'basic' });
+  const AUTO = { '#autoplay-devil': ['deck', 'devil'], '#autoplay-dice': ['dice', 'basic'], '#autoplay-dice-traditional': ['dice', 'traditional'] };
+  if (settings.autoplay) { const [mode, variant] = AUTO[location.hash] || ['deck', 'basic']; startSolo({ mode, variant }); }
   else if (room) enterTable('join', normalizeRoomCode(room));
 }
 boot().catch((err) => {
