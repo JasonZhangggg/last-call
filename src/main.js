@@ -23,7 +23,7 @@ const clock = new THREE.Clock(false);
 const raycaster = new THREE.Raycaster();
 const pointer = { ndc: new THREE.Vector2(9, 9), moved: false, idle: 0, touch: false, touchLook: null, hover: null };
 const _v = new THREE.Vector3(), _look = new THREE.Vector3();
-const lookVel = [null, {}, {}, {}];
+const lookVel = [null, 1, 2, 3].map((s) => s && { x: 0, y: 0, z: 0 });
 // Procedural motion runs on simulated time: dt is clamped after a long stall, and a wall clock that
 // kept running would make every sway, breath and flicker jump forward in that frame.
 let simT = 0;

@@ -64,8 +64,9 @@ export class Mover {
     this.quat = obj.quaternion.clone();
     this.scale = obj.scale.x;
     this.flight = null;
-    this.vel = {};
-    this.rvel = {};
+    // spring velocities keep one fixed shape, so stepping them doesn't allocate
+    this.vel = { x: 0, y: 0, z: 0, s: 0 };
+    this.rvel = { x: 0, y: 0, z: 0 };
     this.smooth = 0.09;
     this.rotSmooth = 0.09;
     this.world = obj.getWorldPosition(new THREE.Vector3());
@@ -90,14 +91,14 @@ export class Mover {
     this.parent = parent;
     this.pos.copy(pos); this.quat.copy(quat); this.scale = scale;
     this.flight = { t: -delay, dur: Math.max(0.01, paced(dur)), arc, ease };
-    this.vel = {}; this.rvel = {};
+    this.stopSprings();
     this.applyWorld(f.pos, f.quat, f.scale);
     return this;
   }
   /** Place instantly (only for moves nobody can see). */
   snap(parent, pos, quat, scale = 1) {
     if (this.obj.parent !== parent) parent.add(this.obj);
-    this.parent = parent; this.flight = null; this.vel = {}; this.rvel = {};
+    this.parent = parent; this.flight = null; this.stopSprings();
     this.pos.copy(pos); this.quat.copy(quat); this.scale = scale;
     this.obj.position.copy(pos); this.obj.quaternion.copy(quat); this.obj.scale.setScalar(scale);
   }
@@ -143,6 +144,10 @@ export class Mover {
     _w.copy(o.position).applyMatrix4(o.parent.matrixWorld);
     if (dt > 0) this.worldVel.subVectors(_w, this.world).divideScalar(dt);
     this.world.copy(_w);
+  }
+  stopSprings() {
+    const v = this.vel, r = this.rvel;
+    v.x = v.y = v.z = v.s = 0; r.x = r.y = r.z = 0;
   }
   get flying() { return !!this.flight; }
 }
