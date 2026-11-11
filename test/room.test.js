@@ -470,15 +470,18 @@ test('look: relayed at once to the other people only, clamped, rate-limited, and
   saves = 0;
   const before = b.log.length;
   a.send({ type: 'look', yaw: 0.3, pitch: -0.2 });
-  assert.deepEqual(b.log.slice(before), [{ type: 'look', seat: a.seat, yaw: 0.3, pitch: -0.2 }], 'relayed straight away');
-  assert.deepEqual(looks(c).at(-1), { type: 'look', seat: a.seat, yaw: 0.3, pitch: -0.2 });
+  assert.deepEqual(b.log.slice(before), [{ type: 'look', seat: a.seat, yaw: 0.3, pitch: -0.2, hand: 'down' }], 'relayed straight away');
+  assert.deepEqual(looks(c).at(-1), { type: 'look', seat: a.seat, yaw: 0.3, pitch: -0.2, hand: 'down' });
   assert.equal(looks(a).length, 0, 'not echoed to the sender');
   assert.equal(saves, 0, 'no storage write for a look');
 
   t.clock.advance(1000);
   a.send({ type: 'look', yaw: 9, pitch: -9 });
-  assert.deepEqual(looks(b).at(-1), { type: 'look', seat: a.seat, yaw: 1.25, pitch: -1.1 }, 'clamped to the neck range');
-  for (const bad of [{ yaw: 'left', pitch: 0 }, { yaw: NaN, pitch: 0 }, { yaw: 0 }]) {
+  assert.deepEqual(looks(b).at(-1), { type: 'look', seat: a.seat, yaw: 1.25, pitch: -1.1, hand: 'down' }, 'clamped to the neck range');
+  t.clock.advance(1000);
+  a.send({ type: 'look', yaw: 0, pitch: -0.3, hand: 'up' });
+  assert.equal(looks(b).at(-1).hand, 'up', 'cards held up');
+  for (const bad of [{ yaw: 'left', pitch: 0 }, { yaw: NaN, pitch: 0 }, { yaw: 0 }, { yaw: 0, pitch: 0, hand: 'sideways' }]) {
     a.send({ type: 'look', ...bad });
     assert.equal(a.last('error').code, ERR.badMessage);
   }

@@ -228,27 +228,34 @@ function hold(body, parent, pos, quat, scale, dealArc) {
 /**
  * Lays out your hand in camera space, sized to the viewport so it reads the same on a phone and a
  * monitor, and each other view's hand as a fan held over the table edge. `characters` is by view.
+ * `up` (0..1) blends your hand from resting low by the table edge (0) to held up close to read (1).
  */
-const HAND_TILT = -0.06, HAND_LAYER = 0.0025, _X = new THREE.Vector3(1, 0, 0);
-export function layoutHands(characters, reserveBottomPx) {
+const HAND_LAYER = 0.0025, _X = new THREE.Vector3(1, 0, 0);
+// [height as a share of the view, spacing in card widths, tilt back, how far the hand's centre sits
+// below the bottom edge in card heights (negative: above it)], resting and held up
+const DOWN = [0.15, 0.52, -0.62, -0.08], UP = [0.3, 0.74, -0.06, -0.6];
+const mix = (k, i) => DOWN[i] + (UP[i] - DOWN[i]) * k;
+export function layoutHands(characters, reserveBottomPx, up = 1) {
   const mine = myHand(), n = mine.length;
   if (n) {
     const d = 0.5;
     const hh = d * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / camera.zoom, hw = hh * camera.aspect;
-    let s = (0.2 * 2 * hh) / CH, spacing = CW * s * 0.72;
+    let s = (mix(up, 0) * 2 * hh) / CH, spacing = CW * s * mix(up, 1);
     const total = CW * s + spacing * (n - 1), maxW = hw * 2 * 0.9;
     if (total > maxW) { const f = maxW / total; s *= f; spacing *= f; }
-    const px = (2 * hh) / innerHeight;
-    const baseY = -hh + reserveBottomPx * px + (CH * s) / 2;
+    const px = (2 * hh) / innerHeight, tilt = mix(up, 2);
+    // held up, the hand clears the buttons under it; resting, it sinks to the edge of the view
+    const baseY = -hh + reserveBottomPx * px * up - CH * s * mix(up, 3);
     for (let i = 0; i < n; i++) {
       const b = mine[i], t = i - (n - 1) / 2;
       const sel = handUI.selected.has(b.token), hov = handUI.hover === b.token && handUI.enabled;
       const lift = sel ? CH * s * 0.3 : hov ? CH * s * 0.1 : 0;
       // Every card shares one tilt and sits on its own layer of the tilted stack, so a lift slides it
-      // within its layer: cards that overlap can never pass through each other.
-      _v.set(t * spacing, baseY - t * t * 0.0025 * s + lift, i * HAND_LAYER).applyAxisAngle(_X, HAND_TILT);
+      // within its layer: cards that overlap can never pass through each other. Resting and held-up
+      // hands blend their sizes and tilt, never each card's pose, so every frame between is a stack too.
+      _v.set(t * spacing, baseY - t * t * 0.0025 * s + lift, i * HAND_LAYER).applyAxisAngle(_X, tilt);
       _v.z -= d;
-      quatE(HAND_TILT, 0, -t * 0.045, _q);
+      quatE(tilt, 0, -t * 0.045, _q);
       hold(b, camera, _v, _q, s * (hov && !sel ? 1.04 : 1), 0.03);
       // the hovered card's hit area grows, so its own lift can't carry it out from under the pointer
       b.hit.scale.y = hov ? 1.3 : 1;

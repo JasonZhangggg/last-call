@@ -34,7 +34,7 @@ export const D = {
   characters: {}, viewChars: [null, null, null, null], designOf: [],
   send: () => false, timeScale: () => 1,
   recap: null, out: false, recorded: false,
-  looks: [], // by seat: { yaw, pitch, at } from another person's `look`
+  looks: [], // by seat: { yaw, pitch, hand, at } from another person's `look`
 };
 const _h = new THREE.Vector3();
 
@@ -253,8 +253,8 @@ export function resetDirector() {
 }
 
 /** Another person turned their head. Presence, not a game event: it skips the queue. */
-export function setLook({ seat, yaw, pitch }) {
-  if (seat !== D.me) D.looks[seat] = { yaw, pitch, at: performance.now() };
+export function setLook({ seat, yaw, pitch, hand }) {
+  if (seat !== D.me) D.looks[seat] = { yaw, pitch, hand, at: performance.now() };
 }
 
 async function playOver(msg) {
@@ -284,16 +284,22 @@ const LOOK_SNAP = 0.24;
 const _d = new THREE.Vector3(), _p = new THREE.Vector3();
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
-/**
- * Where the person in view `v` is looking, from their last `look`, or null when no person is
- * there or they've gone quiet (left, hidden tab). Every table has the same layout, turned so its
- * own person sits at the camera, and the seats aren't evenly spaced, so the bare angle would point
- * between people here. Instead, rebuild their gaze at their own table: aimed at someone there, it
- * aims at that same seat here; otherwise it keeps its angle from their seat.
- */
-export function humanLookTarget(v, camera, out) {
+/** The last `look` of the person in view `v`, or null when no person is there or they've gone quiet (left, hidden tab). */
+export function liveLook(v) {
   const s = seatAt(v), l = D.looks[s], info = D.info[s];
-  if (!l || info?.kind !== 'human' || !info.connected || performance.now() - l.at > LOOK_STALE_MS) return null;
+  return !l || info?.kind !== 'human' || !info.connected || performance.now() - l.at > LOOK_STALE_MS ? null : l;
+}
+
+/**
+ * Where the person in view `v` is looking, from their last `look` `l`. Every table has the same
+ * layout, turned so its own person sits at the camera, and the seats aren't evenly spaced, so the
+ * bare angle would point between people here. Instead, rebuild their gaze at their own table: aimed
+ * at someone there, it aims at that same seat here; otherwise it keeps its angle from their seat.
+ * Reading their own cards, they look at the hand that holds them.
+ */
+export function humanLookTarget(v, l, camera, out) {
+  const s = seatAt(v), ch = D.viewChars[v];
+  if (l.hand === 'up' && ch.handAnchor.children.length) return ch.handAnchor.getWorldPosition(out);
   let best = LOOK_SNAP, hit = 0;
   for (let u = 1; u < 4; u++) {
     _p.subVectors(headWorld(D.viewChars[u], _p), rig.seat);
@@ -305,7 +311,7 @@ export function humanLookTarget(v, camera, out) {
     const o = (s + hit) % 4;
     return o === D.me ? out.copy(camera.position) : headWorld(T.char(o), out);
   }
-  const ch = D.viewChars[v], c = Math.cos(l.pitch);
+  const c = Math.cos(l.pitch);
   // a character's +z faces the table, so its left is +x
   _d.set(Math.sin(l.yaw) * c, Math.sin(l.pitch), Math.cos(l.yaw) * c).applyQuaternion(ch.group.quaternion);
   return headWorld(ch, out).addScaledVector(_d, 2);

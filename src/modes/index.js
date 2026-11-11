@@ -26,6 +26,7 @@
 //   pointerEnabled() -> bool, pick(raycaster, current) -> id | null, hover(id), select(T, id)
 //                                3D picking of your pieces (cards, dice, ...)
 //   keydown(T, event) -> bool    keyboard shortcuts while no menu is open
+//   handUp() -> bool             optional; you hold your hand up to read it (shared with the table)
 //   frame(T, reservePx, dt)      per-frame layout (no allocations); reservePx is the HUD's bottom band,
 //                                dt the simulated step in seconds
 //

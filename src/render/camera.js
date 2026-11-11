@@ -27,6 +27,8 @@ export const rig = {
   // leaning in over the table (reaching for the revolver), 0..1
   lean: 0, leanTarget: 0, lnv: {},
   lookEnabled: true,
+  // held still on the table's centre (your cards held up to read): no head turn, no reframing
+  lookLocked: false,
   // where the head points this frame, framing and the player's turn together, before shake:
   // yaw + is to the left, pitch + is up (what other seats see, via the `look` message)
   viewYaw: 0, viewPitch: 0,
@@ -48,14 +50,14 @@ const range = () => (settings.reducedMotion ? 0.35 : 1);
  */
 export function lookFromPointer(nx, ny) {
   rig.lookSmooth = settings.reducedMotion ? 0.4 : 0.22;
-  if (!rig.lookEnabled) { rig.lookYawTarget = rig.lookPitchTarget = 0; return; }
+  if (!rig.lookEnabled || rig.lookLocked) { rig.lookYawTarget = rig.lookPitchTarget = 0; return; }
   const g = 0.18 + 0.82 * (1 - smoothstep(0.36, 0.72, ny)), r = range();
   rig.lookYawTarget = -curve(nx, 0.08) * MAX_YAW * g * r;
   rig.lookPitchTarget = (ny < 0 ? curve(-ny, 0.15) * PITCH_UP : -curve(ny, 0.15) * PITCH_DOWN * g) * r;
 }
 /** Touch drag: relative head turn. */
 export function lookByDelta(dx, dy) {
-  if (!rig.lookEnabled) return;
+  if (!rig.lookEnabled || rig.lookLocked) return;
   const r = range();
   rig.lookSmooth = 0.1;
   rig.lookYawTarget = clamp(rig.lookYawTarget - dx * 0.005 * r, -MAX_YAW * r, MAX_YAW * r);
@@ -63,6 +65,8 @@ export function lookByDelta(dx, dy) {
 }
 /** Ease the head back to the director's framing (finger lifted, pointer gone, a cinematic beat). */
 export function centerLook(smooth = 0.6) { rig.lookYawTarget = 0; rig.lookPitchTarget = 0; rig.lookSmooth = smooth; }
+/** Hold the head on the table's centre until unlocked; the pointer stops turning it. */
+export function lockLook(on) { rig.lookLocked = on; if (on) centerLook(0.35); }
 
 const noise = (t, s) => Math.sin(t * 1.7 + s) * 0.5 + Math.sin(t * 3.1 + s * 2.3) * 0.3 + Math.sin(t * 5.3 + s * 0.7) * 0.2;
 const softLimit = (x, l) => l * Math.tanh(x / l);
@@ -70,7 +74,7 @@ const softLimit = (x, l) => l * Math.tanh(x / l);
 export function updateCamera(dt, t) {
   const rm = settings.reducedMotion, motion = rm ? 0.3 : 1;
   rig.intro = smoothDamp(rig.intro, rig.introTarget, rig.iv, 'i', 0.75, dt);
-  dampVec3(rig.focus, rig.focusTarget, rig.fv, 0.45, dt);
+  dampVec3(rig.focus, rig.lookLocked ? DEFAULT_FOCUS : rig.focusTarget, rig.fv, 0.45, dt);
   rig.lookYaw = smoothDamp(rig.lookYaw, rig.lookYawTarget, rig.lv, 'y', rig.lookSmooth, dt);
   rig.lookPitch = smoothDamp(rig.lookPitch, rig.lookPitchTarget, rig.lv, 'p', rig.lookSmooth, dt);
   rig.zoom = smoothDamp(rig.zoom, rig.zoomTarget, rig.zv, 'z', 0.6, dt);

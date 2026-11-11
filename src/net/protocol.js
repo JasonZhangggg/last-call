@@ -22,11 +22,13 @@
 //                                                 to your bid, acting seat, turn prompt
 //   pass       {}                                 auction: acting seat, turn prompt
 //   leave      {}                                 the server closes the socket after it
-//   look       { yaw, pitch }                     where your head points, radians, in your own
+//   look       { yaw, pitch, hand? }              where your head points, radians, in your own
 //                                                 seat's frame: yaw 0 faces the table centre and
-//                                                 + turns to your left, pitch + is up. Clamped to
-//                                                 LOOK_RANGE; at most LOOK_RATE a second, extras
-//                                                 are dropped. Presence only: never stored.
+//                                                 + turns to your left, pitch + is up; hand 'up'
+//                                                 while you hold your cards up to read them, else
+//                                                 'down' (the default). Clamped to LOOK_RANGE; at
+//                                                 most LOOK_RATE a second, extras are dropped.
+//                                                 Presence only: never stored.
 //
 // Server to client
 //   welcome   { seat, roomCode, resumeToken }     you hold `seat`; keep the token to reclaim it
@@ -40,7 +42,7 @@
 //             deck: alive, pulls; dice: alive, drinks; auction: castOut, money, status, place
 //             (winner null in the auction when every seat is cast out or first place is shared)
 //   error     { code, message }                   see ERR; codes in FATAL end the connection
-//   look      { seat, yaw, pitch }                another seated person's `look`, relayed at once
+//   look      { seat, yaw, pitch, hand }          another seated person's `look`, relayed at once
 //                                                 while a game runs; not part of `state`
 //
 // Deck mode (options.mode 'deck', variant 'basic' | 'devil')
@@ -136,7 +138,7 @@ export const SERVER_KEYS = Object.freeze({
   roulette: ['seat', 'timeoutMs', 'options'],
   over: ['winner', 'seats'],
   error: ['code', 'message'],
-  look: ['seat', 'yaw', 'pitch'],
+  look: ['seat', 'yaw', 'pitch', 'hand'],
 });
 
 /** The span a seated head can turn (radians), the same as the camera rig's own limits. */
@@ -198,7 +200,7 @@ const CLIENT = {
   raise: (m) => Array.isArray(m.cards) && m.cards.length >= 1 && m.cards.length <= 11 && m.cards.every(Number.isInteger),
   pass: () => true,
   leave: () => true,
-  look: (m) => Number.isFinite(m.yaw) && Number.isFinite(m.pitch),
+  look: (m) => Number.isFinite(m.yaw) && Number.isFinite(m.pitch) && (m.hand === undefined || m.hand === 'up' || m.hand === 'down'),
 };
 
 function validOptionShape(o) {

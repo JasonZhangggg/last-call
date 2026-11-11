@@ -81,7 +81,7 @@ export class Room {
   }
 
   /** Relays where a seated person is looking to everyone else. Silent when dropped. */
-  look(clientId, { yaw, pitch }) {
+  look(clientId, { yaw, pitch, hand }) {
     const seat = this.seatOf(clientId);
     if (seat == null || this.phase !== 'playing') return;
     const now = this.clock.now(), b = this.lookBudget.get(clientId) || { tokens: LOOK_BURST, at: now };
@@ -91,7 +91,7 @@ export class Room {
     if (b.tokens < 1) return;
     b.tokens -= 1;
     const r = LOOK_RANGE, round = (v) => Math.round(v * 1000) / 1000;
-    const m = { type: 'look', seat, yaw: round(Math.max(-r.yaw, Math.min(r.yaw, yaw))), pitch: round(Math.max(-r.down, Math.min(r.up, pitch))) };
+    const m = { type: 'look', seat, yaw: round(Math.max(-r.yaw, Math.min(r.yaw, yaw))), pitch: round(Math.max(-r.down, Math.min(r.up, pitch))), hand: hand === 'up' ? 'up' : 'down' };
     this.seats.forEach((x, s) => { if (s !== seat && x.kind === 'human' && x.connected) this.send(x.clientId, m); });
   }
 
