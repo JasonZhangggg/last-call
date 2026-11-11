@@ -33,7 +33,7 @@ export const D = {
   actor: null, watch: null, // view in the spotlight, and a world point everyone looks at instead
   characters: {}, viewChars: [null, null, null, null], designOf: [],
   send: () => false, timeScale: () => 1,
-  recap: null, out: false, ended: false,
+  recap: null, out: false, recorded: false,
 };
 const _h = new THREE.Vector3();
 
@@ -82,7 +82,9 @@ export function receive(msg) {
     ui.cancelTrigger();
     D.latest = msg.game ? structuredClone(msg.game) : null;
     D.latestPrompt = msg.prompt ? { ...msg.prompt, at } : null;
+    D.result = msg.result;
   } else {
+    if (msg.type === 'over') D.result = msg;
     if (msg.type === 'turn' || msg.type === 'roulette') D.latestPrompt = { ...msg, type: msg.type, at };
     else D.latestPrompt = null;
     if (D.latest) MODES[D.options?.mode]?.reduce(D.latest, msg, D.me);
@@ -102,7 +104,8 @@ async function pump() {
       if (e === ABORT) continue;
       console.error('Could not play', msg.type, e);
       D.queue.length = 0;
-      if (D.latest) D.queue.push({ msg: snapshotMessage(), at: performance.now() });
+      // start over from what has arrived, unless that is what just failed
+      if (D.latest && msg.type !== 'state') D.queue.push({ msg: snapshotMessage(), at: performance.now() });
     }
   }
   D.busy = false;
@@ -112,7 +115,7 @@ async function pump() {
 function snapshotMessage() {
   const p = D.latestPrompt;
   const left = p?.timeoutMs == null ? null : Math.max(0, p.timeoutMs - (performance.now() - p.at) * D.timeScale());
-  return { type: 'state', phase: D.ended ? 'finished' : 'playing', game: structuredClone(D.latest), prompt: p ? { type: p.type, seat: p.seat, timeoutMs: left, options: p.options } : null, result: D.result };
+  return { type: 'state', phase: D.result ? 'finished' : 'playing', game: structuredClone(D.latest), prompt: p ? { type: p.type, seat: p.seat, timeoutMs: left, options: p.options } : null, result: D.result };
 }
 
 /** Back from a hidden tab with a long backlog: jump straight to the present. */
@@ -182,7 +185,6 @@ async function playState(msg) {
   const fresh = msg.phase === 'playing' && msg.game.round === 0;
   if (D.mode !== mode || fresh || D.phase === 'idle') enterTable(mode);
   D.phase = msg.phase;
-  D.ended = msg.phase === 'finished';
   D.shown = structuredClone(msg.game);
   D.prompt = null; D.actor = null; D.watch = null;
   ui.setCountdown(null); ui.hideActions();
@@ -199,7 +201,7 @@ function enterTable(mode) {
   if (D.mode && D.mode !== mode) D.mode.exit(T);
   D.mode = mode;
   D.recap = mode.newRecap?.() || {};
-  D.out = false; D.ended = false; D.recorded = false;
+  D.out = false; D.recorded = false;
   const others = [1, 2, 3].map(seatAt), taken = new Set();
   D.designOf = [];
   for (const s of others) {
@@ -250,7 +252,7 @@ export function resetDirector() {
 
 async function playOver(msg) {
   clearPrompt();
-  D.result = msg; D.ended = true; D.phase = 'finished';
+  D.result = msg; D.phase = 'finished';
   D.actor = null;
   ui.closeOverlay('out');
   await T.step(400);

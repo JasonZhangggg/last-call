@@ -57,10 +57,10 @@ async function openPage(label) {
   });
   // Record every frame the server sends, to compare what the two seats were told.
   await page.addInitScript(() => {
-    window.__wire = [];
+    window.__wire = []; window.__sockets = [];
     const Native = window.WebSocket;
     window.WebSocket = class extends Native {
-      constructor(...a) { super(...a); this.addEventListener('message', (e) => { if (e.data !== 'pong') window.__wire.push(e.data); }); }
+      constructor(...a) { super(...a); window.__sockets.push(this); this.addEventListener('message', (e) => { if (e.data !== 'pong') window.__wire.push(e.data); }); }
     };
   });
   return page;
@@ -132,6 +132,14 @@ while (!(done.host && done.guest)) {
   if (Date.now() > deadline) await finish(1, `game did not finish in time\n${problems.join('\n')}`);
   if (!done.host) done.host = await act(host, 'host', seen.host);
   if (!done.guest) done.guest = await act(guest, 'guest', seen.guest);
+  // Drop the guest's connection once, mid-game: it must reclaim its seat and rebuild from `state`.
+  if (!seen.guest.has('dropped') && await guest.evaluate(() => window.__lastcall.D.latest?.round >= 2)) {
+    seen.guest.add('dropped');
+    await guest.evaluate(() => window.__sockets.at(-1).close());
+    await guest.waitForFunction(() => window.__wire.filter((f) => f.includes('"type":"welcome"')).length >= 2);
+    await guest.waitForFunction(() => document.getElementById('net').hidden);
+    console.log('  guest dropped and rejoined');
+  }
   await new Promise((r) => setTimeout(r, 250));
 }
 await host.waitForTimeout(1200);
@@ -141,9 +149,15 @@ await shot(guest, '91-end-guest');
 // Everything public must match frame for frame; only each seat's own hand differs.
 const GAME = new Set(['round', 'played', 'challenge', 'shot', 'over']);
 const publicLog = async (page) => (await page.evaluate(() => window.__wire)).map((f) => JSON.parse(f)).filter((m) => GAME.has(m.type)).map(({ hand, ...pub }) => JSON.stringify(pub));
-const [a, b] = [await publicLog(host), await publicLog(guest)];
+const [a, b0] = [await publicLog(host), await publicLog(guest)];
+assert.ok(seen.guest.has('dropped'), 'the guest reconnected mid-game');
+// The guest missed what was sent while it was away; from its rebuild on, it must match the host.
+const wire = (await guest.evaluate(() => window.__wire)).map((f) => JSON.parse(f));
+const after = wire.slice(wire.findLastIndex((m) => m.type === 'state')).filter((m) => GAME.has(m.type)).length;
+const b = a.slice(0, a.length - after).concat(b0.slice(b0.length - after));
 assert.ok(a.length > 10, 'the host saw a game');
-assert.deepEqual(b, a, 'both seats received the same public game');
+assert.ok(after > 3, 'the game went on after the rejoin');
+assert.deepEqual(b, a, 'after the rejoin both seats received the same public game');
 const view = (page) => page.evaluate(() => { const { D } = window.__lastcall; const g = D.latest; return { me: D.me, round: g.round, tableRank: g.tableRank, alive: g.alive, pulls: g.pulls, handCounts: g.handCounts, plays: g.plays, winner: D.result?.winner, endTitle: document.getElementById('end-title').textContent }; });
 const [va, vb] = [await view(host), await view(guest)];
 assert.notEqual(va.me, vb.me, 'two different seats');
