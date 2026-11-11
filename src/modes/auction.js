@@ -11,7 +11,7 @@ import { rig, focusOn } from '../render/camera.js';
 import { gun } from '../render/gun.js';
 import { setDeckSize, gatherToDeck } from '../render/cards.js';
 import { table, MONEY, STATUS_BASE, showTable, setGilded, setGlow, setTint, setStatusFace, sendTo, flyTo, layoutHands, pickMoney, easelPoint, bidPoint } from '../render/auctionTable.js';
-import { statusName, statusCell, cellThumb } from '../render/auctionArt.js';
+import { statusName, statusCell, cellThumb, CELL } from '../render/auctionArt.js';
 import { reduceAuction, sum, highBid, bidOf, leader, gildedCount, isDisgrace, cheapestRaise } from './auction-state.js';
 
 const NM = MONEY.length;
@@ -56,7 +56,7 @@ const GLOW = { curio: 0xffc66a, favour: 0xffd27a, ale: 0xff5a3a, debt: 0xff5a3a,
 let me = null;
 let pending = null; // your turn's options while the controls are up
 let entered = false;
-const _o = new THREE.Object3D();
+const _o = new THREE.Object3D(), LOOK_DOWN = new THREE.Vector3(0, -0.32, 0.25);
 
 /* ---------- which body is which ---------- */
 const moneyBody = (seat, v) => table.bodies[seat * NM + MONEY.indexOf(v)];
@@ -122,45 +122,44 @@ function layoutAll(T, { snap = false, dur = 0.5, stagger = 0.02 } = {}) {
 /* ---------- HUD ---------- */
 function wonSummary(g, s) {
   const w = g.won[s];
-  if (!w.length && !g.aleOwed[s]) return '<i class="none">nothing won</i>';
+  if (!w.length && !g.aleOwed[s]) return '<span class="w none">nothing won</span>';
   const c = sum(w.filter((x) => x.kind === 'curio').map((x) => x.value)), f = w.filter((x) => x.kind === 'favour').length;
-  let h = `<i title="curios">✦${c}</i>`;
-  if (f) h += `<i title="favours">×${2 ** f}</i>`;
-  if (w.some((x) => x.kind === 'debt')) h += '<i class="bad" title="Bad Debt">−5</i>';
-  if (w.some((x) => x.kind === 'scandal')) h += '<i class="bad" title="Public Scandal">½</i>';
-  if (g.aleOwed[s]) h += '<i class="bad" title="Spilled Ale: your next curio is discarded">ale</i>';
+  let h = `<span class="w" title="curios">✦${c}</span>`;
+  if (f) h += `<span class="w" title="favours">×${2 ** f}</span>`;
+  if (w.some((x) => x.kind === 'debt')) h += '<span class="w bad" title="Bad Debt">−5</span>';
+  if (w.some((x) => x.kind === 'scandal')) h += '<span class="w bad" title="Public Scandal">½</span>';
+  if (g.aleOwed[s]) h += '<span class="w bad" title="Spilled Ale: your next curio is discarded">ale</span>';
   return `<span class="won">${h}</span>`;
 }
-function hud(T) {
-  const g = T.game; if (!g) return;
-  const list = [];
-  for (let v = 0; v < 4; v++) {
-    const s = T.seatAt(v), sc = g.scoring;
-    let state = '';
-    if (sc) state = `purse <b>${sc.money[s]}</b>`;
-    else if (g.card && g.passed[s]) state = '<span class="passed">passed</span>';
-    else if (g.card && g.bids[s].length) state = `<span class="bid">bid ${bidOf(g, s)}</span>`;
-    if (v === 0) {
-      const purse = sc ? sc.money[s] : sum(g.hand);
-      list.push(`<span>Purse <b>${purse}</b>${sc?.castOut[s] ? ' · <span class="passed">cast out</span>' : !sc && g.bids[s].length ? ` · <span class="bid">bid ${bidOf(g, s)}</span>` : ''}</span>${wonSummary(g, s)}`);
-    } else list.push(`${state ? `${state}` : ''}${wonSummary(g, s)}`);
+/** What each seat's tag (and your own card) says: its bid or purse, and what it has won. */
+function seatLine(T, s) {
+  const g = T.game, sc = g.scoring, bid = g.card && g.bids[s].length ? `<span class="bid">bid ${bidOf(g, s)}</span>` : '';
+  if (T.isMe(s)) {
+    const purse = sc ? sc.money[s] : sum(g.hand);
+    return `<span class="auc me"><span>Purse <b>${purse}</b>${sc?.castOut[s] ? ' · <span class="passed">cast out</span>' : bid ? ` · ${bid}` : ''}</span>${wonSummary(g, s)}</span>`;
   }
-  ui.setSeatDetails(list);
-  top(T);
+  const state = sc ? `purse <b>${sc.money[s]}</b>` : g.card && g.passed[s] ? '<span class="passed">passed</span>' : bid;
+  return `<span class="auc">${state}${wonSummary(g, s)}</span>`;
 }
-function top(T, pulse = false) {
-  const g = T.game, c = g.final || g.card, n = gildedCount(g);
-  if (!c && !g.turned.length) { ui.setTopCard({ src: cellThumb(26), alt: '', eyebrow: 'The Gilded Bid', name: 'Opening', pulse }); ui.setClaim(''); return; }
-  const shown = c || g.turned[g.turned.length - 1];
-  ui.setTopCard({
-    src: cellThumb(statusCell(shown)), alt: statusName(shown), pulse,
-    eyebrow: g.final ? `Gilded ${n} of 4<span class="sub"> · the end</span>` : `Auction ${g.auction}<span class="sub"> · Gilded ${n} of 4</span>`,
-    name: (shown.kind === 'curio' ? `${statusName(shown)} · ${shown.value}` : statusName(shown)).toUpperCase(),
-  });
+/** The seat tags and the high-bid line. */
+function hud(T) {
+  if (!T.game) return;
+  T.refresh();
+  const g = T.game;
   if (!g.card) { ui.setClaim(''); return; }
   const hi = highBid(g), lead = leader(g);
   if (isDisgrace(g.card)) ui.setClaim(hi ? `<b>${hi}</b> · ${Name(T, lead)} · first to pass takes it` : 'First to pass takes it', 'Disgrace');
   else ui.setClaim(hi ? `<b>${hi}</b> · ${Name(T, lead)}` : 'No bids yet', 'High bid');
+}
+/** The top chip: the card up for auction (or the last turned) and the gilded count. */
+function top(T) {
+  const g = T.game, c = g.final || g.card || g.turned[g.turned.length - 1], n = gildedCount(g);
+  if (!c) return ui.setTopChip({ icon: cellThumb(CELL.statusBack), alt: '', eyebrow: 'The Gilded Bid', name: 'OPENING' });
+  ui.setTopChip({
+    icon: cellThumb(statusCell(c)), alt: statusName(c),
+    eyebrow: g.final ? `Gilded ${n} of 4<span class="sub"> · the end</span>` : `Auction ${g.auction}<span class="sub"> · Gilded ${n} of 4</span>`,
+    name: (c.kind === 'curio' ? `${statusName(c)} · ${c.value}` : statusName(c)).toUpperCase(),
+  });
 }
 
 /* ---------- your turn ---------- */
@@ -168,12 +167,12 @@ function syncControls(T) {
   const o = pending; if (!o) return;
   const g = T.game, picked = [...table.ui.selected], add = sum(picked), total = o.ownBid + add;
   const legal = picked.length > 0 && total > o.highBid;
-  $('#bid-actions').hidden = false;
-  const bid = $('#bid-btn');
+  $('#auction-actions').hidden = false;
+  const bid = $('#auction-bid-btn');
   bid.disabled = !legal;
   bid.querySelector('.lbl').textContent = legal ? `Bid ${total}` : !o.canRaise ? 'Can\'t raise' : picked.length ? `Beat ${o.highBid}` : 'Pick money';
-  $('#pass-btn').querySelector('.lbl').textContent = o.disgrace ? 'Pass · take it' : 'Pass';
-  $('#min-btn').disabled = !o.canRaise;
+  $('#auction-pass-btn').querySelector('.lbl').textContent = o.disgrace ? 'Pass · take it' : 'Pass';
+  $('#auction-min-btn').disabled = !o.canRaise;
   const card = `<b>${statusName(g.card)}</b>`;
   const lead = leader(g), hi = o.highBid ? `High bid <b>${o.highBid}</b> (${Name(T, lead)})` : 'No bids yet';
   const yours = o.ownBid ? ` · yours ${o.ownBid}` : '';
@@ -199,11 +198,11 @@ function submitBid(T) {
   const o = pending; if (!o) return;
   const cards = [...table.ui.selected].sort((a, b) => a - b);
   if (!cards.length || o.ownBid + sum(cards) <= o.highBid) return;
-  if (T.send({ type: 'raise', cards })) { table.ui.enabled = false; $('#bid-actions').hidden = true; ui.setHint(''); }
+  if (T.send({ type: 'raise', cards })) { table.ui.enabled = false; $('#auction-actions').hidden = true; ui.setHint(''); }
 }
 function submitPass(T) {
   if (!pending) return;
-  if (T.send({ type: 'pass' })) { table.ui.enabled = false; table.ui.selected.clear(); $('#bid-actions').hidden = true; ui.setHint(''); }
+  if (T.send({ type: 'pass' })) { table.ui.enabled = false; table.ui.selected.clear(); $('#auction-actions').hidden = true; ui.setHint(''); }
 }
 
 /* ---------- handlers ---------- */
@@ -226,7 +225,7 @@ async function reveal(T, msg) {
   const gilded = c.kind === 'favour' || c.kind === 'scandal';
   if (gilded) { setGilded(n); gildChime(n === 4); }
   setGlow(isDisgrace(c) ? 0.8 : gilded ? 0.8 : 0.35, GLOW[c.kind]);
-  top(T, true);
+  top(T);
   if (msg.final) {
     ui.toast('The fourth gilded card. The bidding is over.', 'liar');
     ui.log(`<b>${statusName(c)}</b> turns: the fourth gilded card. The evening ends.`);
@@ -269,8 +268,8 @@ function turn(T, msg) {
     ui.setStatus(T.view(msg.seat), '<span class="dots">thinking</span>');
     return;
   }
-  // tip the view down a little so the card on the easel clears your raised hand
-  focusOn(easelPoint(), 0.22);
+  // tip the head down so the card on the easel rises clear of your raised hand
+  focusOn(LOOK_DOWN, 0.5);
   if (!msg.options) return;
   pending = msg.options;
   table.ui.selected.clear();
@@ -293,7 +292,7 @@ async function raise(T, msg) {
   });
   say(T, seat, voice(T, seat, 'raise'));
   ui.log(`<b>${Name(T, seat)}</b> ${verb(T, seat, 'raise', 'raises')} to <b>${msg.bid}</b>.`);
-  hud(T); T.refresh();
+  hud(T);
   await T.step(520 + 80 * cards.length);
   if (ch) react(ch, 'reach', false);
   await T.step(200);
@@ -309,7 +308,7 @@ async function pass(T, msg) {
   const disgrace = g.card && isDisgrace(g.card);
   if (!disgrace) say(T, seat, voice(T, seat, 'pass'));
   ui.log(`<b>${Name(T, seat)}</b> ${verb(T, seat, 'pass', 'passes')}${returned.length ? ` and ${verb(T, seat, 'take', 'takes')} back ${sum(returned)}` : ''}.`);
-  hud(T); T.refresh();
+  hud(T);
   await T.step(520);
   if (ch) react(ch, 'reach', false);
   await T.step(220);
@@ -348,7 +347,7 @@ async function taken(T, msg) {
   let d = 0;
   paid.forEach((p, s) => p.forEach((value) => { const b = moneyBody(s, value); setTint(b, 0.85); sendTo(b, 'spent', { dur: 0.5, arc: 0.06, delay: (d += 0.06) - 0.06 }); }));
   for (let i = 0; i < Math.min(spent, 6); i++) setTimeout(() => audio.deal(T.pan(seat)), i * 60 + 200);
-  hud(T); T.refresh();
+  hud(T);
   await T.step(500 + 60 * spent);
   if (spilled != null) {
     const sb = table.bodies[STATUS_BASE + spilled - 1];
@@ -432,7 +431,7 @@ function rebuild(T, { fresh }) {
   me = T.me;
   pending = null;
   table.ui.enabled = false; table.ui.selected.clear(); table.ui.hover = null;
-  $('#bid-actions').hidden = true; ui.setHint('');
+  $('#auction-actions').hidden = true; ui.setHint('');
   setGlow(0);
   rig.zoomTarget = 1; rig.rollTarget = 0; focusOn(null);
   for (const b of table.bodies) setTint(b, 1);
@@ -442,7 +441,7 @@ function rebuild(T, { fresh }) {
   entered = true;
   if (g.scoring) g.scoring.castOut.forEach((x, s) => ui.setStatus(T.view(s), x ? 'cast out' : `status <b>${fmtStatus(g.scoring.status[s])}</b>`));
   else for (let s = 1; s < 4; s++) ui.setStatus(s, '');
-  hud(T);
+  hud(T); top(T);
   if (g.card) setGlow(isDisgrace(g.card) || g.card.kind === 'favour' ? 0.8 : 0.35, GLOW[g.card.kind]);
 }
 
@@ -462,20 +461,20 @@ export const auctionMode = {
     document.body.classList.add('mode-auction');
     if (!bound) {
       bound = T;
-      $('#bid-btn').addEventListener('click', () => submitBid(bound));
-      $('#pass-btn').addEventListener('click', () => submitPass(bound));
-      $('#min-btn').addEventListener('click', () => pickMin(bound));
+      $('#auction-bid-btn').addEventListener('click', () => submitBid(bound));
+      $('#auction-pass-btn').addEventListener('click', () => submitPass(bound));
+      $('#auction-min-btn').addEventListener('click', () => pickMin(bound));
     }
   },
   exit() {
     pending = null; entered = false;
     showTable(false);
     for (const b of table.bodies) { sendTo(b, 'off'); b.card = null; }
-    $('#bid-actions').hidden = true;
+    $('#auction-actions').hidden = true;
     gun.obj.visible = true;
     setDeckSize(20); gatherToDeck();
     document.body.classList.remove('mode-auction');
-    ui.setSeatDetails(null); ui.clearTopCard(); ui.setClaim('');
+    ui.setClaim('');
   },
   rebuild,
   on: { reveal, raise, pass, taken, scoring, turn },
@@ -483,7 +482,7 @@ export const auctionMode = {
     if (pending) focusOn(null);
     pending = null;
     table.ui.enabled = false; table.ui.selected.clear();
-    $('#bid-actions').hidden = true;
+    $('#auction-actions').hidden = true;
     ui.dismissCoach();
     for (let v = 1; v < 4; v++) if (T.game && !T.game.passed[T.seatAt(v)]) ui.setStatus(v, '');
   },
@@ -497,7 +496,10 @@ export const auctionMode = {
   isOut: (T, seat) => !!T.game?.scoring?.castOut[seat],
   seatHud(T) {
     const g = T.game;
-    return [0, 1, 2, 3].map((v) => { const s = T.seatAt(v); return { alive: !g.scoring?.castOut[s], cards: g.handCounts[s], pulls: 0 }; });
+    return [0, 1, 2, 3].map((v) => {
+      const s = T.seatAt(v), line = seatLine(T, s);
+      return { alive: !g.scoring?.castOut[s], cards: g.handCounts[s], pulls: 0, cnt: line, odds: line };
+    });
   },
   auto(T, msg) {
     const o = msg.options;

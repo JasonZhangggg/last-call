@@ -3,6 +3,7 @@
 //   node scripts/verify.mjs --size 390x844        phone-sized play-through
 //   node scripts/verify.mjs --soak 3              N self-playing solo games (#autoplay), fails on any error
 //   node scripts/verify.mjs --variant devil       play the Devil variant
+//   node scripts/verify.mjs --mode dice [--variant traditional]   the dice table (soak: #autoplay-dice)
 //   node scripts/verify.mjs --mode auction        The Gilded Bid (#autoplay-auction): your bid UI, a won
 //                                                 card, a disgrace, the scoring and the end; --soak works too
 // three.js is served from tools/vendor so the run works offline. Exits non-zero on page errors.
@@ -32,16 +33,19 @@ await page.route('**/*', (route) => {
   if (u.startsWith('file:')) return route.continue();
   return route.abort();
 });
-const tag = `${W}x${H}`;
+const DICE = args.mode === 'dice';
+const tag = `${W}x${H}${DICE ? `-dice${args.variant ? `-${args.variant}` : ''}` : ''}`;
 const shot = async (name) => { await page.screenshot({ path: path.join(OUT, `${tag}-${name}.png`) }); console.log(`  captured ${tag}-${name}.png`); };
 const state = () => page.evaluate(() => {
   const D = window.__lastcall?.D, g = D?.shown;
   const vis = (id) => { const el = document.getElementById(id); return !!el && !el.hidden && !el.classList.contains('fade'); };
   return {
     phase: D?.phase, me: D?.me, prompt: D?.prompt ? { type: D.prompt.type, seat: D.prompt.seat } : null, alive: g?.alive,
-    reveal: g?.reveal?.cards.map((c) => c.rank) ?? null, watch: !!D?.watch, actions: vis('actions'), trigger: vis('trigger-row'),
+    reveal: g?.reveal ? g.reveal.cards?.map((c) => c.rank) ?? [g.reveal.call] : null, watch: !!D?.watch, actions: vis('actions'), trigger: vis('trigger-row'),
     end: vis('end'), out: vis('out'), playEnabled: !document.getElementById('play-btn').disabled, liarEnabled: !document.getElementById('liar-btn').disabled,
-    hand: g?.hand.length ?? 0, queue: D?.queue.length ?? 0,
+    hand: (g?.hand ?? g?.dice)?.length ?? 0, queue: D?.queue.length ?? 0,
+    dice: vis('dice-actions'), bidOk: vis('bid-btn') && !document.getElementById('bid-btn').disabled, diceLiar: !document.getElementById('dice-liar-btn').disabled,
+    spot: vis('spot-btn') && !document.getElementById('spot-btn').disabled,
   };
 });
 const frameMs = () => page.evaluate(() => new Promise((r) => { let n = 0; const t0 = performance.now(); const f = () => (++n < 20 ? requestAnimationFrame(f) : r((performance.now() - t0) / 20)); requestAnimationFrame(f); }));
@@ -67,7 +71,7 @@ if (args.mode === 'auction') {
       const toast = document.getElementById('toast-t').textContent;
       const want = [
         ['opening', g.card && D.prompt && D.prompt.seat !== D.me && g.auction === 1],
-        ['my-turn', !document.getElementById('bid-actions').hidden],
+        ['my-turn', !document.getElementById('auction-actions').hidden],
         ['disgrace', bad(g.card) && D.prompt],
         ['won', g.won.some((w) => w.some((c) => !bad(c)))],
         ['purses', g.scoring && /poorest|tie for/.test(toast)],
@@ -90,11 +94,11 @@ if (args.mode === 'auction') {
       if (!s.cap) { await page.waitForTimeout(250); continue; }
       taken.add(s.cap);
       if (s.cap === 'my-turn') {
-        await page.click('#min-btn');
+        await page.click('#auction-min-btn');
         await page.waitForTimeout(900);
         await shot(SHOTS[s.cap]);
         await page.evaluate(() => { globalThis.__auctionHold = false; });
-        await page.click(await page.isEnabled('#bid-btn') ? '#bid-btn' : '#pass-btn');
+        await page.click(await page.isEnabled('#auction-bid-btn') ? '#auction-bid-btn' : '#auction-pass-btn');
       } else {
         await page.waitForTimeout(1300);
         await shot(SHOTS[s.cap]);
@@ -107,9 +111,18 @@ if (args.mode === 'auction') {
   if (!args.soak && !taken.has('disgrace')) console.log('  (no disgrace came up this game)');
 } else if (args.soak) {
   const games = +args.soak;
-  await page.goto(url + (args.variant === 'devil' ? '#autoplay-devil' : '#autoplay'));
+  await page.goto(url + (DICE ? (args.variant === 'traditional' ? '#autoplay-dice-traditional' : '#autoplay-dice') : args.variant === 'devil' ? '#autoplay-devil' : '#autoplay'));
   for (let i = 0; i < games; i++) {
-    await page.waitForFunction(() => { const e = document.getElementById('end'); return !e.classList.contains('fade'); });
+    // a slow software renderer can take many minutes per game, so fail on a stall, not on a clock
+    for (let last = '', still = 0; ;) {
+      const p = await page.evaluate(() => {
+        const D = window.__lastcall?.D, g = D?.shown;
+        return { end: !document.getElementById('end').classList.contains('fade'), mark: JSON.stringify([g?.round, (g?.plays ?? g?.bids)?.length, g?.pulls ?? g?.drinks, D?.queue.length, D?.prompt?.type]) };
+      });
+      if (p.end) break;
+      if (p.mark !== last) { last = p.mark; still = 0; } else if (++still > 30) throw new Error(`soak stalled at ${p.mark}`);
+      await page.waitForTimeout(10000);
+    }
     const s = await state();
     console.log(`  game ${i + 1}: ${s.alive[s.me] ? 'player won' : 'player lost'}`);
     if (i < games - 1) await page.click('#again-btn');
@@ -122,6 +135,7 @@ if (args.mode === 'auction') {
   console.log(`  frame time on title: ${(await frameMs()).toFixed(1)} ms (software renderer)`);
   await page.click('#solo-btn');
   await shown('solo');
+  if (DICE) await page.click('#solo-mode-seg button[data-v="dice"]');
   if (args.variant) await page.click(`#solo-variant-seg button[data-v="${args.variant}"]`);
   await shot('01b-solo');
   await page.click('#solo-start-btn');
@@ -132,11 +146,29 @@ if (args.mode === 'auction') {
     if (s.end) { await page.waitForTimeout(1200); await shot('99-end'); break; }
     if (s.out) { await once('out', async () => { await shown('out'); await page.waitForTimeout(400); await shot('07-out'); }); await page.click('#watch-btn'); continue; }
     if (s.watch && s.reveal) await once('reveal', () => shot('04-reveal'));
+    if (DICE && s.watch && s.reveal) await once('count', async () => { await page.waitForTimeout(2600); await shot('04c-count'); });
     if (s.watch && s.reveal?.includes('devil')) await once('devil', () => shot('04b-devil'));
     if (s.prompt?.type === 'roulette' && s.prompt.seat !== s.me && !s.watch) await once('roulette-ai', async () => { await page.waitForTimeout(1600); await shot('05-roulette-ai'); });
     if (s.trigger) {
       await once('roulette-me', async () => { await page.waitForTimeout(1200); await shot('06-roulette-me'); });
       await page.keyboard.down('Space'); await page.waitForTimeout(1000); await page.keyboard.up('Space');
+      if (DICE) await once('drink-me', async () => { await page.waitForTimeout(700); await shot('06b-drinking-me'); });
+      continue;
+    }
+    if (s.dice) {
+      await page.waitForTimeout(500);
+      await once('turn', () => shot('02-my-turn'));
+      const now = await state();
+      if (!now.dice) continue;
+      const r = Math.random();
+      if (now.spot && r < 0.12) await page.click('#spot-btn');
+      else if (now.diceLiar && (!now.bidOk || r < 0.35)) await page.click('#dice-liar-btn');
+      else {
+        await page.keyboard.press(String(2 + Math.floor(Math.random() * 5)));
+        if (Math.random() < 0.3) await page.keyboard.press('ArrowUp');
+        await once('picked', () => shot('03-picked'));
+        if ((await state()).bidOk) await page.click('#bid-btn'); else if (now.diceLiar) await page.click('#dice-liar-btn');
+      }
       continue;
     }
     if (s.actions) {

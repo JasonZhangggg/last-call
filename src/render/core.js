@@ -12,7 +12,7 @@ export const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, power
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
+renderer.toneMappingExposure = 1.24;
 export const ANISO = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 
 export const scene = new THREE.Scene();
@@ -93,18 +93,33 @@ export function applyQuality() {
 export function setQualityMode(mode) {
   quality.mode = mode; store.set('quality', mode);
   quality.rung = mode === 'auto' ? 0 : PRESETS[mode];
-  perf.acc = 0; perf.frames = 0; perf.settle = 3;
+  perf.acc = 0; perf.frames = 0; perf.slow = 0; perf.hold = 3;
   applyQuality();
 }
 
-const perf = { acc: 0, frames: 0, settle: 3 };
+/*
+ * Auto quality only ever steps down, and rarely: every step resizes the post chain (and maybe the
+ * shadow map), which is itself a hitch. A window counts as slow only when its average frame,
+ * with stalls such as a tab switch clipped out, misses ~48 fps; it takes two slow windows in a
+ * row to act, a step jumps straight to the rung predicted to hold ~55 fps, then nothing changes
+ * for a while. While the table is tense (the revolver is up) a pending step waits until it's over.
+ */
+const WINDOW = 2, SLOW = 1 / 48, AIM = 1 / 55;
+const perf = { acc: 0, frames: 0, slow: 0, hold: 3 };
+const cost = (r) => r.dpr * r.dpr * (r.post ? 1 : 0.7);
 export function adapt(dt) {
   if (quality.mode !== 'auto') return;
-  perf.acc += dt; perf.frames++;
-  if (perf.acc < 2) return;
+  perf.acc += Math.min(dt, 0.1); perf.frames++;
+  if (perf.acc < WINDOW) return;
   const avg = perf.acc / perf.frames; perf.acc = 0; perf.frames = 0;
-  if (perf.settle > 0) { perf.settle--; return; }
-  if (avg > 1 / 48 && quality.rung < RUNGS.length - 1) { quality.rung++; applyQuality(); perf.settle = 1; }
+  if (perf.hold > 0) { perf.hold--; perf.slow = 0; return; }
+  perf.slow = avg > SLOW ? perf.slow + 1 : 0;
+  if (perf.slow < 2 || quality.rung >= RUNGS.length - 1 || document.body.classList.contains('tense')) return;
+  const now = cost(RUNGS[quality.rung]);
+  let next = quality.rung + 1;
+  while (next < RUNGS.length - 1 && next < quality.rung + 3 && avg * cost(RUNGS[next]) / now > AIM) next++;
+  quality.rung = next; perf.slow = 0; perf.hold = 5;
+  applyQuality();
 }
 
 // Safety net: a post chain that yields black frames on some GPU falls back to direct rendering.

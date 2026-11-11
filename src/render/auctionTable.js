@@ -276,7 +276,7 @@ export function layoutHands(T, reservePx) {
     if (total > maxW) { const f = maxW / total; s *= f; spacing *= f; }
     const px = (2 * hh) / innerHeight;
     // between your turns the hand drops to a peek (corner numbers showing), leaving the table clear
-    const baseY = -hh + reservePx * px * (rows === 2 ? 1 : 0.7) + (CH * s) / 2 - table.peek * CH * s * (rows === 2 ? 1.1 : 0.68) - reservePx * px * 0.55 * table.peek;
+    const baseY = -hh + reservePx * px + (CH * s) / 2 - table.peek * CH * s * (rows === 2 ? 1.1 : 0.68) - reservePx * px * 0.55 * table.peek;
     for (let i = 0; i < n; i++) {
       const b = mine[i], row = rows === 2 && i >= perRow ? 1 : 0, j = row ? i - perRow : i;
       const inRow = rows === 2 ? (row ? n - perRow : perRow) : n, t = j - (inRow - 1) / 2;

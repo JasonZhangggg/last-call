@@ -26,13 +26,15 @@
 //   pointerEnabled() -> bool, pick(raycaster, current) -> id | null, hover(id), select(T, id)
 //                                3D picking of your pieces (cards, dice, ...)
 //   keydown(T, event) -> bool    keyboard shortcuts while no menu is open
-//   frame(T, reservePx)          per-frame layout (no allocations); reservePx is the HUD's bottom band
+//   frame(T, reservePx, dt)      per-frame layout (no allocations); reservePx is the HUD's bottom band,
+//                                dt the simulated step in seconds
 //
 // T gives: me, game, prompt, recap, viewChars, view(seat), seatAt(view), isMe, name, char(seat),
 // design(seat), pan(seat), step, landed, token() (changes when a rebuild cancels the flow), send(action), setActor,
 // setWatch, focusSeat, refresh() (redraws the seat HUD), eliminated() (offers Watch or Leave).
 import { deckMode } from './deck.js';
+import { diceMode } from './dice.js';
 import { auctionMode } from './auction.js';
 
-export const MODES = { deck: deckMode, auction: auctionMode };
+export const MODES = { deck: deckMode, dice: diceMode, auction: auctionMode };
 export const isPlayable = (mode) => !!MODES[mode]?.ready;

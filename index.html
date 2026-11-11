@@ -331,30 +331,29 @@ input.text::placeholder { color: var(--ink-faint); opacity: 0.5; }
   .sheet h1 { font-size: clamp(46px, 14vh, 104px); }
 }
 /* The Gilded Bid: bid controls, seat details, the card in the top chip, its rules. */
-#bid-actions .btn { min-width: 150px; }
-#bid-actions #min-btn { min-width: 0; padding: 0 16px; }
-.has-aux > .cnt, .has-aux > .pips, #me-card.has-aux > .pips, #me-card.has-aux > .odds { display: none; }
-.tag .aux { display: inline-flex; gap: 8px; align-items: center; white-space: nowrap; color: var(--ink-dim); }
-.aux b { color: var(--ink); font-weight: 700; }
-.aux .bid { color: var(--brass-hi); font-weight: 700; }
-.aux .passed { color: var(--ink-faint); font-style: italic; }
-.aux .won { display: inline-flex; gap: 5px; align-items: center; }
-.aux .won i { font-style: normal; font-weight: 700; color: var(--brass-hi); }
-.aux .won i.bad { color: var(--blood-hi); }
-.aux .won i.none { color: var(--ink-faint); font-weight: 400; }
-#me-card .aux { font-size: 13px; color: var(--ink-dim); display: grid; gap: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-#table-card.card-icon img { width: 25px; height: 35px; border-radius: 3px; background: none; box-shadow: 0 0 0 1px var(--brass), 0 2px 8px rgba(0, 0, 0, 0.5); margin-left: 7px; }
+#auction-actions .btn { min-width: 150px; }
+#auction-actions #auction-min-btn { min-width: 0; padding: 0 16px; }
+body.mode-auction .pips { display: none; }
+.auc { display: inline-flex; gap: 8px; align-items: center; white-space: nowrap; color: var(--ink-dim); }
+.auc b { color: var(--ink); font-weight: 700; }
+.auc .bid { color: var(--brass-hi); font-weight: 700; }
+.auc .passed { color: var(--ink-faint); font-style: italic; }
+.auc .won { display: inline-flex; gap: 5px; align-items: center; }
+.auc .w { font-weight: 700; color: var(--brass-hi); }
+.auc .w.bad { color: var(--blood-hi); }
+.auc .w.none { color: var(--ink-faint); font-weight: 400; font-style: italic; }
+.auc.me { display: grid; gap: 3px; font-variant-numeric: tabular-nums; }
+body.mode-auction #table-card img { width: 25px; height: 35px; border-radius: 3px; background: none; box-shadow: 0 0 0 1px var(--brass), 0 2px 8px rgba(0, 0, 0, 0.5); margin-left: 7px; }
 body.mode-auction #rules .panel:not(.auction-rules), body:not(.mode-auction) #rules .auction-rules { display: none; }
 @media (max-width: 720px) {
-  #bid-actions .btn { min-width: 0; flex: 1; padding: 0 10px; font-size: 13px; letter-spacing: 0.08em; }
-  #bid-actions { width: 100%; flex-wrap: nowrap; }
-  #bid-actions #min-btn { flex: 0 0 auto; padding: 0 12px; }
-  #me-card .aux { font-size: 11.5px; }
-  #table-card.card-icon #table-name { white-space: nowrap; font-size: 13px; letter-spacing: 0.08em; }
-  #table-card.card-icon .tc-text { min-width: 0; }
-  #table-card.card-icon #round-label { white-space: nowrap; }
-  .tag .aux { flex-direction: column; gap: 2px; }
-  #table-card.card-icon img { width: 21px; height: 29px; margin-left: 5px; }
+  #auction-actions .btn { min-width: 0; flex: 1; padding: 0 10px; font-size: 13px; letter-spacing: 0.08em; }
+  #auction-actions { width: 100%; flex-wrap: nowrap; }
+  #auction-actions #auction-min-btn { flex: 0 0 auto; padding: 0 12px; }
+  body.mode-auction #table-card #table-name { white-space: nowrap; font-size: 13px; letter-spacing: 0.08em; }
+  body.mode-auction #table-card .tc-text { min-width: 0; }
+  body.mode-auction #round-label { white-space: nowrap; }
+  .tag .auc { flex-direction: column; gap: 2px; }
+  body.mode-auction #table-card img { width: 21px; height: 29px; margin-left: 5px; }
 }
 @media (max-width: 1000px), (max-height: 560px) { #log { display: none; } }
 @media (max-width: 720px) {
@@ -434,6 +433,52 @@ body.mode-auction #rules .panel:not(.auction-rules), body:not(.mode-auction) #ru
   #lobby .sheet { gap: 10px; }
 }
 
+/* ---------- dice table ---------- */
+body.mode-dice #controls { width: min(calc(100vw - 32px), 800px); }
+#dice-actions { align-items: center; gap: 10px 12px; }
+.bid-pick { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 228, 176, 0.05); }
+.qty { display: flex; align-items: center; gap: 2px; }
+.qty .step { width: 34px; height: 40px; font: 700 21px/1 var(--body); color: var(--ink); background: rgba(255, 240, 210, 0.05); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; touch-action: manipulation; transition: border-color .2s, background .2s, opacity .2s; }
+.qty .step:hover:not(:disabled) { border-color: var(--line-strong); background: rgba(216, 164, 70, 0.12); }
+.qty .step:disabled { opacity: 0.3; cursor: default; }
+.qty output { min-width: 34px; text-align: center; font: 700 23px/1 var(--display); color: var(--brass-hi); font-variant-numeric: tabular-nums; }
+.times { color: var(--ink-faint); font-size: 17px; margin: 0 1px; }
+.faces { display: flex; gap: 3px; }
+.faces button { width: 40px; height: 40px; padding: 4px; border-radius: 9px; border: 1px solid transparent; background: transparent; cursor: pointer; touch-action: manipulation; transition: border-color .2s, background .2s, opacity .2s, transform .16s var(--ease); }
+.faces button svg { display: block; width: 100%; height: 100%; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5)); }
+.faces button:hover:not(:disabled) { background: rgba(216, 164, 70, 0.1); transform: translateY(-1px); }
+.faces button[aria-pressed=true] { border-color: var(--brass-hi); background: rgba(216, 164, 70, 0.22); box-shadow: var(--glow); }
+.faces button:disabled { opacity: 0.25; cursor: default; }
+.calls { display: flex; gap: 10px; }
+.calls .btn { min-width: 118px; padding: 0 18px; }
+#bid-btn { min-width: 176px; }
+.btn.spot { color: var(--ink); border-color: var(--brass); background: linear-gradient(180deg, rgba(70, 48, 22, 0.95), rgba(32, 20, 10, 0.95)); }
+.me-dice { display: flex; gap: 3px; }
+.me-dice svg { width: 19px; height: 19px; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6)); }
+.me-dice svg.hit { filter: drop-shadow(0 0 4px rgba(240, 198, 116, 0.95)); }
+.tag .cnt i.d { width: 8px; height: 8px; border-radius: 2px; background: linear-gradient(180deg, #f3ead6, #c9b993); border: 0; box-shadow: 0 0 0 1px rgba(60, 30, 10, 0.5); }
+#rules .dice-only, body.mode-dice #rules .deck-only, #out .dice-only, body.mode-dice #out .deck-only { display: none; }
+body.mode-dice #rules .dice-only { display: grid; }
+body.mode-dice #out .dice-only { display: inline; }
+#table-card img.die { border-radius: 8px; background: transparent; box-shadow: none; }
+@media (max-width: 720px) {
+  #dice-actions { flex-direction: column; gap: 8px; width: 100%; }
+  .bid-pick { gap: 4px; }
+  .calls { width: 100%; }
+  .calls .btn, #bid-btn { flex: 1; min-width: 0; padding: 0 8px; font-size: 13px; letter-spacing: 0.08em; }
+  #bid-btn { flex: 1.4; }
+  .faces button { width: 39px; height: 39px; padding: 3px; }
+  .me-dice svg { width: 17px; height: 17px; }
+  .tag .cnt i.d { width: 6px; height: 6px; }
+}
+@media (max-height: 500px) {
+  .faces button { width: 35px; height: 35px; padding: 3px; }
+  .qty .step { height: 35px; width: 30px; }
+  .calls .btn { min-width: 96px; padding: 0 12px; }
+  #bid-btn { min-width: 132px; }
+  .me-dice svg { width: 15px; height: 15px; }
+}
+
 /* ---------- reduced motion (set from the OS preference or the in-game toggle) ---------- */
 body.reduce-motion #toast .t.show { animation-name: toastFade; }
 body.reduce-motion :is(#flash.go, .row, .coach, .seat, #net, #timer, #timer.low b, #log li, #hint, #claim, #title-menu, .pip.fresh, #table-card.pulse, .tag.active .nm::before, #trigger-btn) { animation: none; }
@@ -460,6 +505,7 @@ body.reduce-motion .recap div { animation: none; opacity: 1; }
     <div class="me-head"><span class="nm">You</span><span class="turn" id="me-turn">Your turn</span></div>
     <div class="pips" id="me-pips" aria-hidden="true"></div>
     <div class="odds" id="me-odds">Next pull: 1 in 6</div>
+    <div class="me-dice" id="me-dice" hidden></div>
   </div>
 </div>
 <ul id="log" class="hud game-only" aria-live="polite" aria-label="Table log"></ul>
@@ -486,10 +532,22 @@ body.reduce-motion .recap div { animation: none; opacity: 1; }
     <button class="btn danger" id="liar-btn" type="button">Liar!<span class="k" aria-hidden="true">L</span></button>
     <button class="btn primary" id="play-btn" type="button"><span class="lbl">Play</span><span class="k" aria-hidden="true">Enter</span></button>
   </div>
-  <div class="row" id="bid-actions" hidden>
-    <button class="btn" id="pass-btn" type="button"><span class="lbl">Pass</span><span class="k" aria-hidden="true">P</span></button>
-    <button class="btn ghost" id="min-btn" type="button" title="Pick the cheapest bid that leads (R)">Min</button>
-    <button class="btn primary" id="bid-btn" type="button"><span class="lbl">Bid</span><span class="k" aria-hidden="true">Enter</span></button>
+  <div class="row" id="dice-actions" hidden>
+    <div class="bid-pick" role="group" aria-label="Your bid">
+      <div class="qty"><button type="button" class="step" id="qty-down" aria-label="One die fewer">&minus;</button><output id="qty-n" aria-live="polite">1</output><button type="button" class="step" id="qty-up" aria-label="One die more">+</button></div>
+      <span class="times" aria-hidden="true">&times;</span>
+      <div class="faces" id="face-pick" role="group" aria-label="Face"></div>
+    </div>
+    <div class="calls">
+      <button class="btn danger" id="dice-liar-btn" type="button">Liar!<span class="k" aria-hidden="true">L</span></button>
+      <button class="btn spot" id="spot-btn" type="button" hidden>Spot on<span class="k" aria-hidden="true">S</span></button>
+      <button class="btn primary" id="bid-btn" type="button"><span class="lbl">Bid</span><span class="k" aria-hidden="true">Enter</span></button>
+    </div>
+  </div>
+  <div class="row" id="auction-actions" hidden>
+    <button class="btn" id="auction-pass-btn" type="button"><span class="lbl">Pass</span><span class="k" aria-hidden="true">P</span></button>
+    <button class="btn ghost" id="auction-min-btn" type="button" title="Pick the cheapest bid that leads (R)">Min</button>
+    <button class="btn primary" id="auction-bid-btn" type="button"><span class="lbl">Bid</span><span class="k" aria-hidden="true">Enter</span></button>
   </div>
   <div class="row" id="trigger-row" hidden>
     <button class="btn" id="trigger-btn" type="button"><span class="fill"></span><span class="lbl">Hold to pull the trigger</span></button>
@@ -521,8 +579,8 @@ body.reduce-motion .recap div { animation: none; opacity: 1; }
   <div class="sheet">
     <h2 id="rules-h">How to play</h2>
     <div class="panel">
-      <div class="cards-demo" id="cards-demo"></div>
-      <ol class="rules">
+      <div class="cards-demo deck-only" id="cards-demo"></div>
+      <ol class="rules deck-only">
         <li><span>Each round names a <b>table card</b>: King, Queen or Ace. Everyone is dealt 5 from a deck of 6 Kings, 6 Queens, 6 Aces and 2 <b>Jokers</b>.</span></li>
         <li><span>On your turn, lay <b>1 to 3 cards</b> face down and claim they all match the table card. Jokers always match. Nobody checks unless someone calls.</span></li>
         <li><span>The next player either plays on or calls <b>Liar</b>. The cards are flipped.</span></li>
@@ -531,7 +589,22 @@ body.reduce-motion .recap div { animation: none; opacity: 1; }
         <li><span>With <b>Devil</b> rules the deck holds one Devil, played alone. If a call turns it over, everyone but its player pulls the trigger.</span></li>
         <li><span>Watch their eyes. Some of them flicker when they're nervous. Every turn has a clock; when it runs out, the house plays for you.</span></li>
       </ol>
-      <dl class="keys">
+      <ol class="rules dice-only">
+        <li><span>Everyone shakes <b>five dice</b> under a cup and peeks at their own. <b>Ones are wild</b>: they count as any face.</span></li>
+        <li><span>On your turn, bid how many dice on the <b>whole table</b> show a face, like “seven fours”. Each bid must raise the last: more dice, or as many dice of a higher face.</span></li>
+        <li><span>Or call <b>Liar</b> on the last bid. Every cup lifts and the dice are counted. Too few and the bidder loses; enough and the caller does.</span></li>
+        <li><span>The loser drinks from their own tray of six glasses. One is poisoned, and the tray is never refilled, so every glass you survive makes the next one worse.</span></li>
+        <li><span>With <b>Traditional</b> rules you may call <b>Spot on</b> instead: exactly right and everyone else drinks; wrong and you do.</span></li>
+      </ol>
+      <dl class="keys dice-only">
+        <dt><kbd>2</kbd>–<kbd>6</kbd></dt><dd>Pick the face</dd>
+        <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>More or fewer dice</dd>
+        <dt><kbd>Enter</kbd></dt><dd>Place the bid</dd>
+        <dt><kbd>L</kbd> · <kbd>S</kbd></dt><dd>Liar · Spot on</dd>
+        <dt><kbd>P</kbd> or click it</dt><dd>Peek under your cup</dd>
+        <dt>Hold <kbd>Space</kbd></dt><dd>Drink</dd>
+      </dl>
+      <dl class="keys deck-only">
         <dt><kbd>1</kbd>–<kbd>5</kbd> or click</dt><dd>Pick cards</dd>
         <dt><kbd>Enter</kbd></dt><dd>Play the picked cards</dd>
         <dt><kbd>L</kbd></dt><dd>Call Liar</dd>
@@ -659,7 +732,7 @@ body.reduce-motion .recap div { animation: none; opacity: 1; }
     <p class="kicker">Closing time, for you</p>
     <h2 id="out-h">You're out</h2>
     <div class="orn" aria-hidden="true"><i></i></div>
-    <p class="lede">The chamber wasn't empty. Stay and watch who keeps the table, or leave now.</p>
+    <p class="lede"><span class="deck-only">The chamber wasn't empty.</span><span class="dice-only">Your glass was the poisoned one.</span> Stay and watch who keeps the table, or leave now.</p>
     <div class="menu">
       <button class="btn primary" id="watch-btn" type="button">Watch the rest</button>
       <button class="btn ghost" id="out-leave-btn" type="button">Leave the table</button>

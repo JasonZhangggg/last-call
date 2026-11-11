@@ -41,7 +41,8 @@ export function buildPlayerArm() {
   const cuffAt = forearm.clone().multiplyScalar(0.15).add(wrist);
   const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.041, 0.043, 0.035, 18), linen);
   along(cuff, cuffAt, 0.035);
-  along(new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.06, 0.7, 18), cloth), cuffAt.addScaledVector(forearm, 0.03), 0.7);
+  // long enough that a reach across the table never shows the sleeve's far end
+  along(new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.07, 1.5, 18), cloth), cuffAt.addScaledVector(forearm, 0.03), 1.5);
 
   arm.grip = new THREE.Object3D(); root.add(arm.grip);
   root.position.copy(HIDE_POS); root.quaternion.copy(arm.aimQuat); root.visible = false;
