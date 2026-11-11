@@ -25,8 +25,8 @@ const active = () => page.evaluate(() => document.activeElement?.id || document.
 
 await page.goto(url);
 await page.waitForSelector('#title-menu:not([hidden])');
-check(await active() === 'start-btn', 'title focuses Take a seat');
-await page.keyboard.press('Tab'); await page.keyboard.press('Tab');
+check(await active() === 'solo-btn', 'title focuses Play solo');
+for (let i = 0; i < 4; i++) await page.keyboard.press('Tab');
 check(await active() === 'settings-btn', 'Tab reaches Settings');
 await page.keyboard.press('Enter');
 const inside = (id) => page.waitForFunction((id) => document.getElementById(id).contains(document.activeElement), id, { timeout: 15000 }).then(() => true, () => false);
@@ -54,7 +54,7 @@ await page.waitForSelector('#title-menu:not([hidden])');
 const after = await page.evaluate(() => ({ music: document.getElementById('vol-music').value, out: document.querySelector('#vol-music + output').textContent, speed: document.querySelector('#speed-seg [aria-pressed=true]')?.dataset.v, motion: document.body.classList.contains('reduce-motion'), muted: document.getElementById('sound-btn').getAttribute('aria-pressed') }));
 check(after.music === '0.4' && after.out === '40%' && after.speed === '1.5' && after.motion && after.muted === 'false', `settings persist across reload (${JSON.stringify(after)})`);
 
-await page.click('#start-btn');
+await page.click('#solo-btn'); await page.click('#solo-start-btn');
 await page.waitForFunction(() => document.body.classList.contains('in-game'));
 await page.keyboard.press('Escape');
 check(await inside('pause') && await active() === 'resume-btn', 'pause focuses Back to the table');
