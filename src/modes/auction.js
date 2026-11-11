@@ -350,7 +350,8 @@ async function taken(T, msg) {
   }
   await T.step(450);
   let d = 0;
-  paid.forEach((p, s) => p.forEach((value) => { const b = moneyBody(s, value); setTint(b, 0.85); sendTo(b, 'spent', { dur: 0.5, arc: 0.06, delay: (d += 0.06) - 0.06 }); }));
+  // spent money turns face down in the air: it needs more lift than half its length to clear the felt
+  paid.forEach((p, s) => p.forEach((value) => { const b = moneyBody(s, value); setTint(b, 0.85); sendTo(b, 'spent', { dur: 0.5, arc: 0.11, delay: (d += 0.06) - 0.06 }); }));
   for (let i = 0; i < Math.min(spent, 6); i++) setTimeout(() => audio.deal(T.pan(seat)), i * 60 + 200);
   hud(T);
   await T.step(500 + 60 * spent);
