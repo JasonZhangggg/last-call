@@ -374,6 +374,7 @@ const DESIGNS = {
         const e = new THREE.Group(); e.position.set(-0.06, 0.035, 0.132); e.rotation.y = -0.3; h.add(e);
         e.add(new THREE.Mesh(new THREE.SphereGeometry(0.027, 18, 12), eyeball));
         const iris = new THREE.Mesh(new THREE.CircleGeometry(0.015, 18), eyeMat); iris.position.z = 0.0266; e.add(iris);
+        const pupil = new THREE.Mesh(new THREE.CircleGeometry(0.0062, 14), eyeball); pupil.position.z = 0.0268; e.add(pupil);
         const lid = new THREE.Group(); e.add(lid);
         lid.add(new THREE.Mesh(new THREE.SphereGeometry(0.0292, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), skin));
         // bicorne: two felt flaps meeting at a ridge, gold-edged, with a cockade
