@@ -212,10 +212,10 @@ async function reveal(T, msg) {
   for (let s = 1; s < 4; s++) ui.setStatus(s, '');
   setGlow(0);
   // the top card of the stack; any face-down body there looks the same, so the swap can't be seen
-  // trade slots with the body lying there, so the stack keeps no hole and nothing jumps
+  // The cards above it close the gap and it takes the top: the poses drawn don't change, and the
+  // stack stays in the order the next layout expects, so nothing reflows through it later.
   if (body.place === 'deck' && body.slot !== msg.deckCount) {
-    const top = table.bodies.find((b) => b.place === 'deck' && !b.money && b.slot === msg.deckCount);
-    if (top) sendTo(top, 'deck', { k: body.slot, snap: true });
+    for (const b of table.bodies) if (b !== body && b.place === 'deck' && !b.money && b.slot > body.slot) sendTo(b, 'deck', { k: b.slot - 1, snap: true });
     sendTo(body, 'deck', { k: msg.deckCount, snap: true });
   }
   setStatusFace(body, c);
