@@ -87,7 +87,6 @@ export class Room {
   connectedClients() { return this.seats.filter((x) => x.kind === 'human' && x.connected).map((x) => x.clientId); }
   /** No person holds or can reclaim a seat: the host may discard the room. */
   isAbandoned() { return !this.seats.some((x) => x.kind === 'human' && !x.left); }
-  pendingTimer() { return this.timer ? { ...this.timer } : null; }
 
   controlled(s) { const x = this.seats[s]; return x.kind === 'human' && x.connected; }
 
