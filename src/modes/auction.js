@@ -435,7 +435,7 @@ function rebuild(T, { fresh }) {
   rig.zoomTarget = 1; rig.rollTarget = 0; focusOn(null);
   for (const b of table.bodies) setTint(b, 1);
   setGilded(gildedCount(g), false);
-  for (let s = 0; s < 4; s++) if (!T.isMe(s)) { react(T.char(s), 'out', !!g.scoring?.castOut[s]); react(T.char(s), 'reach', false); }
+  for (let s = 0; s < 4; s++) if (!T.isMe(s)) react(T.char(s), 'out', !!g.scoring?.castOut[s]);
   layoutAll(T, { snap: !entered, dur: fresh ? 0.6 : 0.4, stagger: fresh ? 0.012 : 0 });
   entered = true;
   if (g.scoring) g.scoring.castOut.forEach((x, s) => ui.setStatus(T.view(s), x ? 'cast out' : `status <b>${fmtStatus(g.scoring.status[s])}</b>`));

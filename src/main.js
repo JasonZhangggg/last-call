@@ -12,7 +12,7 @@ import { rig, updateCamera, fitToViewport, lookFromPointer, lookByDelta, centerL
 import { dampVec3 } from './render/motion.js';
 import { audio } from './audio.js';
 import * as ui from './ui.js';
-import { D, T, VIEWS, DESIGNS, lookTargetFor, catchUp, leaveTable } from './director.js';
+import { D, T, VIEWS, DESIGNS, lookTargetFor, humanLookTarget, catchUp, leaveTable } from './director.js';
 import { S, playSolo, host, join, send, close as closeTable } from './session.js';
 import { MODES, isPlayable } from './modes/index.js';
 import { CATALOG, modeLabel, variantLabel, variantNote } from './modes/catalog.js';
@@ -36,7 +36,7 @@ function simulate(dt, t) {
   for (let v = 1; v < 4; v++) {
     const ch = D.viewChars[v];
     // the gaze target glides between subjects, so a head starts turning gently instead of all at once
-    dampVec3(ch.lookTarget, lookTargetFor(v, camera, _look), lookVel[v], 0.16, dt);
+    dampVec3(ch.lookTarget, humanLookTarget(v, camera, _look) || lookTargetFor(v, camera, _look), lookVel[v], 0.16, dt);
     updateCharacter(ch, dt, t);
   }
   D.mode?.frame(T, innerWidth < 720 ? 112 : 124, dt);
@@ -47,6 +47,18 @@ function simulate(dt, t) {
   updateDiceTable(dt, t);
   camera.updateMatrixWorld();
   updateHover(dt);
+}
+
+// Online, the other seats see where your head points: about 10 times a second while it turns by
+// more than a degree, a last update once it settles, and a heartbeat so a still head stays live.
+const shared = { yaw: 0, pitch: 0, at: -Infinity };
+function shareLook() {
+  if (S.kind !== 'socket' || D.phase !== 'playing' || D.me == null) return;
+  const now = performance.now(), since = now - shared.at;
+  if (since < 100) return;
+  const moved = Math.max(Math.abs(rig.viewYaw - shared.yaw), Math.abs(rig.viewPitch - shared.pitch));
+  if (moved < 0.0175 && !(moved > 0.002 && since > 400) && since < 1500) return;
+  if (send({ type: 'look', yaw: rig.viewYaw, pitch: rig.viewPitch })) Object.assign(shared, { yaw: rig.viewYaw, pitch: rig.viewPitch, at: now });
 }
 
 // A slow frame is simulated in steps of at most 1/50 s, so motion keeps time with the director and
@@ -61,6 +73,7 @@ function frame() {
   // a probe may skip most draws so the software renderer can't starve the simulation it measures
   if (!probe || probe.draw(dt)) render(dt, t);
   placeTags();
+  shareLook();
   probe?.frame(dt);
   adapt(dt);
 }

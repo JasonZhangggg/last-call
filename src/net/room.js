@@ -11,7 +11,7 @@
 // has elapsed, move the game on) or 'auto' (a bot, a timeout, or a forced call acts for the
 // prompted seat). The timer is serialized, so a restored Room carries on where it stopped.
 import { ENGINES } from './engines.js';
-import { DEFAULT_OPTIONS, ERR, FATAL, GAME_ACTIONS, MAX_SEATS, TURN_SECONDS, cleanName, cryptoRng, parseClientMessage, randomToken } from './protocol.js';
+import { DEFAULT_OPTIONS, ERR, FATAL, GAME_ACTIONS, LOOK_BURST, LOOK_RANGE, LOOK_RATE, MAX_SEATS, TURN_SECONDS, cleanName, cryptoRng, parseClientMessage, randomToken } from './protocol.js';
 
 export const START_DELAY_MS = 500;
 export const ROULETTE_SECONDS = 20;
@@ -37,6 +37,7 @@ export class Room {
     this.onChange = deps.onChange || (() => {});
     this.engines = deps.engines || ENGINES;
     this.timerHandle = null;
+    this.lookBudget = new Map(); // clientId -> { tokens, at }: presence, never saved
     const s = saved || {
       code: deps.code ?? null, phase: 'lobby', options: { ...DEFAULT_OPTIONS },
       seats: Array.from({ length: MAX_SEATS }, () => EMPTY), host: null,
@@ -57,6 +58,8 @@ export class Room {
 
   receive(clientId, raw) {
     const { msg, error } = parseClientMessage(raw);
+    // A head turn is relayed and forgotten: no state changes, so nothing to save.
+    if (msg?.type === 'look') return this.look(clientId, msg);
     try {
       if (error) refuse(ERR.badMessage, error);
       this.dispatch(clientId, msg);
@@ -69,11 +72,27 @@ export class Room {
   }
 
   disconnect(clientId) {
+    this.lookBudget.delete(clientId);
     const s = this.seatOf(clientId);
     if (s == null) return;
     this.seats[s] = { ...this.seats[s], connected: false };
     this.afterControlChange(s);
     this.onChange();
+  }
+
+  /** Relays where a seated person is looking to everyone else. Silent when dropped. */
+  look(clientId, { yaw, pitch }) {
+    const seat = this.seatOf(clientId);
+    if (seat == null || this.phase !== 'playing') return;
+    const now = this.clock.now(), b = this.lookBudget.get(clientId) || { tokens: LOOK_BURST, at: now };
+    b.tokens = Math.min(LOOK_BURST, b.tokens + ((now - b.at) * LOOK_RATE) / 1000);
+    b.at = now;
+    this.lookBudget.set(clientId, b);
+    if (b.tokens < 1) return;
+    b.tokens -= 1;
+    const r = LOOK_RANGE, round = (v) => Math.round(v * 1000) / 1000;
+    const m = { type: 'look', seat, yaw: round(Math.max(-r.yaw, Math.min(r.yaw, yaw))), pitch: round(Math.max(-r.down, Math.min(r.up, pitch))) };
+    this.seats.forEach((x, s) => { if (s !== seat && x.kind === 'human' && x.connected) this.send(x.clientId, m); });
   }
 
   /* ---------- queries ---------- */

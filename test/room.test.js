@@ -456,3 +456,41 @@ test('the room ends cleanly when everyone leaves', () => {
   assert.equal(t.room.connectedHumans(), 0);
   assert.equal(t.clock.pending, 0);
 });
+
+test('look: relayed at once to the other people only, clamped, rate-limited, and never saved', () => {
+  let saves = 0;
+  const { t, people: [a, b, c] } = seatTable({ humans: 3, opts: [{ idle: true }, { idle: true }, { idle: true }] });
+  t.room.onChange = () => { saves++; };
+  const looks = (p) => p.log.filter((m) => m.type === 'look');
+
+  a.send({ type: 'look', yaw: 0.3, pitch: -0.2 });
+  assert.equal(looks(b).length, 0, 'nothing before the game runs');
+  a.send({ type: 'start' });
+  t.clock.advance(1);
+  saves = 0;
+  const before = b.log.length;
+  a.send({ type: 'look', yaw: 0.3, pitch: -0.2 });
+  assert.deepEqual(b.log.slice(before), [{ type: 'look', seat: a.seat, yaw: 0.3, pitch: -0.2 }], 'relayed straight away');
+  assert.deepEqual(looks(c).at(-1), { type: 'look', seat: a.seat, yaw: 0.3, pitch: -0.2 });
+  assert.equal(looks(a).length, 0, 'not echoed to the sender');
+  assert.equal(saves, 0, 'no storage write for a look');
+
+  t.clock.advance(1000);
+  a.send({ type: 'look', yaw: 9, pitch: -9 });
+  assert.deepEqual(looks(b).at(-1), { type: 'look', seat: a.seat, yaw: 1.25, pitch: -1.1 }, 'clamped to the neck range');
+  for (const bad of [{ yaw: 'left', pitch: 0 }, { yaw: NaN, pitch: 0 }, { yaw: 0 }]) {
+    a.send({ type: 'look', ...bad });
+    assert.equal(a.last('error').code, ERR.badMessage);
+  }
+  assert.equal(JSON.stringify(t.room.toJSON()).includes('look'), false, 'not part of the saved room');
+
+  // 60 a second for 2 s: about 15 a second get through, plus the burst
+  t.clock.advance(1000);
+  const n0 = looks(b).length;
+  for (let i = 0; i < 120; i++) { a.send({ type: 'look', yaw: i / 1000, pitch: 0 }); t.clock.t += 1000 / 60; }
+  const passed = looks(b).length - n0;
+  assert.ok(passed >= 30 && passed <= 34, `rate-limited to ~15/s (${passed} of 120 in 2 s)`);
+  const c0 = looks(c).length;
+  b.send({ type: 'look', yaw: 0.1, pitch: 0 });
+  assert.equal(looks(c).length, c0 + 1, 'each connection has its own budget');
+});

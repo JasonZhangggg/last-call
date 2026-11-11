@@ -34,6 +34,7 @@ export const D = {
   characters: {}, viewChars: [null, null, null, null], designOf: [],
   send: () => false, timeScale: () => 1,
   recap: null, out: false, recorded: false,
+  looks: [], // by seat: { yaw, pitch, at } from another person's `look`
 };
 const _h = new THREE.Vector3();
 
@@ -190,6 +191,8 @@ async function playState(msg) {
   ui.setCountdown(null); ui.hideActions();
   D.out = D.me != null && mode.isOut?.(T, D.me) && !fresh;
   D.hooks.onTable?.();
+  // a rebuild can land mid-ordeal (a hidden tab catching up, a reconnect): no reaction outlives it
+  for (let v = 1; v < 4; v++) resetCharacter(D.viewChars[v]);
   await mode.rebuild(T, { fresh });
   T.refresh();
   if (msg.phase === 'finished' && msg.result) return playOver(msg.result);
@@ -212,7 +215,6 @@ function enterTable(mode) {
   for (const s of others) {
     const v = view(s), ch = D.characters[D.designOf[s]];
     seatCharacter(ch, VIEWS[v].angle);
-    resetCharacter(ch);
     D.viewChars[v] = ch;
   }
   ui.resetSeats(); ui.clearLog(); ui.setClaim(''); ui.closeOverlay('end'); ui.closeOverlay('out');
@@ -248,6 +250,12 @@ export function leaveTable() {
 export function resetDirector() {
   leaveTable();
   D.latest = null; D.latestPrompt = null; D.result = null; D.me = null; D.info = []; D.options = null;
+  D.looks = [];
+}
+
+/** Another person turned their head. Presence, not a game event: it skips the queue. */
+export function setLook({ seat, yaw, pitch }) {
+  if (seat !== D.me) D.looks[seat] = { yaw, pitch, at: performance.now() };
 }
 
 async function playOver(msg) {
@@ -269,6 +277,40 @@ async function playOver(msg) {
 
 /** A refusal from the server for something you tried (a stale click, an illegal play). */
 export function refused(msg) { D.mode?.refused?.(T, msg); }
+
+const LOOK_STALE_MS = 3000;
+// How close (radians, pitch counted double so a glance at the table isn't read as a glance at
+// the person across it) a gaze must come to someone's head to count as looking at them.
+const LOOK_SNAP = 0.24;
+const _d = new THREE.Vector3(), _p = new THREE.Vector3();
+const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+
+/**
+ * Where the person in view `v` is looking, from their last `look`, or null when no person is
+ * there or they've gone quiet (left, hidden tab). Every table has the same layout, turned so its
+ * own person sits at the camera, and the seats aren't evenly spaced, so the bare angle would point
+ * between people here. Instead, rebuild their gaze at their own table: aimed at someone there, it
+ * aims at that same seat here; otherwise it keeps its angle from their seat.
+ */
+export function humanLookTarget(v, camera, out) {
+  const s = seatAt(v), l = D.looks[s], info = D.info[s];
+  if (!l || info?.kind !== 'human' || !info.connected || performance.now() - l.at > LOOK_STALE_MS) return null;
+  let best = LOOK_SNAP, hit = 0;
+  for (let u = 1; u < 4; u++) {
+    _p.subVectors(headWorld(D.viewChars[u], _p), rig.seat);
+    const yaw = Math.atan2(-_p.x, -_p.z), pitch = Math.atan2(_p.y, Math.hypot(_p.x, _p.z));
+    const miss = Math.hypot(wrap(yaw - l.yaw), 2 * (pitch - l.pitch));
+    if (miss < best) { best = miss; hit = u; }
+  }
+  if (hit) {
+    const o = (s + hit) % 4;
+    return o === D.me ? out.copy(camera.position) : headWorld(T.char(o), out);
+  }
+  const ch = D.viewChars[v], c = Math.cos(l.pitch);
+  // a character's +z faces the table, so its left is +x
+  _d.set(Math.sin(l.yaw) * c, Math.sin(l.pitch), Math.cos(l.yaw) * c).applyQuaternion(ch.group.quaternion);
+  return headWorld(ch, out).addScaledVector(_d, 2);
+}
 
 /** Where character `v` (a view) should look this frame. */
 export function lookTargetFor(v, camera, out) {
