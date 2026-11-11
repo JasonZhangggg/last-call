@@ -19,7 +19,7 @@ const raycaster = new THREE.Raycaster();
 const pointer = { ndc: new THREE.Vector2(9, 9), moved: false, idle: 0, touch: false, touchLook: null };
 const _v = new THREE.Vector3(), _look = new THREE.Vector3();
 const lookVel = [null, {}, {}, {}];
-// Procedural motion runs on simulated time: dt is clamped after a hitch, and a wall clock that
+// Procedural motion runs on simulated time: dt is clamped after a long stall, and a wall clock that
 // kept running would make every sway, breath and flicker jump forward in that frame.
 let simT = 0;
 const EMPTY_GAME = { players: [0, 1, 2, 3].map((seat) => ({ seat, hand: [] })) };
@@ -43,16 +43,15 @@ function simulate(dt, t) {
   updateHover(dt);
 }
 
-// scripts/motion-probe.mjs sets hooks.probe to sample motion at a finer step than the frame rate.
+// A slow frame is simulated in steps of at most 1/50 s, so motion keeps time with the director and
+// the audio (both on the wall clock) down to 4 fps; only a longer stall is dropped.
+// scripts/motion-probe.mjs sets hooks.probe to sample every step at a finer rate.
 const hooks = { probe: null };
 function frame() {
-  const probe = hooks.probe, dt = Math.min(clock.getDelta(), probe ? probe.maxDt : 1 / 20), t0 = simT;
+  const probe = hooks.probe, dt = Math.min(clock.getDelta(), probe ? probe.maxDt : 0.25), t0 = simT;
   simT += dt;
-  const t = simT;
-  if (probe) {
-    const n = Math.max(1, Math.ceil(dt * probe.hz));
-    for (let i = 1; i <= n; i++) { simulate(dt / n, t0 + (dt * i) / n); probe.sample(dt / n); }
-  } else simulate(dt, t);
+  const t = simT, n = Math.max(1, Math.ceil(dt * (probe ? probe.hz : 50) - 1e-6));
+  for (let i = 1; i <= n; i++) { simulate(dt / n, t0 + (dt * i) / n); probe?.sample(dt / n); }
   // a probe may skip most draws so the software renderer can't starve the simulation it measures
   if (!probe || probe.draw(dt)) render(dt, t);
   placeTags();
