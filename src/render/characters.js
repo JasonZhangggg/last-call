@@ -521,7 +521,7 @@ export function buildCharacter(designKey, angle) {
     glow: glowMats.map((m) => ({ m, base: m.emissiveIntensity })),
     eyeMat: face.eyes[0].material,
     lookTarget: new THREE.Vector3(),
-    yaw: 0, pitch: 0, lv: {}, phase: Math.random() * 6, blinkAt: rand(1, 4), blink: 0, flicker: 0,
+    yaw: 0, pitch: 0, lv: {}, phase: Math.random() * 6, breath: 0, blinkAt: rand(1, 4), blink: 0, flicker: 0,
     flinchT: Infinity, flinchFrom: 0,
     env: { lean: 0, tremble: 0, flinch: 0, relief: 0, out: 0, aim: 0, reach: 0, hold: 0, grip: 0 },
     target: { lean: 0, tremble: 0, relief: 0, out: 0, aim: 0, reach: 0 },
@@ -622,7 +622,9 @@ function poseArms(ch, t) {
   pos.y += Math.sin(t * 0.9 + ch.phase) * 0.0015 * live;
   if (E.reach > 0.001) {
     _p1.copy(ch.reachTarget).applyMatrix4(_m2);
-    basis(_p2.set(0, -1, 0), _s1.set(_p1.x + SHOULDER, 0, _p1.z + 0.01), _q1);
+    // thumb up and the back of the hand turned out, so the revolver lying on its side turns well
+    // under 180 degrees on its way into the palm (a half turn would leave its path ambiguous)
+    basis(_p2.set(1, -0.3, 0), _s1.set(_p1.x + SHOULDER, 0, _p1.z + 0.01), _q1);
     pos.lerp(_p1.add(_s1.set(0, 0.02, 0)), E.reach); quat.slerp(_q1, E.reach);
   }
   if (E.aim > 0.001) {
@@ -654,11 +656,16 @@ const smoothstep = (a, b, v) => { const u = clamp((v - a) / (b - a), 0, 1); retu
 
 export function updateCharacter(ch, dt, t) {
   const E = ch.env, T = ch.target, vel = ch.vel;
-  // the right hand closes as it arrives at the revolver and stays closed while it holds it
-  const holding = ch.grip.children.length > 0;
-  const grip = holding || T.aim ? 1 : T.reach ? smoothstep(0.45, 0.9, E.reach) : 0;
+  // The right hand closes as it arrives at the revolver and stays closed while it holds it. While
+  // the revolver is still flying into the palm the hand waits where it reached, and only then
+  // raises it; swinging the target round mid-flight can flip the flight's rotation path.
+  const held = ch.grip.children[0], settling = !!held && held.position.lengthSq() > 1e-10;
+  const grip = held || T.aim ? 1 : T.reach ? smoothstep(0.45, 0.9, E.reach) : 0;
   const hold = ch.handAnchor.children.length > 0 && !T.out ? 1 : 0;
-  for (const k in SMOOTH) E[k] = clamp(smoothDamp(E[k], k === 'grip' ? grip : k === 'hold' ? hold : T[k], vel, k, SMOOTH[k], dt), 0, 1);
+  for (const k in SMOOTH) {
+    const goal = k === 'grip' ? grip : k === 'hold' ? hold : k === 'reach' ? +(T.reach || settling) : k === 'aim' ? +(T.aim && !settling) : T[k];
+    E[k] = clamp(smoothDamp(E[k], goal, vel, k, SMOOTH[k], dt), 0, 1);
+  }
   ch.flinchT += dt;
   E.flinch = ch.flinchT < 3 ? flinchAt(ch.flinchT, ch.flinchFrom) : 0;
   const live = 1 - E.out;
@@ -670,7 +677,9 @@ export function updateCharacter(ch, dt, t) {
 
   const jitter = E.tremble * live;
   const tx = (Math.sin(t * 47) + Math.sin(t * 31.3)) * 0.004 * jitter;
-  const breath = Math.sin(t * (1.7 + jitter * 2) + ch.phase);
+  // integrate the phase: scaling t by a changing rate would race the phase and shake the body
+  ch.breath += dt * (1.7 + jitter * 2);
+  const breath = Math.sin(ch.breath + ch.phase);
   ch.neck.rotation.y = ch.yaw * live * (1 - E.aim * 0.65) + tx * 2 + E.out * 0.25;
   ch.head.rotation.x = ch.pitch * 0.7 * live + E.out * 0.75 - E.flinch * 0.085 + E.relief * -0.12;
   ch.head.rotation.z = E.out * 0.32 + Math.sin(t * 0.7 + ch.phase) * 0.02 * live + tx * 2.5;
