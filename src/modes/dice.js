@@ -584,7 +584,7 @@ function rebuild(T, { fresh }) {
   armHide();
   audio.setTension(0); ui.setTense(false);
   rig.leanTarget = 0; rig.zoomTarget = 1; rig.rollTarget = 0; focusOn(null);
-  for (let s = 0; s < 4; s++) if (!T.isMe(s)) { const ch = T.char(s); react(ch, 'reach', false); react(ch, 'tremble', false); react(ch, 'out', !g.alive[s]); }
+  for (let s = 0; s < 4; s++) if (!T.isMe(s)) react(T.char(s), 'out', !g.alive[s]);
   const revealed = g.reveal && g.bids.length;
   for (let v = 0; v < 4; v++) {
     const s = viewSeat(T, v), n = fresh ? 5 : g.diceCounts[s];

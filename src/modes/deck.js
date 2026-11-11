@@ -242,11 +242,11 @@ async function roulette(T, msg) {
 /** The revolver comes up, the drum spins, the heart starts pounding. */
 async function buildUp(T, seat) {
   if (holder === seat) return;
-  const human = T.isMe(seat), ch = T.char(seat), token = T.token();
+  const human = T.isMe(seat), token = T.token();
   audio.setTension(1); ui.setTense(true);
   ui.toast(`${human ? 'You' : T.name(seat)} ${verb(T, seat, 'pick', 'picks')} up the revolver`, 'small');
   if (human) { rig.rollTarget = 0.05; focusOn(null); centerLook(0.5); rig.zoomTarget = 1.05; }
-  else { T.setWatch(null); T.focusSeat(seat, 0.8); rig.zoomTarget = 1.3; react(ch, 'tremble'); }
+  else { T.setWatch(null); T.focusSeat(seat, 0.8); rig.zoomTarget = 1.3; }
   if (holder != null) await putDownGun(T, holder);
   holder = seat;
   await takeUpGun(T, seat);
@@ -280,7 +280,7 @@ async function takeUpGun(T, seat) {
     // lean in and lay the hand on it as it lies; the fingers close, then the arm brings it up
     ch.reachTarget.copy(_g); lieAt(_g, ch.reachQuat); react(ch, 'reach'); react(ch, 'lean');
     await settled(T, () => ch.env.reach > 0.94);
-    gunToGrip(ch.grip); react(ch, 'reach', false); react(ch, 'lean', false); react(ch, 'aim');
+    gunToGrip(ch.grip); react(ch, 'reach', false); react(ch, 'lean', false); react(ch, 'aim'); react(ch, 'tremble');
     await T.landed(gun.mover);
     await T.step(450);
   } else {
@@ -306,7 +306,7 @@ async function putDownGun(T, seat) {
   } else if (ch.grip) {
     // lowered onto the spot it was taken from and laid as it lay, before the hand lets go
     ch.group.getWorldPosition(_g); slideSpotFor(_g.x, _g.z, ch.reachTarget); lieAt(ch.reachTarget, ch.reachQuat);
-    react(ch, 'aim', false); react(ch, 'reach');
+    react(ch, 'aim', false); react(ch, 'tremble', false); react(ch, 'reach');
     await settled(T, () => ch.env.reach > 0.94 && ch.env.aim < 0.04);
     gunSetDown();
     await T.landed(gun.mover);

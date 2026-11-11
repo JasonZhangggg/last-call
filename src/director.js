@@ -191,6 +191,8 @@ async function playState(msg) {
   ui.setCountdown(null); ui.hideActions();
   D.out = D.me != null && mode.isOut?.(T, D.me) && !fresh;
   D.hooks.onTable?.();
+  // a rebuild can land mid-ordeal (a hidden tab catching up, a reconnect): no reaction outlives it
+  for (let v = 1; v < 4; v++) resetCharacter(D.viewChars[v]);
   await mode.rebuild(T, { fresh });
   T.refresh();
   if (msg.phase === 'finished' && msg.result) return playOver(msg.result);
@@ -213,7 +215,6 @@ function enterTable(mode) {
   for (const s of others) {
     const v = view(s), ch = D.characters[D.designOf[s]];
     seatCharacter(ch, VIEWS[v].angle);
-    resetCharacter(ch);
     D.viewChars[v] = ch;
   }
   ui.resetSeats(); ui.clearLog(); ui.setClaim(''); ui.closeOverlay('end'); ui.closeOverlay('out');
