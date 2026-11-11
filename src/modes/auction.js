@@ -212,7 +212,12 @@ async function reveal(T, msg) {
   for (let s = 1; s < 4; s++) ui.setStatus(s, '');
   setGlow(0);
   // the top card of the stack; any face-down body there looks the same, so the swap can't be seen
-  if (body.place === 'deck') sendTo(body, 'deck', { k: msg.deckCount, snap: true });
+  // trade slots with the body lying there, so the stack keeps no hole and nothing jumps
+  if (body.place === 'deck' && body.slot !== msg.deckCount) {
+    const top = table.bodies.find((b) => b.place === 'deck' && !b.money && b.slot === msg.deckCount);
+    if (top) sendTo(top, 'deck', { k: body.slot, snap: true });
+    sendTo(body, 'deck', { k: msg.deckCount, snap: true });
+  }
   setStatusFace(body, c);
   body.place = 'flight';
   audio.deal();
@@ -436,6 +441,8 @@ function rebuild(T, { fresh }) {
   for (const b of table.bodies) setTint(b, 1);
   setGilded(gildedCount(g), false);
   for (let s = 0; s < 4; s++) if (!T.isMe(s)) react(T.char(s), 'out', !!g.scoring?.castOut[s]);
+  // coming in, money is dealt off the top of the stack, not out of wherever it was parked
+  if (!entered) for (const b of table.bodies) if (b.money) sendTo(b, 'deck', { k: table.bodies.length - STATUS_BASE + b.i, snap: true });
   layoutAll(T, { snap: !entered, dur: fresh ? 0.6 : 0.4, stagger: fresh ? 0.012 : 0 });
   entered = true;
   if (g.scoring) g.scoring.castOut.forEach((x, s) => ui.setStatus(T.view(s), x ? 'cast out' : `status <b>${fmtStatus(g.scoring.status[s])}</b>`));
