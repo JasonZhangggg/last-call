@@ -219,7 +219,7 @@ const DESIGNS = {
     const dialMat = standard({ color: 0xe8dcbc, roughness: 0.5, emissive: 0x2a2010, emissiveIntensity: 0.3 });
     return {
       sleeve: body, hand: body, arm: { shoulder: 0.055, elbow: 0.046, wrist: 0.036, gap: 0.012 }, handOpts: { palm: [0.044, 0.046, 0.021], r: 0.0088 }, temple: V(-0.146, 0.06, 0.03),
-      tint: [body, iron, copper, dialMat, shutter],
+      tint: [body, iron, copper, dialMat, shutter], noShadow: [dialMat, copper],
       cuff(k, el, wr) { k.add(iron, ring(V(0, wr.y + 0.012, 0), V(0, 1, 0), 0.039, 0.0075)); },
       torso(k, up) {
         k.add(body, lathe([[0, -0.3], [0.16, -0.3], [0.19, -0.22], [0.215, -0.05], [0.225, 0.12], [0.2, 0.26], [0.15, 0.33], [0.075, 0.37], [0, 0.375]], 36, [0, 0, 0], [0, 0, 0], [1.08, 1, 0.86]));
@@ -289,7 +289,7 @@ const DESIGNS = {
     const gemMat = standard({ color: 0x0a3a38, emissive: 0x2fd6c0, emissiveIntensity: 1.2, roughness: 0.1 });
     return {
       sleeve: velvet, hand: porcelain, arm: { shoulder: 0.045, elbow: 0.037, wrist: 0.03, gap: 0.016 }, handOpts: { palm: [0.036, 0.042, 0.016], r: 0.0072 }, temple: V(-0.143, 0.045, 0.03),
-      tint: [velvet, velvetDark, lace, porcelain, mask, pearl, hat, ribbon, plume],
+      tint: [velvet, velvetDark, lace, porcelain, mask, pearl, hat, ribbon, plume], noShadow: [pearl, mats.brass, ribbon, plume, plumeDark],
       torso(k) {
         k.add(velvet, lathe([[0, -0.3], [0.18, -0.3], [0.185, -0.22], [0.145, -0.1], [0.15, 0.0], [0.178, 0.12], [0.17, 0.24], [0.13, 0.32], [0.06, 0.37], [0, 0.375]], 36, [0, 0, 0], [0, 0, 0], [1.1, 1, 0.84]));
         // capelet with a scalloped hem
@@ -374,7 +374,7 @@ const DESIGNS = {
     const front = (x, y) => Math.sqrt(Math.max(0, 1 - (x / (R(y) * SX)) ** 2)) * R(y) * SZ;
     return {
       sleeve: coat, hand: skin, arm: { shoulder: 0.06, elbow: 0.05, wrist: 0.04, gap: 0.018 }, handOpts: { palm: [0.046, 0.05, 0.022], r: 0.0098 }, temple: V(-0.156, 0.065, 0.025),
-      tint: [coat, facing, skin, beard, linen, felt],
+      tint: [coat, facing, skin, beard, linen, felt], noShadow: [mats.brass, linen],
       torso(k) {
         k.add(coat, lathe([[0, -0.3], [0.2, -0.3], [0.215, -0.2], [0.225, -0.05], [0.228, 0.12], [0.215, 0.24], [0.17, 0.32], [0.08, 0.38], [0, 0.385]], 36, [0, 0, 0], [0, 0, 0], [SX, 1, SZ]));
         // lapels: red facings in a V, edged in gold
@@ -472,6 +472,9 @@ function frame(y, z, out = new THREE.Quaternion()) {
   return out.setFromRotationMatrix(_m1.makeBasis(_x, _y, _z));
 }
 
+/** Every kit mesh receives shadows; only the parts big enough to throw a visible one cast them. */
+function dress(meshes, design) { for (const m of meshes) { m.receiveShadow = true; m.castShadow = !design.noShadow?.includes(m.material); } }
+
 /** Two bone groups and a hand bone hung under `upper` at shoulder `at`, posed by solveArm(). */
 function buildArm(upper, at, design, handMesh) {
   const A = design.arm, O = V(0, 0, 0);
@@ -486,7 +489,7 @@ function buildArm(upper, at, design, handMesh) {
   const end = -L2 + A.gap, rIn = A.wrist * 0.8;
   kf.add(design.sleeve, lathe([[0, end + 0.035], [rIn, end + 0.035], [rIn, end + 0.003], [(rIn + A.wrist) / 2, end - 0.0015], [A.wrist, end + 0.003], [A.wrist + (A.elbow - A.wrist) * 0.12, end + L2 * 0.12], [A.elbow, -0.002], [A.elbow * 0.5, 0.012]], 18));
   design.cuff(kf, O, V(0, end, 0));
-  for (const [kit, bone] of [[ka, uArm], [kf, fArm]]) for (const m of kit.build(bone, { cast: true })) m.receiveShadow = true;
+  for (const [kit, bone] of [[ka, uArm], [kf, fArm]]) dress(kit.build(bone), design);
   hand.add(handMesh);
   return { upper: uArm, fore: fArm, hand, handMesh, pos: V(0, 0, 0), quat: new THREE.Quaternion() };
 }
@@ -515,17 +518,19 @@ export function buildCharacter(designKey, angle) {
   const neck = new THREE.Group(); neck.position.y = 0.36; upper.add(neck);
   const head = new THREE.Group(); head.position.y = 0.14; neck.add(head);
 
+  // the morphed hands get their own copy of the hand material: three rebuilds a material's program
+  // state every time it alternates between morphed and plain meshes
+  const handMat = design.hand.clone();
   const ku = new Kit(), kh = new Kit();
   const parts = design.torso(ku, upper) || {};
   if (parts.gem) upper.add(parts.gem);
   const face = design.head(kh, head, neck);
-  for (const m of ku.build(upper, { cast: true })) m.receiveShadow = true;
-  for (const m of kh.build(head, { cast: true })) m.receiveShadow = true;
+  dress(ku.build(upper), design); dress(kh.build(head), design);
 
   // Left arm: rests on the table edge, rises to hold the fan while it has cards. handAnchor hangs
   // off the hand at the fan's pivot; in the holding pose its frame is the upper body's own.
   const left = buildArm(upper, V(SHOULDER, 0.245, -0.01), design,
-    morphHand(handGeometry(design.handOpts, LEFT_OPEN), handGeometry(design.handOpts, LEFT_FAN), design.hand, true));
+    morphHand(handGeometry(design.handOpts, LEFT_OPEN), handGeometry(design.handOpts, LEFT_FAN), handMat, true));
   const fanPose = new THREE.Matrix4().compose(FAN_AT, FAN_FRAME, V(1, 1, 1)).multiply(new THREE.Matrix4().compose(LEFT_GRIP.p, quatE(0, 0, LEFT_GRIP.roll), V(1, 1, 1)));
   const fan = { pos: V(0, 0, 0), quat: new THREE.Quaternion() };
   fanPose.decompose(fan.pos, fan.quat, _a);
@@ -535,7 +540,7 @@ export function buildCharacter(designKey, angle) {
   new THREE.Matrix4().copy(fanPose).invert().multiply(new THREE.Matrix4().makeTranslation(FAN_AT.x, FAN_AT.y, FAN_AT.z)).decompose(handAnchor.position, handAnchor.quaternion, handAnchor.scale);
 
   // Right arm: shoulder, upper arm, forearm and the revolver hand, posed every frame by two-bone IK.
-  const right = buildArm(upper, V(-SHOULDER, 0.245, -0.01), design, revolverHand(design.handOpts, design.hand));
+  const right = buildArm(upper, V(-SHOULDER, 0.245, -0.01), design, revolverHand(design.handOpts, handMat));
   const grip = new THREE.Object3D(); right.hand.add(grip);
 
   // Aim in head space: barrel level and pointing into the temple, the muzzle 3 cm off it.
@@ -546,7 +551,7 @@ export function buildCharacter(designKey, angle) {
   const chair = new THREE.Mesh(chairGeometry(), mats.chair); chair.castShadow = true; chair.receiveShadow = true; group.add(chair);
 
   const glowMats = [...new Set([face.eyes[0].material, ...face.extraGlow])];
-  const tints = design.tint.map((m) => ({ m, base: m.color.clone(), sheen: m.sheenColor?.clone() }));
+  const tints = [...design.tint, handMat].map((m) => ({ m, base: m.color.clone(), sheen: m.sheenColor?.clone() }));
   return {
     group, waist, upper, neck, head, eyes: face.eyes, handAnchor, leftHand: left.hand,
     arm: right, leftArm: left, fan, fanUp, aimLocal, grip, reachTarget: new THREE.Vector3(), reachQuat: new THREE.Quaternion(),
@@ -660,7 +665,7 @@ export function poseRightHand(ch, pos, quat) {
 
 function poseArms(ch, t) {
   const E = ch.env, live = 1 - E.out;
-  ch.group.updateMatrixWorld(true);
+  ch.head.updateWorldMatrix(true, false);
   _m2.copy(ch.upper.matrixWorld).invert();
 
   const arm = ch.arm, pos = arm.pos, quat = arm.quat;
@@ -706,6 +711,8 @@ function poseArms(ch, t) {
   if (E.out > 0.001) { la.pos.lerp(LEFT_LIMP.pos, E.out); la.quat.slerp(LEFT_LIMP.quat, E.out); }
   solveArm(la, LEFT_WRIST, _pole.set(1, -0.75, -0.25).normalize());
   la.handMesh.morphTargetInfluences[0] = E.hold;
+  // movers parented to the hands read these world matrices for their velocity
+  ch.handAnchor.updateWorldMatrix(true, false); ch.grip.updateWorldMatrix(true, false);
 }
 
 // Smoothing time per envelope (s): about how long it takes to arrive, leaving and landing at rest.

@@ -171,16 +171,19 @@ export function buildDiceTable() {
   M.halo = instancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), haloMat, PER_SEAT * 4);
   M.halo.renderOrder = 1;
   M.cup = instancedMesh(cup.leather, leather, 4, { cast: true, receive: true });
-  M.cupBrass = instancedMesh(cup.brass, mats.brass, 4, { cast: true });
+  // instanced copies of shared materials: three rebuilds a material's program state each time it
+  // alternates between instanced and plain meshes
+  const brass = mats.brass.clone();
+  M.cupBrass = instancedMesh(cup.brass, brass, 4, { cast: true });
   M.trayWood = instancedMesh(tray.wood, trayWood, 4, { receive: true, cast: true });
-  M.trayBrass = instancedMesh(tray.brass, mats.brass, 4);
+  M.trayBrass = instancedMesh(tray.brass, brass, 4);
   M.liquid = instancedMesh(gl.liquid, liquidMat, GLASSES * 4);
   M.glass = instancedMesh(gl.glass, glassMat, GLASSES * 4);
   M.liquid.renderOrder = 2; M.glass.renderOrder = 3;
 
   const held = table.held = new THREE.Group();
   const heldLiquid = table.heldLiquid = new THREE.Mesh(gl.liquid, liquidMat.clone());
-  const heldGlass = new THREE.Mesh(gl.glass, glassMat);
+  const heldGlass = new THREE.Mesh(gl.glass, glassMat.clone());
   heldLiquid.renderOrder = 2; heldGlass.renderOrder = 3;
   held.add(heldLiquid, heldGlass); held.visible = false; g.add(held);
   table.heldMover = new Mover(held, g); table.heldMover.smooth = table.heldMover.rotSmooth = 0.06;
