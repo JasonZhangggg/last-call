@@ -12,7 +12,7 @@ export const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, power
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
+renderer.toneMappingExposure = 1.24;
 export const ANISO = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 
 export const scene = new THREE.Scene();
