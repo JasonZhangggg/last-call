@@ -178,7 +178,7 @@ export function pullTrigger(game, seat) {
     game.starter = firstAliveFrom(game, startFrom);
     game.phase = 'between';
   }
-  return { seat, fired, pulls: p.pulls, oddsBefore: 1 / (CHAMBERS - p.pulls + 1), next: game.pending?.seat ?? null };
+  return { seat, fired, pulls: p.pulls, oddsBefore: 1 / (CHAMBERS - p.pulls + 1) };
 }
 
 export const winner = (game) => (game.phase === 'over' ? alive(game)[0]?.seat ?? null : null);
