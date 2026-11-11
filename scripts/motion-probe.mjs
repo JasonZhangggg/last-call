@@ -51,7 +51,7 @@ await page.evaluate(({ HZ, THRESH }) => {
   const L = window.__lastcall, D = L.D;
   const R = { spikes: {}, maxDv: {}, worst: [], hoverLog: [], frames: [], tagLag: [], hoverChanges: {}, programs0: L.renderer.info.programs.length, textures0: L.renderer.info.memory.textures, t: 0 };
   window.__probe = R;
-  const seg = () => window.__probeSeg || (D.game ? (D.game.phase === 'between' ? 'deal' : D.game.phase === 'turn' ? (D.watch ? 'reveal' : 'play') : D.game.phase) : 'title');
+  const seg = () => window.__probeSeg || (D.shown ? (D.prompt?.type === 'roulette' ? 'roulette' : D.watch ? (D.shown.reveal ? 'reveal' : 'deal') : 'play') : 'title');
   const tracks = new Map();
   const track = (key, cat, read) => tracks.set(key, { cat, read, p: null, v: null, n: 0 });
   const posOf = (o) => (out) => { o.updateWorldMatrix(true, false); const e = o.matrixWorld.elements; out[0] = e[12]; out[1] = e[13]; out[2] = e[14]; };
@@ -124,15 +124,15 @@ await page.evaluate(({ HZ, THRESH }) => {
 }, { HZ, THRESH });
 
 const state = () => page.evaluate(() => {
-  const D = window.__lastcall.D, g = D.game;
+  const D = window.__lastcall.D, g = D.shown, p = D.prompt;
   const vis = (id) => { const el = document.getElementById(id); return !!el && !el.hidden && !el.classList.contains('fade'); };
-  return { phase: g?.phase, round: g?.round, pending: g?.pending?.seat ?? null, alive: g?.players.map((p) => p.alive), actions: vis('actions'), trigger: vis('trigger-row'), end: vis('end'), liarEnabled: !document.getElementById('liar-btn').disabled, playEnabled: !document.getElementById('play-btn').disabled };
+  return { phase: p?.type ?? (g ? 'between' : undefined), round: g?.round, pending: p?.type === 'roulette' ? p.seat : null, alive: g?.alive, actions: vis('actions'), trigger: vis('trigger-row'), end: vis('end'), liarEnabled: !document.getElementById('liar-btn').disabled, playEnabled: !document.getElementById('play-btn').disabled };
 });
 const setSeg = (s) => page.evaluate((s) => { window.__probeSeg = s; }, s);
 const glide = async (x, y, ms = 350) => { await page.mouse.move(x, y, { steps: Math.max(2, Math.round(ms / 16)) }); };
 
 await page.mouse.move(W / 2, H / 2);
-await page.click('#start-btn');
+await page.click('#solo-btn'); await page.click('#solo-start-btn');
 const t0 = Date.now();
 let looked = false, sawRoulette = false, liarCalled = false;
 let lastLog = '';

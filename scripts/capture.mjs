@@ -46,7 +46,7 @@ if (what === 'all' || what === 'menus') {
     await page.keyboard.press('Escape'); await page.waitForTimeout(900);
     await page.click('#rules-btn'); await shown(page, 'rules'); await page.waitForTimeout(300); await shot(page, '03-rules');
     await page.keyboard.press('Escape'); await page.waitForTimeout(900);
-    await page.click('#start-btn');
+    await page.click('#solo-btn'); await page.click('#solo-start-btn');
     await page.waitForFunction(() => document.body.classList.contains('in-game'));
     await page.waitForTimeout(2500);
     await page.keyboard.press('Escape'); await shown(page, 'pause'); await page.waitForTimeout(300); await shot(page, '04-pause');
@@ -58,12 +58,12 @@ if (what === 'hud') {
   const [w, h] = (process.argv[5] || '960x540').split('x').map(Number);
   const page = await open(w, h);
   await page.waitForSelector('#title-menu:not([hidden])');
-  await page.click('#start-btn');
+  await page.click('#solo-btn'); await page.click('#solo-start-btn');
   const got = {};
   const once = async (k, fn) => { if (!got[k]) { got[k] = true; await fn(); } };
   for (let i = 0; i < 900 && Object.keys(got).length < 5; i++) {
-    const st = await page.evaluate(() => { const g = window.__lastcall?.D?.game; return { phase: g?.phase, pending: g?.pending?.seat ?? null, thinking: !!document.querySelector('.tag .status .dots'), bubble: !!document.querySelector('.bubble.show'), claim: !!document.getElementById('claim').textContent }; });
-    if (st.thinking && st.claim) await once('think', async () => { console.log('  state', await page.evaluate(() => ({ phase: window.__lastcall.D.game.phase, turn: window.__lastcall.D.game.turn, me: document.getElementById('me-card').className, tags: [...document.querySelectorAll('.tag')].map((t) => t.className) }))); await shot(page, '10-ai-thinking'); });
+    const st = await page.evaluate(() => { const p = window.__lastcall?.D?.prompt; return { phase: p?.type, pending: p?.seat ?? null, thinking: !!document.querySelector('.tag .status .dots'), bubble: !!document.querySelector('.bubble.show'), claim: !!document.getElementById('claim').textContent }; });
+    if (st.thinking && st.claim) await once('think', async () => { console.log('  state', await page.evaluate(() => ({ phase: window.__lastcall.D.prompt?.type, turn: window.__lastcall.D.prompt?.seat, me: document.getElementById('me-card').className, tags: [...document.querySelectorAll('.tag')].map((t) => t.className) }))); await shot(page, '10-ai-thinking'); });
     if (st.bubble) await once('bubble', () => shot(page, '12-bubble'));
     if (st.phase === 'roulette' && st.pending !== 0) await once('gun', async () => { await page.waitForTimeout(1200); await shot(page, '13-roulette-ai'); });
     if (await vis(page, 'trigger-row')) { await once('trig', async () => { await page.waitForTimeout(800); await shot(page, '14-trigger'); }); await page.keyboard.down('Space'); await page.waitForTimeout(1000); await page.keyboard.up('Space'); continue; }

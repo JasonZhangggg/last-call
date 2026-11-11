@@ -269,7 +269,67 @@ input[type=range]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--
 #blackout.on { opacity: 1; }
 #fatal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; text-align: center; padding: 24px; background: var(--night); }
 
+/* ---------- table sheets: solo, join, lobby, out ---------- */
+#solo .sheet, #enter .sheet { width: min(100%, 520px); }
+#lobby .sheet { width: min(100%, 560px); gap: 14px; }
+.code-row { display: grid; gap: 10px; justify-items: center; }
+.lobby-panel .col { display: grid; gap: 12px; align-content: start; }
+@media (min-width: 760px) and (max-height: 720px) {
+  #lobby .sheet { width: min(100%, 940px); }
+  .lobby-panel { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 26px; }
+  .lobby-panel .field { grid-template-columns: 1fr; gap: 6px; }
+  .code-row { grid-template-columns: auto auto auto; align-items: center; justify-content: center; column-gap: 18px; }
+  .code-row .room-code { font-size: 54px; margin: 0; }
+  .code-row .kicker { padding-left: 0; }
+  #lobby .menu { grid-template-columns: repeat(2, auto); justify-content: center; }
+  #lobby .menu .btn { width: auto; min-width: 220px; }
+}
+#out .sheet { width: min(100%, 440px); }
+.room-code { font-family: var(--display); font-weight: 900; font-size: clamp(54px, 13vw, 96px); letter-spacing: 0.32em; padding-left: 0.32em; margin: -6px 0 0; line-height: 1; background: linear-gradient(180deg, #fff6df 0%, #f3d79a 45%, #d8a446 72%, #9a6a26 100%); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 4px 24px rgba(216, 164, 70, 0.28)) drop-shadow(0 2px 2px rgba(0, 0, 0, 0.8)); user-select: text; -webkit-user-select: text; }
+.btn.slim { min-height: 36px; font-size: 12px; justify-self: center; min-width: 0; padding: 0 16px; }
+.seats { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.seat { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-height: 42px; padding: 4px 6px 4px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(0, 0, 0, 0.22); font-size: 15.5px; }
+.seat.me { border-color: var(--line-strong); background: rgba(216, 164, 70, 0.07); }
+.seat.empty { border-style: dashed; color: var(--ink-faint); }
+.seat .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.seat.empty .nm { font-weight: 500; }
+.seat .nm small { font-weight: 700; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--brass); margin-left: 6px; }
+.seat .st { font-size: 13px; color: var(--ink-dim); white-space: nowrap; }
+.seat.ready .st { color: var(--truth); }
+.seat.away .st { color: var(--blood-hi); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: rgba(216, 164, 70, 0.15); border: 1px solid var(--line); box-sizing: border-box; }
+.dot.on { background: var(--truth); border-color: var(--truth); box-shadow: 0 0 8px rgba(124, 191, 104, 0.6); }
+.seat.away .dot { background: var(--blood); border-color: var(--blood); box-shadow: none; }
+.mini { min-height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line); background: rgba(216, 164, 70, 0.08); color: var(--ink); font: 700 11px var(--body); letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; touch-action: manipulation; transition: border-color .2s, background .2s; }
+.mini:hover { border-color: var(--line-strong); background: rgba(216, 164, 70, 0.16); }
+.mini.x { color: var(--blood-hi); }
+.seg.locked button[aria-pressed=false] { opacity: 0.45; }
+.seg button:disabled { cursor: default; }
+.seg.locked button:hover { background: transparent; color: var(--ink-dim); }
+.note { margin: 0; font-size: 14px; line-height: 1.4; color: var(--ink-dim); min-height: 1.4em; text-wrap: pretty; }
+.note.warn { color: var(--blood-hi); }
+input.text { width: 100%; box-sizing: border-box; min-height: 44px; padding: 0 14px; border-radius: 9px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.35); color: var(--ink); font-size: 17px; user-select: text; -webkit-user-select: text; transition: border-color .2s, box-shadow .2s; }
+input.text:focus { border-color: var(--brass); box-shadow: 0 0 0 3px rgba(216, 164, 70, 0.18); outline: none; }
+input.text.code { font-family: var(--display); font-weight: 700; letter-spacing: 0.4em; text-transform: uppercase; font-size: 20px; }
+input.text::placeholder { color: var(--ink-faint); opacity: 0.5; }
+#net { top: calc(var(--hud-top) + 48px); right: var(--gut-r); font-size: 13px; color: var(--ink); padding: 6px 12px; border-radius: 999px; background: rgba(60, 14, 8, 0.88); border: 1px solid var(--blood); z-index: 11; animation: rise .35s var(--ease-out); }
+#timer { display: flex; align-items: center; gap: 10px; width: min(100%, 320px); pointer-events: none; animation: rise .35s var(--ease-out); }
+#timer .bar { flex: 1; height: 4px; border-radius: 4px; background: rgba(216, 164, 70, 0.18); overflow: hidden; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6); }
+#timer .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--brass-lo), var(--brass-hi)); transform-origin: left; }
+#timer b { font: 700 14px var(--display); min-width: 2ch; text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; text-shadow: 0 1px 4px #000; }
+#timer.low .bar i { background: linear-gradient(90deg, #7d2112, var(--blood-hi)); }
+#timer.low b { color: var(--blood-hi); animation: tick 1s steps(1) infinite; }
+@keyframes tick { 50% { opacity: 0.55; } }
+.tag.away .nm span::after { content: " (away)"; font-size: 0.8em; color: var(--ink-dim); }
+
 /* ---------- small screens ---------- */
+@media (max-height: 680px) and (min-height: 501px) and (min-width: 560px) {
+  #title-menu { grid-template-columns: repeat(2, 220px); justify-content: center; }
+  #title-menu .btn { width: 100%; }
+  #title-menu #solo-btn { grid-column: 1 / -1; justify-self: center; width: 264px; }
+  #title .sheet { gap: 14px; }
+  .sheet h1 { font-size: clamp(46px, 14vh, 104px); }
+}
 @media (max-width: 1000px), (max-height: 560px) { #log { display: none; } }
 @media (max-width: 720px) {
   .icon-btn { width: 40px; height: 40px; padding: 0; justify-content: center; }
@@ -335,11 +395,22 @@ input[type=range]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--
   #end .menu { grid-template-columns: repeat(2, auto); justify-content: center; }
   #end .menu .btn { width: auto; min-width: 200px; }
   .bubble { max-width: 200px; }
+  /* landscape phone: the tip moves off the table into the free corner above the left of the controls */
+  .coach { left: var(--gut-l); bottom: calc(var(--safe-b) + 104px); transform: none; max-width: min(30vw, 240px); font-size: 13px; padding: 8px 11px; text-align: left; }
+  .coach small { display: none; }
+  #title-menu .btn { min-width: 150px; }
+  .room-code, .code-row .room-code { font-size: clamp(36px, 11vh, 56px); }
+  .seat { min-height: 32px; padding-block: 2px; font-size: 14.5px; }
+  .mini { min-height: 28px; }
+  .lobby-panel { padding: 12px 16px; gap: 8px; }
+  .lobby-panel .col { gap: 7px; }
+  .lobby-panel .seg button { min-height: 30px; }
+  #lobby .sheet { gap: 10px; }
 }
 
 /* ---------- reduced motion (set from the OS preference or the in-game toggle) ---------- */
 body.reduce-motion #toast .t.show { animation-name: toastFade; }
-body.reduce-motion :is(#flash.go, .row, .coach, #log li, #hint, #claim, #title-menu, .pip.fresh, #table-card.pulse, .tag.active .nm::before, #trigger-btn) { animation: none; }
+body.reduce-motion :is(#flash.go, .row, .coach, .seat, #net, #timer, #timer.low b, #log li, #hint, #claim, #title-menu, .pip.fresh, #table-card.pulse, .tag.active .nm::before, #trigger-btn) { animation: none; }
 body.reduce-motion :is(.sheet, .bubble, .btn, .icon-btn, .me-card .turn, .cards-demo img) { transition-property: opacity, border-color, box-shadow, filter, background; }
 body.reduce-motion :is(.overlay.fade .sheet, .btn:hover, .btn:active, .cards-demo figure:hover img) { transform: none !important; }
 body.reduce-motion .recap div { animation: none; opacity: 1; }
@@ -378,11 +449,13 @@ body.reduce-motion .recap div { animation: none; opacity: 1; }
   </button>
 </div>
 
+<div id="net" class="hud" role="status" hidden></div>
 <div id="tags" aria-hidden="true"></div>
 <div id="toast" aria-live="polite" aria-atomic="true"><div class="t" id="toast-t"></div></div>
 
 <div id="controls">
   <div id="hint" aria-live="polite"></div>
+  <div id="timer" hidden aria-hidden="true"><span class="bar"><i></i></span><b id="timer-s"></b></div>
   <div class="row" id="actions" hidden>
     <button class="btn danger" id="liar-btn" type="button">Liar!<span class="k" aria-hidden="true">L</span></button>
     <button class="btn primary" id="play-btn" type="button"><span class="lbl">Play</span><span class="k" aria-hidden="true">Enter</span></button>
@@ -400,10 +473,12 @@ body.reduce-motion .recap div { animation: none; opacity: 1; }
     <p class="kicker">The Crooked Lantern</p>
     <h1 id="title-h"><span class="gild">Last Call</span></h1>
     <div class="orn" aria-hidden="true"><i></i></div>
-    <p class="lede">Three regulars, twenty cards and one revolver with a single round in it.</p>
+    <p class="lede">Four chairs, twenty cards and a revolver with a single round in it. Bring friends, or sit with the regulars.</p>
     <div id="loading" class="menu" role="status"><div id="loading-bar"><i></i></div><p class="stats">Lighting the lamps</p></div>
     <div class="menu" id="title-menu" hidden>
-      <button class="btn primary" id="start-btn" type="button">Take a seat</button>
+      <button class="btn primary" id="solo-btn" type="button">Play solo</button>
+      <button class="btn" id="host-btn" type="button">Host a table</button>
+      <button class="btn" id="join-btn" type="button">Join a table</button>
       <button class="btn ghost" id="rules-btn" type="button">How to play</button>
       <button class="btn ghost" id="settings-btn" type="button">Settings</button>
     </div>
@@ -417,12 +492,13 @@ body.reduce-motion .recap div { animation: none; opacity: 1; }
     <div class="panel">
       <div class="cards-demo" id="cards-demo"></div>
       <ol class="rules">
-        <li><span>Each round names a <b>table card</b>: Sun, Moon or Star. Everyone is dealt 5 from a deck of 6 Suns, 6 Moons, 6 Stars and 2 <b>Wilds</b>.</span></li>
-        <li><span>On your turn, lay <b>1 to 3 cards</b> face down and claim they all match the table card. Wilds always match. Nobody checks unless someone calls.</span></li>
+        <li><span>Each round names a <b>table card</b>: King, Queen or Ace. Everyone is dealt 5 from a deck of 6 Kings, 6 Queens, 6 Aces and 2 <b>Jokers</b>.</span></li>
+        <li><span>On your turn, lay <b>1 to 3 cards</b> face down and claim they all match the table card. Jokers always match. Nobody checks unless someone calls.</span></li>
         <li><span>The next player either plays on or calls <b>Liar</b>. The cards are flipped.</span></li>
         <li><span>Whoever was wrong pulls the trigger. Each player's revolver hides one round in six chambers, so every pull you survive makes the next one worse.</span></li>
         <li><span>If everyone else has emptied their hand, you must call the last play.</span></li>
-        <li><span>Watch their eyes. Some of them flicker when they lie. Some flicker anyway.</span></li>
+        <li><span>With <b>Devil</b> rules the deck holds one Devil, played alone. If a call turns it over, everyone but its player pulls the trigger.</span></li>
+        <li><span>Watch their eyes. Some of them flicker when they're nervous. Every turn has a clock; when it runs out, the house plays for you.</span></li>
       </ol>
       <dl class="keys">
         <dt><kbd>1</kbd>–<kbd>5</kbd> or click</dt><dd>Pick cards</dd>
@@ -467,6 +543,79 @@ body.reduce-motion .recap div { animation: none; opacity: 1; }
       <button class="btn ghost" id="quit-btn" type="button">Leave the table</button>
     </div>
     <p class="foot">Press <kbd>Esc</kbd> to return</p>
+  </div>
+</div>
+
+<div class="overlay fade" id="solo" role="dialog" aria-modal="true" aria-labelledby="solo-h">
+  <div class="sheet">
+    <h2 id="solo-h">Play solo</h2>
+    <div class="orn" aria-hidden="true"><i></i></div>
+    <div class="panel">
+      <div class="field"><span id="lbl-solo-mode">Game</span><div class="seg" id="solo-mode-seg" role="group" aria-labelledby="lbl-solo-mode"></div></div>
+      <div class="field"><span id="lbl-solo-variant">Rules</span><div class="seg" id="solo-variant-seg" role="group" aria-labelledby="lbl-solo-variant"></div></div>
+      <p class="note" id="solo-note"></p>
+    </div>
+    <div class="menu">
+      <button class="btn primary" id="solo-start-btn" type="button">Deal me in</button>
+      <button class="btn ghost" type="button" data-close>Back</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay fade" id="enter" role="dialog" aria-modal="true" aria-labelledby="enter-h">
+  <div class="sheet">
+    <h2 id="enter-h">Host a table</h2>
+    <p class="lede" id="enter-lede"></p>
+    <form class="panel" id="enter-form" autocomplete="off">
+      <div class="field"><label for="name-input">Your name</label><input class="text" id="name-input" maxlength="16" autocomplete="nickname" spellcheck="false" enterkeyhint="go"></div>
+      <div class="field" id="code-field"><label for="code-input">Table code</label><input class="text code" id="code-input" maxlength="4" autocapitalize="characters" spellcheck="false" enterkeyhint="go" placeholder="ABCD"></div>
+      <p class="note warn" id="enter-err" role="alert"></p>
+    </form>
+    <div class="menu">
+      <button class="btn primary" id="enter-go" type="submit" form="enter-form">Open a table</button>
+      <button class="btn ghost" type="button" data-close>Back</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay fade" id="lobby" role="dialog" aria-modal="true" aria-labelledby="lobby-code">
+  <div class="sheet">
+    <div class="code-row">
+      <p class="kicker">Table code</p>
+      <h1 id="lobby-code" class="room-code" aria-live="polite">····</h1>
+      <button class="btn ghost slim" id="copy-link-btn" type="button">Copy invite link</button>
+    </div>
+    <div class="panel lobby-panel">
+      <div class="col">
+        <h3 class="panel-h">Seats</h3>
+        <ul class="seats" id="lobby-seats"></ul>
+      </div>
+      <div class="col">
+        <h3 class="panel-h">Table</h3>
+        <div class="field"><span id="lbl-mode">Game</span><div class="seg" id="mode-seg" role="group" aria-labelledby="lbl-mode"></div></div>
+        <div class="field"><span id="lbl-variant">Rules</span><div class="seg" id="variant-seg" role="group" aria-labelledby="lbl-variant"></div></div>
+        <div class="field"><span id="lbl-timer">Turn timer</span><div class="seg" id="timer-seg" role="group" aria-labelledby="lbl-timer"></div></div>
+        <p class="note" id="lobby-note"></p>
+      </div>
+    </div>
+    <div class="menu">
+      <button class="btn primary" id="lobby-start-btn" type="button" hidden>Deal the cards</button>
+      <button class="btn primary" id="ready-btn" type="button" hidden>I’m ready</button>
+      <button class="btn ghost" id="lobby-leave-btn" type="button">Leave the table</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay fade light" id="out" role="dialog" aria-modal="true" aria-labelledby="out-h">
+  <div class="sheet">
+    <p class="kicker">Closing time, for you</p>
+    <h2 id="out-h">You're out</h2>
+    <div class="orn" aria-hidden="true"><i></i></div>
+    <p class="lede">The chamber wasn't empty. Stay and watch who keeps the table, or leave now.</p>
+    <div class="menu">
+      <button class="btn primary" id="watch-btn" type="button">Watch the rest</button>
+      <button class="btn ghost" id="out-leave-btn" type="button">Leave the table</button>
+    </div>
   </div>
 </div>
 
