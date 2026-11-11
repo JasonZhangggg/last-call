@@ -1,0 +1,306 @@
+<title>Last Call</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#0b0705">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Alegreya+Sans:wght@400;500;700&display=swap">
+<style>
+/* Layout: full-bleed WebGL tavern. HUD hugs the corners; actions sit under the player's fanned hand;
+   menus are centered sheets over a dimmed scene. Single dark look by design. */
+:root {
+  --night: #0b0705;
+  --ink: #f1e4c8;
+  --ink-dim: #b49f7e;
+  --brass: #d8a446;
+  --brass-hi: #f0c674;
+  --blood: #c4402c;
+  --truth: #6fae5c;
+  --panel: rgba(18, 11, 7, 0.76);
+  --line: rgba(216, 164, 70, 0.32);
+  --paper: #efe3c8;
+  --paper-ink: #2a1a10;
+  --display: "Cinzel", "Trajan Pro", Georgia, "Times New Roman", serif;
+  --body: "Alegreya Sans", "Gill Sans", "Segoe UI", system-ui, sans-serif;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; overflow: hidden; background: var(--night); color: var(--ink); font-family: var(--body); -webkit-tap-highlight-color: transparent; }
+body { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; overscroll-behavior: none; }
+button, input { font: inherit; color: inherit; }
+#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+#vignette { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .6s; background: radial-gradient(ellipse 75% 70% at 50% 45%, transparent 55%, rgba(5, 2, 1, 0.75) 100%); }
+body.no-post #vignette { opacity: 1; }
+#tension { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity 1.2s var(--ease); background: radial-gradient(ellipse 60% 55% at 50% 50%, transparent 40%, rgba(40, 0, 0, 0.6) 100%); }
+body.tense #tension { opacity: 1; }
+
+/* ---------- HUD ---------- */
+.hud { position: fixed; z-index: 5; pointer-events: none; transition: opacity .5s var(--ease); }
+body:not(.in-game) .hud.game-only { opacity: 0; }
+#top { top: calc(env(safe-area-inset-top, 0px) + 14px); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+.eyebrow { font-family: var(--display); font-size: 11px; letter-spacing: 0.24em; color: var(--ink-dim); text-transform: uppercase; }
+#table-card { display: flex; align-items: center; gap: 10px; padding: 6px 18px 6px 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+#table-card.pulse { animation: pulse 1.1s var(--ease); }
+@keyframes pulse { 0% { transform: scale(1); } 30% { transform: scale(1.12); border-color: var(--brass); } 100% { transform: scale(1); } }
+#table-card img { width: 34px; height: 34px; border-radius: 50%; background: var(--paper); }
+#table-card span { font-family: var(--display); font-weight: 700; font-size: 20px; letter-spacing: 0.12em; }
+#claim { font-size: 13.5px; color: var(--ink-dim); min-height: 18px; text-shadow: 0 1px 6px #000; font-variant-numeric: tabular-nums; }
+#claim b { color: var(--ink); }
+
+#me { top: calc(env(safe-area-inset-top, 0px) + 14px); left: max(16px, env(safe-area-inset-left, 0px)); }
+.me-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; display: grid; gap: 5px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); transition: border-color .4s; }
+.me-card.active { border-color: var(--brass); }
+.me-card .nm { font-family: var(--display); font-weight: 700; letter-spacing: 0.14em; font-size: 13px; }
+.me-card .odds { font-size: 13px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+
+#log { bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); left: max(16px, env(safe-area-inset-left, 0px)); width: min(300px, 24vw); list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column-reverse; gap: 3px; font-size: 13px; line-height: 1.35; color: var(--ink-dim); }
+#log li { text-shadow: 0 1px 4px #000; animation: logIn .4s var(--ease); }
+#log li:first-child { color: var(--ink); }
+#log b { color: var(--ink); font-weight: 700; }
+@keyframes logIn { from { opacity: 0; transform: translateY(6px); } }
+
+#top-right { top: calc(env(safe-area-inset-top, 0px) + 14px); right: max(16px, env(safe-area-inset-right, 0px)); pointer-events: auto; display: flex; gap: 8px; }
+.icon-btn { font: 600 12px var(--body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; cursor: pointer; transition: border-color .2s; }
+.icon-btn:hover { border-color: var(--brass); }
+:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+
+.pips { display: inline-flex; gap: 4px; align-items: center; }
+.pip { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--brass); box-sizing: border-box; transition: background .4s, border-color .4s; }
+.pip.spent { background: var(--blood); border-color: var(--blood); }
+.pip.fresh { animation: pipIn .7s var(--ease); }
+@keyframes pipIn { 0% { transform: scale(2.2); } 100% { transform: scale(1); } }
+
+.tag { position: fixed; left: 0; top: 0; z-index: 4; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 4px; will-change: transform, opacity; transition: opacity .5s; }
+.tag .nm { font-family: var(--display); font-weight: 700; font-size: 14px; letter-spacing: 0.1em; text-shadow: 0 2px 6px #000, 0 0 2px #000; white-space: nowrap; transition: color .3s; }
+.tag .meta { display: flex; gap: 8px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; font-size: 12px; font-variant-numeric: tabular-nums; transition: border-color .3s; }
+.tag .cnt { display: inline-flex; align-items: center; gap: 3px; min-width: 10px; }
+.tag .cnt i { display: inline-block; width: 7px; height: 10px; border-radius: 2px; background: #7a2230; border: 1px solid var(--brass); box-sizing: border-box; }
+.tag.active .nm { color: var(--brass); }
+.tag.active .meta { border-color: var(--brass); }
+.tag.out { opacity: 0.4; }
+.tag .status { font-size: 12px; color: var(--ink-dim); min-height: 15px; letter-spacing: 0.04em; }
+.bubble { background: var(--paper); color: var(--paper-ink); font-size: 15px; font-weight: 500; line-height: 1.25; padding: 7px 12px; border-radius: 12px; max-width: 220px; text-align: center; box-shadow: 0 6px 20px rgba(0,0,0,0.5); opacity: 0; transform: translateY(6px) scale(0.96); transition: opacity .25s, transform .3s var(--ease); position: relative; }
+.bubble::after { content: ""; position: absolute; left: 50%; bottom: -6px; margin-left: -6px; border: 6px solid transparent; border-bottom: 0; border-top-color: var(--paper); }
+.bubble.show { opacity: 1; transform: none; }
+
+#toast { position: fixed; z-index: 6; left: 50%; top: 34%; transform: translate(-50%, -50%); pointer-events: none; text-align: center; width: min(92vw, 760px); }
+#toast .t { font-family: var(--display); font-weight: 900; letter-spacing: 0.08em; font-size: clamp(26px, 5.2vw, 56px); color: var(--ink); text-shadow: 0 4px 30px rgba(0,0,0,0.9), 0 0 2px #000; text-wrap: balance; opacity: 0; }
+#toast .t.show { animation: toast 2.3s var(--ease) forwards; }
+#toast .t.liar { color: var(--blood); font-size: clamp(36px, 8vw, 92px); }
+#toast .t.small { font-size: clamp(18px, 3vw, 30px); font-weight: 700; }
+#toast .t.gold { color: var(--brass); }
+#toast .t.truth { color: var(--truth); font-size: clamp(20px, 3.4vw, 34px); font-weight: 700; }
+@keyframes toast { 0% { opacity: 0; transform: scale(1.1); letter-spacing: 0.18em; filter: blur(4px); } 12% { opacity: 1; transform: scale(1); letter-spacing: 0.08em; filter: blur(0); } 78% { opacity: 1; } 100% { opacity: 0; transform: translateY(-10px); } }
+
+#controls { position: fixed; z-index: 5; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 10px; width: min(calc(100vw - 32px), 560px); pointer-events: none; }
+#hint { font-size: 15px; text-align: center; text-shadow: 0 2px 8px #000, 0 0 2px #000; text-wrap: balance; min-height: 20px; }
+#hint b { color: var(--brass); }
+.row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; pointer-events: auto; animation: rise .45s var(--ease); }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+.btn { font: 700 15px var(--display); letter-spacing: 0.12em; text-transform: uppercase; padding: 12px 22px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; transition: transform .15s var(--ease), border-color .2s, background .2s, opacity .2s, box-shadow .2s; min-width: 150px; position: relative; overflow: hidden; }
+.btn:hover:not(:disabled) { border-color: var(--brass); transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: 0.38; cursor: default; }
+.btn.primary { background: linear-gradient(180deg, #e2b25a, #b8832e); color: #1d1108; border-color: var(--brass-hi); }
+.btn.danger { background: linear-gradient(180deg, #c8492f, #8c2617); border-color: #e0664a; }
+.btn.ghost { background: rgba(18, 11, 7, 0.4); }
+.btn .k { font-family: var(--body); font-weight: 500; font-size: 11px; opacity: 0.7; margin-left: 6px; letter-spacing: 0.04em; }
+#trigger-btn { min-width: 270px; font-size: 16px; padding: 15px 26px; background: linear-gradient(180deg, #2a1610, #150a06); border-color: var(--blood); touch-action: none; }
+#trigger-btn .fill { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(196,64,44,.75), rgba(240,120,80,.85)); transform-origin: left; transform: scaleX(var(--p, 0)); }
+#trigger-btn .lbl { position: relative; }
+
+/* ---------- overlays ---------- */
+.overlay { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 24px max(16px, env(safe-area-inset-right, 0px)) 24px max(16px, env(safe-area-inset-left, 0px)); background: radial-gradient(ellipse at 50% 40%, rgba(20, 10, 5, 0.45), rgba(5, 2, 1, 0.88)); overflow-y: auto; transition: opacity .6s var(--ease), visibility .6s; }
+.overlay.fade { opacity: 0; visibility: hidden; pointer-events: none; }
+.overlay.light { background: radial-gradient(ellipse at 50% 40%, rgba(10, 5, 2, 0.15), rgba(5, 2, 1, 0.75)); }
+.sheet { width: min(100%, 560px); display: grid; gap: 18px; text-align: center; transition: transform .7s var(--ease); }
+.overlay.fade .sheet { transform: translateY(16px); }
+.sheet h1 { font-family: var(--display); font-weight: 900; font-size: clamp(46px, 11vw, 100px); letter-spacing: 0.1em; line-height: 0.95; margin: 0; color: var(--ink); text-shadow: 0 6px 40px rgba(216, 164, 70, 0.25); text-wrap: balance; }
+.sheet h1 small { display: block; font-size: 0.2em; letter-spacing: 0.42em; color: var(--brass); font-weight: 700; margin-bottom: 14px; }
+.sheet h2 { font-family: var(--display); font-weight: 700; font-size: 26px; letter-spacing: 0.14em; margin: 0; text-transform: uppercase; }
+.sheet .lede { font-size: 18px; color: var(--ink-dim); margin: 0; text-wrap: balance; }
+.menu { display: grid; gap: 10px; justify-items: center; }
+.menu .btn { min-width: 240px; }
+#start-btn { font-size: 17px; padding: 15px 30px; }
+.stats { font-size: 13px; color: var(--ink-dim); margin: 0; font-variant-numeric: tabular-nums; min-height: 18px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; text-align: left; display: grid; gap: 14px; }
+.rules { margin: 0; padding-left: 20px; display: grid; gap: 9px; font-size: 15.5px; line-height: 1.42; }
+.rules li::marker { color: var(--brass); font-family: var(--display); font-weight: 700; }
+.rules b { color: var(--brass); }
+.cards-demo { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.cards-demo figure { margin: 0; display: grid; gap: 4px; justify-items: center; font-size: 12px; color: var(--ink-dim); }
+.cards-demo img { width: 54px; border-radius: 5px; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
+.keys { font-size: 13px; color: var(--ink-dim); margin: 0; text-align: center; line-height: 1.8; }
+kbd { font: 600 12px var(--body); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; color: var(--ink); }
+.field { display: grid; grid-template-columns: 1fr minmax(0, 1.3fr); align-items: center; gap: 12px; font-size: 15px; }
+.field input[type=range] { width: 100%; accent-color: var(--brass); }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { flex: 1; padding: 7px 6px; background: transparent; border: 0; cursor: pointer; font-size: 13px; color: var(--ink-dim); transition: background .2s, color .2s; }
+.seg button[aria-pressed=true] { background: rgba(216,164,70,.18); color: var(--ink); }
+.seg button + button { border-left: 1px solid var(--line); }
+.recap { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.recap div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 6px; display: grid; gap: 2px; }
+.recap b { font-family: var(--display); font-size: 26px; font-variant-numeric: tabular-nums; }
+.recap span { font-size: 12px; color: var(--ink-dim); letter-spacing: .06em; text-transform: uppercase; }
+#loading-bar { width: 200px; height: 2px; background: var(--line); border-radius: 2px; overflow: hidden; justify-self: center; }
+#loading-bar i { display: block; height: 100%; width: 30%; background: var(--brass); animation: load 1.2s ease-in-out infinite; }
+@keyframes load { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+.coach { position: fixed; z-index: 7; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 32vh); transform: translateX(-50%); background: var(--paper); color: var(--paper-ink); padding: 10px 14px; border-radius: 10px; font-size: 14.5px; max-width: min(88vw, 380px); text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.5); pointer-events: auto; cursor: pointer; animation: rise .5s var(--ease); }
+.coach small { display: block; margin-top: 4px; opacity: .6; font-size: 11.5px; }
+
+#flash { position: fixed; inset: 0; z-index: 8; pointer-events: none; background: #fff6e0; opacity: 0; }
+#flash.go { animation: flash 0.9s ease-out; }
+@keyframes flash { 0% { opacity: 0.9; } 100% { opacity: 0; } }
+#blackout { position: fixed; inset: 0; z-index: 9; pointer-events: none; background: #000; opacity: 0; transition: opacity 1.8s ease-in; }
+#blackout.on { opacity: 1; }
+#fatal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; text-align: center; padding: 24px; background: var(--night); }
+
+@media (max-width: 1000px) { #log { display: none; } }
+@media (max-width: 720px) {
+  .eyebrow { font-size: 10px; }
+  #table-card span { font-size: 16px; }
+  #table-card img { width: 28px; height: 28px; }
+  #claim { font-size: 12.5px; max-width: 70vw; }
+  .btn { min-width: 0; padding: 11px 16px; font-size: 13.5px; }
+  .btn .k { display: none; }
+  .me-card { padding: 7px 10px; }
+  .me-card .odds { font-size: 12px; }
+  #top { top: calc(env(safe-area-inset-top, 0px) + 78px); }
+  .tag .nm { font-size: 12px; max-width: 30vw; overflow: hidden; text-overflow: ellipsis; }
+  .tag .meta { flex-direction: column; gap: 3px; padding: 4px 8px; border-radius: 10px; }
+  .pip { width: 6px; height: 6px; } .pips { gap: 3px; }
+  .tag .cnt i { width: 5px; height: 8px; }
+  .bubble { font-size: 13px; max-width: 30vw; }
+  .field { grid-template-columns: 1fr; gap: 6px; }
+  #trigger-btn { min-width: 220px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #toast .t.show { animation-name: toastFade; }
+  @keyframes toastFade { 0%, 100% { opacity: 0; } 10%, 80% { opacity: 1; } }
+  #flash.go { animation: none; }
+  .row, .coach, #log li { animation: none; }
+}
+</style>
+
+<canvas id="gl" tabindex="-1" aria-label="Tavern card table"></canvas>
+<div id="vignette"></div>
+<div id="tension"></div>
+
+<div id="top" class="hud game-only" hidden>
+  <div class="eyebrow" id="round-label">Round 1 · Table card</div>
+  <div id="table-card"><img id="table-icon" alt=""><span id="table-name">Suns</span></div>
+  <div id="claim"></div>
+</div>
+
+<div id="me" class="hud game-only">
+  <div class="me-card" id="me-card" hidden>
+    <div class="nm">You</div>
+    <div class="pips" id="me-pips"></div>
+    <div class="odds" id="me-odds">Next pull: 1 in 6</div>
+  </div>
+</div>
+<ul id="log" class="hud game-only" aria-live="polite"></ul>
+
+<div id="top-right" class="hud">
+  <button class="icon-btn" id="sound-btn" type="button" aria-pressed="false">Sound on</button>
+  <button class="icon-btn" id="pause-btn" type="button" hidden>Menu</button>
+</div>
+
+<div id="tags"></div>
+<div id="toast" aria-live="assertive"><div class="t" id="toast-t"></div></div>
+
+<div id="controls">
+  <div id="hint"></div>
+  <div class="row" id="actions" hidden>
+    <button class="btn danger" id="liar-btn" type="button">Liar!<span class="k">L</span></button>
+    <button class="btn primary" id="play-btn" type="button"><span class="lbl">Play</span><span class="k">Enter</span></button>
+  </div>
+  <div class="row" id="trigger-row" hidden>
+    <button class="btn" id="trigger-btn" type="button"><span class="fill"></span><span class="lbl">Hold to pull the trigger</span></button>
+  </div>
+</div>
+
+<div id="flash"></div>
+<div id="blackout"></div>
+
+<div class="overlay" id="title">
+  <div class="sheet">
+    <h1><small>The Crooked Lantern</small>Last Call</h1>
+    <p class="lede">Three regulars, twenty cards and one revolver with a single round in it.</p>
+    <div id="loading" class="menu"><div id="loading-bar"><i></i></div><p class="stats">Lighting the lamps</p></div>
+    <div class="menu" id="title-menu" hidden>
+      <button class="btn primary" id="start-btn" type="button">Take a seat</button>
+      <button class="btn ghost" id="rules-btn" type="button">How to play</button>
+      <button class="btn ghost" id="settings-btn" type="button">Settings</button>
+    </div>
+    <p class="stats" id="stats-line"></p>
+  </div>
+</div>
+
+<div class="overlay fade" id="rules">
+  <div class="sheet">
+    <h2>How to play</h2>
+    <div class="panel">
+      <div class="cards-demo" id="cards-demo"></div>
+      <ol class="rules">
+        <li>Each round names a <b>table card</b>: Sun, Moon or Star. Everyone is dealt 5 from a deck of 6 Suns, 6 Moons, 6 Stars and 2 <b>Wilds</b>.</li>
+        <li>On your turn, lay <b>1 to 3 cards</b> face down and claim they all match the table card. Wilds always match. Nobody checks unless someone calls.</li>
+        <li>The next player either plays on or calls <b>Liar</b>. The cards are flipped.</li>
+        <li>Whoever was wrong pulls the trigger. Each player's revolver hides one round in six chambers, so every pull you survive makes the next one worse.</li>
+        <li>If everyone else has emptied their hand, you must call the last play.</li>
+        <li>Watch their eyes. Some of them flicker when they lie. Some flicker anyway.</li>
+      </ol>
+      <p class="keys">Click cards or press <kbd>1</kbd>–<kbd>5</kbd> · <kbd>Enter</kbd> plays · <kbd>L</kbd> calls Liar · hold <kbd>Space</kbd> to pull<br>Move the mouse to look around (drag on touch) · <kbd>Esc</kbd> opens the menu</p>
+    </div>
+    <button class="btn primary" type="button" data-close style="justify-self:center">Got it</button>
+  </div>
+</div>
+
+<div class="overlay fade" id="settings">
+  <div class="sheet">
+    <h2>Settings</h2>
+    <div class="panel">
+      <label class="field" for="vol-master">Master volume <input type="range" id="vol-master" min="0" max="1" step="0.05"></label>
+      <label class="field" for="vol-music">Music <input type="range" id="vol-music" min="0" max="1" step="0.05"></label>
+      <label class="field" for="vol-sfx">Effects <input type="range" id="vol-sfx" min="0" max="1" step="0.05"></label>
+      <label class="field" for="vol-ambience">Tavern ambience <input type="range" id="vol-ambience" min="0" max="1" step="0.05"></label>
+      <div class="field"><span>Graphics</span><div class="seg" id="quality-seg"><button type="button" data-v="auto">Auto</button><button type="button" data-v="high">High</button><button type="button" data-v="medium">Medium</button><button type="button" data-v="low">Low</button></div></div>
+      <div class="field"><span>Game pace</span><div class="seg" id="speed-seg"><button type="button" data-v="0.75">Relaxed</button><button type="button" data-v="1">Normal</button><button type="button" data-v="1.5">Brisk</button></div></div>
+      <div class="field"><span>Look with mouse</span><div class="seg" id="look-seg"><button type="button" data-v="on">On</button><button type="button" data-v="off">Off</button></div></div>
+      <div class="field"><span>Reduce motion</span><div class="seg" id="motion-seg"><button type="button" data-v="off">Off</button><button type="button" data-v="on">On</button></div></div>
+    </div>
+    <button class="btn primary" type="button" data-close style="justify-self:center">Done</button>
+  </div>
+</div>
+
+<div class="overlay fade light" id="pause">
+  <div class="sheet">
+    <h2>Paused</h2>
+    <div class="menu">
+      <button class="btn primary" id="resume-btn" type="button">Back to the table</button>
+      <button class="btn ghost" id="pause-rules-btn" type="button">How to play</button>
+      <button class="btn ghost" id="pause-settings-btn" type="button">Settings</button>
+      <button class="btn ghost" id="quit-btn" type="button">Leave the table</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay fade" id="end">
+  <div class="sheet">
+    <h1 id="end-title">Last One Sitting</h1>
+    <p class="lede" id="end-text"></p>
+    <div class="recap" id="recap"></div>
+    <div class="menu">
+      <button class="btn primary" id="again-btn" type="button">Deal me in again</button>
+      <button class="btn ghost" id="menu-btn" type="button">Back to the door</button>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+<script type="module" src="./src/main.js"></script>

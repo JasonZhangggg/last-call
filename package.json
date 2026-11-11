@@ -1,0 +1,19 @@
+{
+  "name": "last-call",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "build": "node scripts/build.mjs",
+    "verify": "node scripts/verify.mjs",
+    "deploy": "node scripts/build.mjs && wrangler deploy"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  },
+  "type": "module"
+}
