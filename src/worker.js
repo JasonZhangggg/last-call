@@ -4,13 +4,16 @@ import { ROOM_CODE_RE, randomRoomCode } from './net/protocol.js';
 
 export { TableRoom };
 
-const page = () => new Response(html, {
-  headers: {
-    'content-type': 'text/html; charset=utf-8',
-    'cache-control': 'public, max-age=300',
-    'x-content-type-options': 'nosniff',
-  },
-});
+// A returning visitor revalidates the 330 KB page against this tag and gets an empty 304 when the
+// deploy hasn't changed it.
+let etag;
+async function page(request) {
+  etag ??= crypto.subtle.digest('SHA-256', new TextEncoder().encode(html)).then((d) => `"${[...new Uint8Array(d).slice(0, 12)].map((b) => b.toString(16).padStart(2, '0')).join('')}"`);
+  const tag = await etag;
+  const headers = { 'cache-control': 'public, max-age=300', etag: tag, 'x-content-type-options': 'nosniff' };
+  if (request.headers.get('if-none-match')?.split(',').some((t) => t.trim().replace(/^W\//, '') === tag)) return new Response(null, { status: 304, headers });
+  return new Response(html, { headers: { ...headers, 'content-type': 'text/html; charset=utf-8' } });
+}
 
 async function newRoom(env) {
   for (let i = 0; i < 8; i++) {
@@ -29,6 +32,6 @@ export default {
       if (!ROOM_CODE_RE.test(code)) return new Response('Unknown room', { status: 404 });
       return env.ROOMS.getByName(code).fetch(request);
     }
-    return page();
+    return page(request);
   },
 };
