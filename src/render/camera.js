@@ -1,22 +1,27 @@
-// Seated first-person camera. Orientation = (direction to the director's focus point)
-// + (the player's head turn). Everything is spring-smoothed; shake is smooth noise, not per-frame random.
+// Seated first-person camera: a head on a neck. The director frames the shot by moving a focus
+// point; the player turns their head with the pointer or a touch drag. The two combine into one
+// yaw and pitch, and the eye swings around a neck pivot behind it, so a turn is a turn and not a
+// pan. Everything is spring-smoothed; shake is smooth noise with a short attack.
 import * as THREE from 'three';
 import { camera } from './core.js';
-import { smoothDamp } from './motion.js';
+import { smoothDamp, dampVec3 } from './motion.js';
 import { clamp, settings } from '../util.js';
 
 const DEFAULT_FOCUS = new THREE.Vector3(0, 0.08, -0.25);
 const INTRO_POS = new THREE.Vector3(0, 1.45, 2.7);
-const _dir = new THREE.Vector3(), _e = new THREE.Euler(0, 0, 0, 'YXZ');
+const EYE_FROM_NECK = new THREE.Vector3(0, 0.1, -0.09);
+const MAX_YAW = 1.0, YAW_LIMIT = 1.25, PITCH_UP = 0.34, PITCH_DOWN = 0.3;
+const _dir = new THREE.Vector3(), _eye = new THREE.Vector3(), _off = new THREE.Vector3(), _ref = new THREE.Vector3();
+const _e = new THREE.Euler(0, 0, 0, 'YXZ');
 
 export const rig = {
   seat: new THREE.Vector3(0, 0.82, 1.82),
   focus: DEFAULT_FOCUS.clone(), focusTarget: DEFAULT_FOCUS.clone(), fv: {},
-  // player head turn (radians), from the pointer or touch drag
-  lookYaw: 0, lookPitch: 0, lookYawTarget: 0, lookPitchTarget: 0, lv: {},
+  // player head turn (radians) relative to the director's framing
+  lookYaw: 0, lookPitch: 0, lookYawTarget: 0, lookPitchTarget: 0, lv: {}, lookSmooth: 0.22,
   zoom: 1, zoomTarget: 1, zv: {},
   roll: 0, rollTarget: 0, rv: {},
-  shake: 0,
+  shake: 0, shakeEnv: 0, sv: {},
   intro: 0, introTarget: 0, iv: {},
   lookEnabled: true,
 };
@@ -27,48 +32,69 @@ export function focusOn(pos, weight = 0.45) {
   else rig.focusTarget.copy(DEFAULT_FOCUS).lerp(pos, weight);
 }
 
-const MAX_YAW = 0.95, MAX_PITCH = 0.32;
-/** Pointer position in -1..1 maps to a head turn with a soft dead zone in the middle. */
+const smoothstep = (a, b, v) => { const u = clamp((v - a) / (b - a), 0, 1); return u * u * (3 - 2 * u); };
+const curve = (v, dz) => Math.sign(v) * Math.pow(clamp((Math.abs(v) - dz) / (1 - dz), 0, 1), 1.3);
+const range = () => (settings.reducedMotion ? 0.35 : 1);
+
+/**
+ * Mouse position in -1..1 (y down) maps to where the head points. Low on the screen, over the
+ * hand and the buttons, the turn fades to a fraction so picking cards doesn't swing the room.
+ */
 export function lookFromPointer(nx, ny) {
+  rig.lookSmooth = settings.reducedMotion ? 0.4 : 0.22;
   if (!rig.lookEnabled) { rig.lookYawTarget = rig.lookPitchTarget = 0; return; }
-  const curve = (v, dz) => Math.sign(v) * Math.pow(clamp((Math.abs(v) - dz) / (1 - dz), 0, 1), 1.35);
-  rig.lookYawTarget = -curve(nx, 0.12) * MAX_YAW;
-  rig.lookPitchTarget = -curve(ny, 0.2) * MAX_PITCH;
+  const g = 0.18 + 0.82 * (1 - smoothstep(0.36, 0.72, ny)), r = range();
+  rig.lookYawTarget = -curve(nx, 0.08) * MAX_YAW * g * r;
+  rig.lookPitchTarget = (ny < 0 ? curve(-ny, 0.15) * PITCH_UP : -curve(ny, 0.15) * PITCH_DOWN * g) * r;
 }
 /** Touch drag: relative head turn. */
 export function lookByDelta(dx, dy) {
-  rig.lookYawTarget = clamp(rig.lookYawTarget - dx * 0.006, -MAX_YAW, MAX_YAW);
-  rig.lookPitchTarget = clamp(rig.lookPitchTarget - dy * 0.004, -MAX_PITCH, MAX_PITCH);
+  if (!rig.lookEnabled) return;
+  const r = range();
+  rig.lookSmooth = 0.1;
+  rig.lookYawTarget = clamp(rig.lookYawTarget - dx * 0.005 * r, -MAX_YAW * r, MAX_YAW * r);
+  rig.lookPitchTarget = clamp(rig.lookPitchTarget - dy * 0.004 * r, -PITCH_DOWN * r, PITCH_UP * r);
 }
-export function centerLook() { rig.lookYawTarget = 0; rig.lookPitchTarget = 0; }
+/** Ease the head back to the director's framing (finger lifted, pointer gone, a cinematic beat). */
+export function centerLook(smooth = 0.6) { rig.lookYawTarget = 0; rig.lookPitchTarget = 0; rig.lookSmooth = smooth; }
 
 const noise = (t, s) => Math.sin(t * 1.7 + s) * 0.5 + Math.sin(t * 3.1 + s * 2.3) * 0.3 + Math.sin(t * 5.3 + s * 0.7) * 0.2;
+const softLimit = (x, l) => l * Math.tanh(x / l);
 
 export function updateCamera(dt, t) {
-  const motion = settings.reducedMotion ? 0.3 : 1;
-  rig.intro = smoothDamp(rig.intro, rig.introTarget, rig.iv, 'i', 0.9, dt);
-  for (const k of ['x', 'y', 'z']) rig.focus[k] = smoothDamp(rig.focus[k], rig.focusTarget[k], rig.fv, k, 0.45, dt);
-  rig.lookYaw = smoothDamp(rig.lookYaw, rig.lookYawTarget, rig.lv, 'y', 0.28, dt);
-  rig.lookPitch = smoothDamp(rig.lookPitch, rig.lookPitchTarget, rig.lv, 'p', 0.28, dt);
+  const rm = settings.reducedMotion, motion = rm ? 0.3 : 1;
+  rig.intro = smoothDamp(rig.intro, rig.introTarget, rig.iv, 'i', 0.75, dt);
+  dampVec3(rig.focus, rig.focusTarget, rig.fv, 0.45, dt);
+  rig.lookYaw = smoothDamp(rig.lookYaw, rig.lookYawTarget, rig.lv, 'y', rig.lookSmooth, dt);
+  rig.lookPitch = smoothDamp(rig.lookPitch, rig.lookPitchTarget, rig.lv, 'p', rig.lookSmooth, dt);
   rig.zoom = smoothDamp(rig.zoom, rig.zoomTarget, rig.zv, 'z', 0.6, dt);
   rig.roll = smoothDamp(rig.roll, rig.rollTarget, rig.rv, 'r', 0.5, dt);
   rig.shake *= Math.exp(-dt * 3.2);
+  rig.shakeEnv = smoothDamp(rig.shakeEnv, rig.shake, rig.sv, 's', 0.025, dt);
+  const sh = Math.max(0, rig.shakeEnv) * motion;
 
-  const sh = rig.shake * motion;
-  camera.position.lerpVectors(INTRO_POS, rig.seat, rig.intro);
+  _eye.lerpVectors(INTRO_POS, rig.seat, rig.intro);
+  _dir.subVectors(rig.focus, _eye);
+  const baseYaw = Math.atan2(-_dir.x, -_dir.z), basePitch = Math.atan2(_dir.y, Math.hypot(_dir.x, _dir.z));
+  // The player's own turn takes over from the director's framing instead of stacking on top of it.
+  const own = Math.min(1, Math.abs(rig.lookYaw) / MAX_YAW);
+  const yaw = softLimit(baseYaw * (1 - 0.6 * own) + rig.lookYaw, YAW_LIMIT);
+  const pitch = clamp(basePitch + rig.lookPitch, -1.1, 0.45);
+
+  _dir.subVectors(DEFAULT_FOCUS, rig.seat);
+  const restPitch = Math.atan2(_dir.y, Math.hypot(_dir.x, _dir.z));
+  _off.copy(EYE_FROM_NECK).applyEuler(_e.set(pitch, yaw, 0));
+  _ref.copy(EYE_FROM_NECK).applyEuler(_e.set(restPitch, 0, 0));
+  camera.position.copy(_eye).add(_off).sub(_ref);
   camera.position.x += Math.sin(t * 0.31) * 0.006 * motion + noise(t * 9, 1) * sh * 0.03;
   camera.position.y += Math.sin(t * 0.47) * 0.004 * motion + noise(t * 9, 4) * sh * 0.02;
-  // head turn pivots slightly around the neck, so turning also shifts the eye a little
-  camera.position.x -= Math.sin(rig.lookYaw) * 0.08;
-  camera.position.z += (1 - Math.cos(rig.lookYaw)) * 0.08;
 
-  _dir.subVectors(rig.focus, camera.position);
-  const baseYaw = Math.atan2(-_dir.x, -_dir.z);
-  const basePitch = Math.atan2(_dir.y, Math.hypot(_dir.x, _dir.z));
+  // a turning head tips slightly into the turn
+  const roll = rig.roll + (rm ? 0 : rig.lookYaw * 0.035);
   _e.set(
-    basePitch + rig.lookPitch + noise(t * 11, 7) * sh * 0.02,
-    baseYaw + rig.lookYaw + noise(t * 11, 2) * sh * 0.025,
-    rig.roll + noise(t * 8, 9) * sh * 0.02,
+    pitch + noise(t * 11, 7) * sh * 0.02,
+    yaw + noise(t * 11, 2) * sh * 0.025,
+    roll + noise(t * 8, 9) * sh * 0.02,
   );
   camera.quaternion.setFromEuler(_e);
   if (Math.abs(camera.zoom - rig.zoom) > 1e-4) { camera.zoom = rig.zoom; camera.updateProjectionMatrix(); }

@@ -1,7 +1,7 @@
 // Samples every moving thing at 240 Hz (the frame loop sub-steps its simulation while a probe is
 // attached) across a deal, a human play, a Liar call and a roulette, and counts velocity
 // discontinuities: one 1/240 s step whose velocity change is bigger than smooth acceleration allows.
-//   node scripts/motion-probe.mjs [--size 640x360] [--label before] [--seed 7] [--page dist/index.html]
+//   node scripts/motion-probe.mjs [--size 800x450] [--label before] [--seed 7] [--page dist/index.html]
 // Writes artifacts/motion-probe-<label>.json. Needs `npm run build` first. While attached, the page
 // draws every two seconds and its frame loop accepts long frames (sub-stepped at 240 Hz), so the
 // simulation keeps pace with the game's real-time pacing on a slow software renderer. Frame
@@ -13,7 +13,7 @@ const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, arr) => (v.startsWith('--') ? [...a, [v.slice(2), arr[i + 1]?.startsWith('--') ? true : arr[i + 1] ?? true]] : a), []));
-const [W, H] = String(args.size || '640x360').split('x').map(Number);
+const [W, H] = String(args.size || '800x450').split('x').map(Number);
 const LABEL = args.label || 'run', SEED = +(args.seed || 7);
 const ROOT = path.resolve('.'), OUT = path.resolve('artifacts');
 mkdirSync(OUT, { recursive: true });
@@ -113,8 +113,9 @@ await page.evaluate(({ HZ, THRESH }) => {
         const e = hd.matrixWorld.elements, a = ch.tagAnchor, w = a ? [a.x, a.y, a.z, 1] : [e[12], e[13] + 0.27, e[14], 1];
         const ve = [0, 1, 2, 3].map((r) => V[r] * w[0] + V[r + 4] * w[1] + V[r + 8] * w[2] + V[r + 12] * w[3]);
         const ce = [0, 1, 3].map((r) => P[r] * ve[0] + P[r + 4] * ve[1] + P[r + 8] * ve[2] + P[r + 12] * ve[3]);
-        const x = Math.min(innerWidth - 90, Math.max(90, (ce[0] / ce[2] * 0.5 + 0.5) * innerWidth));
-        const y = Math.min(innerHeight - 230, Math.max(150, (-ce[1] / ce[2] * 0.5 + 0.5) * innerHeight));
+        const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+        const x = clamp((ce[0] / ce[2] * 0.5 + 0.5) * innerWidth, 90, innerWidth - 90);
+        const y = clamp((-ce[1] / ce[2] * 0.5 + 0.5) * innerHeight, 150, innerHeight - 230);
         R.tagLag.push(Math.hypot(x - +m[1], y - +m[2]));
       }
     },
