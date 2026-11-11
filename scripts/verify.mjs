@@ -3,6 +3,7 @@
 //   node scripts/verify.mjs --size 390x844        phone-sized play-through
 //   node scripts/verify.mjs --soak 3              N self-playing solo games (#autoplay), fails on any error
 //   node scripts/verify.mjs --variant devil       play the Devil variant
+//   node scripts/verify.mjs --mode dice [--variant traditional]   the dice table (soak: #autoplay-dice)
 // three.js is served from tools/vendor so the run works offline. Exits non-zero on page errors.
 import { createRequire } from 'node:module';
 import { mkdirSync, existsSync } from 'node:fs';
@@ -30,16 +31,19 @@ await page.route('**/*', (route) => {
   if (u.startsWith('file:')) return route.continue();
   return route.abort();
 });
-const tag = `${W}x${H}`;
+const DICE = args.mode === 'dice';
+const tag = `${W}x${H}${DICE ? `-dice${args.variant ? `-${args.variant}` : ''}` : ''}`;
 const shot = async (name) => { await page.screenshot({ path: path.join(OUT, `${tag}-${name}.png`) }); console.log(`  captured ${tag}-${name}.png`); };
 const state = () => page.evaluate(() => {
   const D = window.__lastcall?.D, g = D?.shown;
   const vis = (id) => { const el = document.getElementById(id); return !!el && !el.hidden && !el.classList.contains('fade'); };
   return {
     phase: D?.phase, me: D?.me, prompt: D?.prompt ? { type: D.prompt.type, seat: D.prompt.seat } : null, alive: g?.alive,
-    reveal: g?.reveal?.cards.map((c) => c.rank) ?? null, watch: !!D?.watch, actions: vis('actions'), trigger: vis('trigger-row'),
+    reveal: g?.reveal ? g.reveal.cards?.map((c) => c.rank) ?? [g.reveal.call] : null, watch: !!D?.watch, actions: vis('actions'), trigger: vis('trigger-row'),
     end: vis('end'), out: vis('out'), playEnabled: !document.getElementById('play-btn').disabled, liarEnabled: !document.getElementById('liar-btn').disabled,
-    hand: g?.hand.length ?? 0, queue: D?.queue.length ?? 0,
+    hand: (g?.hand ?? g?.dice)?.length ?? 0, queue: D?.queue.length ?? 0,
+    dice: vis('dice-actions'), bidOk: vis('bid-btn') && !document.getElementById('bid-btn').disabled, diceLiar: !document.getElementById('dice-liar-btn').disabled,
+    spot: vis('spot-btn') && !document.getElementById('spot-btn').disabled,
   };
 });
 const frameMs = () => page.evaluate(() => new Promise((r) => { let n = 0; const t0 = performance.now(); const f = () => (++n < 20 ? requestAnimationFrame(f) : r((performance.now() - t0) / 20)); requestAnimationFrame(f); }));
@@ -49,7 +53,7 @@ const url = 'file://' + path.join(ROOT, 'dist/index.html');
 process.on('unhandledRejection', async (e) => { console.error(String(e).split('\n')[0]); console.error('PROBLEMS:\n' + (problems.join('\n') || '(none recorded)')); try { console.error(JSON.stringify(await state())); } catch {} process.exit(1); });
 if (args.soak) {
   const games = +args.soak;
-  await page.goto(url + (args.variant === 'devil' ? '#autoplay-devil' : '#autoplay'));
+  await page.goto(url + (DICE ? (args.variant === 'traditional' ? '#autoplay-dice-traditional' : '#autoplay-dice') : args.variant === 'devil' ? '#autoplay-devil' : '#autoplay'));
   for (let i = 0; i < games; i++) {
     await page.waitForFunction(() => { const e = document.getElementById('end'); return !e.classList.contains('fade'); });
     const s = await state();
@@ -64,6 +68,7 @@ if (args.soak) {
   console.log(`  frame time on title: ${(await frameMs()).toFixed(1)} ms (software renderer)`);
   await page.click('#solo-btn');
   await shown('solo');
+  if (DICE) await page.click('#solo-mode-seg button[data-v="dice"]');
   if (args.variant) await page.click(`#solo-variant-seg button[data-v="${args.variant}"]`);
   await shot('01b-solo');
   await page.click('#solo-start-btn');
@@ -79,6 +84,23 @@ if (args.soak) {
     if (s.trigger) {
       await once('roulette-me', async () => { await page.waitForTimeout(1200); await shot('06-roulette-me'); });
       await page.keyboard.down('Space'); await page.waitForTimeout(1000); await page.keyboard.up('Space');
+      if (DICE) await once('drink-me', async () => { await page.waitForTimeout(700); await shot('06b-drinking-me'); });
+      continue;
+    }
+    if (s.dice) {
+      await page.waitForTimeout(500);
+      await once('turn', () => shot('02-my-turn'));
+      const now = await state();
+      if (!now.dice) continue;
+      const r = Math.random();
+      if (now.spot && r < 0.12) await page.click('#spot-btn');
+      else if (now.diceLiar && (!now.bidOk || r < 0.35)) await page.click('#dice-liar-btn');
+      else {
+        await page.keyboard.press(String(2 + Math.floor(Math.random() * 5)));
+        if (Math.random() < 0.3) await page.keyboard.press('ArrowUp');
+        await once('picked', () => shot('03-picked'));
+        if ((await state()).bidOk) await page.click('#bid-btn'); else if (now.diceLiar) await page.click('#dice-liar-btn');
+      }
       continue;
     }
     if (s.actions) {

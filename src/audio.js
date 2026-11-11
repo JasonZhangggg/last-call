@@ -269,3 +269,50 @@ class Audio {
 }
 
 export const audio = new Audio();
+
+/* ---------- dice table sounds ---------- */
+// Dice in a leather cup, the cup on felt, and the poison tray's glasses. Kept apart from the
+// class body so the card table's sounds stay as they were.
+Object.assign(Audio.prototype, {
+  /** Dice rattling inside a shaken cup for `dur` seconds: muffled bone clicks with a leather thump. */
+  rattle(pan = 0, dur = 1, gain = 1) {
+    let t = 0;
+    while (t < dur) {
+      const k = gain * (0.6 + Math.random() * 0.4);
+      this.noise({ dur: 0.022, freq: 2200 + Math.random() * 1800, q: 2.5, gain: 0.07 * k, t, pan });
+      if (Math.random() < 0.35) this.noise({ dur: 0.05, type: 'lowpass', freq: 380, gain: 0.08 * k, t, pan });
+      t += 0.028 + Math.random() * 0.05;
+    }
+  },
+  /** The cup slammed down: a felt-muffled thud and the dice settling under it. */
+  slam(pan = 0) {
+    this.tone({ freq: 110, type: 'sine', dur: 0.2, gain: 0.32, slide: 52, attack: 0.002, pan });
+    this.noise({ dur: 0.12, type: 'lowpass', freq: 520, gain: 0.34, attack: 0.001, verb: 0.2, pan });
+    for (let i = 0; i < 4; i++) this.noise({ dur: 0.018, freq: 2600 + Math.random() * 900, q: 3, gain: 0.04, t: 0.03 + i * 0.035, pan });
+  },
+  cupLift(pan = 0) { this.noise({ dur: 0.16, freq: 900, q: 0.8, gain: 0.05, attack: 0.03, pan }); },
+  cupDown(pan = 0) { this.noise({ dur: 0.07, type: 'lowpass', freq: 420, gain: 0.14, pan }); },
+  /** A knuckle on the table with a bid. */
+  bidKnock(pan = 0) { this.noise({ dur: 0.06, type: 'lowpass', freq: 300, gain: 0.2, pan }); this.tone({ freq: 160, type: 'sine', dur: 0.08, gain: 0.08, slide: 120, pan }); },
+  /** One die counted: a bright tick that climbs toward the bid. */
+  diceTick(i = 0, of = 6) {
+    const f = 660 * Math.pow(2, Math.min(i, of) / Math.max(6, of));
+    this.tone({ freq: f, type: 'triangle', dur: 0.14, gain: 0.05, verb: 0.3 });
+    this.noise({ dur: 0.02, freq: 3200, q: 2, gain: 0.05 });
+  },
+  glassPick(pan = 0) { this.tone({ freq: 3100, type: 'sine', dur: 0.22, gain: 0.03, attack: 0.001, verb: 0.4, pan }); this.tone({ freq: 5200, type: 'sine', dur: 0.12, gain: 0.012, attack: 0.001, pan }); },
+  glassDown(pan = 0, t = 0) { this.tone({ freq: 2500, type: 'sine', dur: 0.18, gain: 0.03, attack: 0.001, t, verb: 0.3, pan }); this.noise({ dur: 0.04, type: 'lowpass', freq: 700, gain: 0.1, t, pan }); },
+  /** Two swallows. */
+  gulp(pan = 0) {
+    for (const t of [0.3, 0.66]) {
+      this.tone({ freq: 210, type: 'sine', dur: 0.13, gain: 0.12, slide: 120, t, attack: 0.01, pan });
+      this.noise({ dur: 0.09, freq: 420, q: 3, gain: 0.07, t, pan });
+    }
+  },
+  /** The poisoned glass: a choke, a sour falling drone and a dull slump. */
+  poison(pan = 0) {
+    for (let i = 0; i < 3; i++) this.noise({ dur: 0.12, freq: 700 + Math.random() * 300, q: 2.5, gain: 0.1, t: i * 0.16, pan });
+    [146.8, 155.6].forEach((f, i) => this.tone({ freq: f, type: 'sawtooth', dur: 1.8, gain: 0.04, lp: 700, slide: f * 0.6, t: 0.1 + i * 0.03, verb: 0.6 }));
+    this.noise({ dur: 0.3, type: 'lowpass', freq: 240, gain: 0.3, t: 0.9, verb: 0.4, pan });
+  },
+});
