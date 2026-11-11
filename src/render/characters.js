@@ -389,7 +389,7 @@ const DESIGNS = {
         k.add(leather, place(new THREE.CylinderGeometry(0.035, 0.035, 0.008, 20), [-0.12, 0.2, 0.034], [Math.PI / 2 - 0.2, 0, 0]));
         k.add(facing, place(new THREE.CylinderGeometry(0.024, 0.024, 0.01, 20), [-0.12, 0.2, 0.036], [Math.PI / 2 - 0.2, 0, 0]));
         k.add(mats.brass, ball(V(-0.12, 0.2, 0.044), 0.009, [1, 1, 0.6], 8));
-        return { eyes: [iris], lids: [lid], lidOpen: 0.1, lidClosed: Math.PI / 2 + 0.05, extraGlow: [] };
+        return { eyes: [iris], lids: [lid], lidOpen: -0.45, lidClosed: Math.PI / 2 + 0.05, extraGlow: [] };
       },
     };
   },
