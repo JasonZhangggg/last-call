@@ -361,13 +361,13 @@ function buildTable() {
 }
 
 function buildAtmosphere() {
-  scene.add(new THREE.HemisphereLight(0x4a5470, 0x2a1408, 0.3));
+  scene.add(new THREE.HemisphereLight(0x4a5470, 0x2a1408, 0.36));
   // moonlight through the window: cool, from the left and behind
   const moon = new THREE.DirectionalLight(0x8aa4e0, 1.1); moon.position.set(-4.5, 2.6, -2.6); scene.add(moon);
   // warm bounce from the right-hand sconce wall
   const kick = new THREE.DirectionalLight(0xff8a4a, 0.4); kick.position.set(4, 1.2, -1); scene.add(kick);
   // soft warm fill from the room behind the player, so faces read
-  const fill = new THREE.DirectionalLight(0xffb27a, 0.32); fill.position.set(0.3, 1.4, 4); scene.add(fill);
+  const fill = new THREE.DirectionalLight(0xffb27a, 0.46); fill.position.set(0.3, 1.4, 4); scene.add(fill);
 
   const flameMat = new THREE.MeshBasicMaterial({ color: 0xffb35a });
   const sk = new Kit();
@@ -376,7 +376,7 @@ function buildAtmosphere() {
   for (const [x, y, z, inten, ry] of [[0, 2.15, -4.88, 5.5, 0], [X0 + 0.07, 1.75, -0.7, 0, Math.PI / 2], [X1 - 0.07, 1.75, -1.55, 4.5, -Math.PI / 2]]) {
     const n = [Math.sin(ry), Math.cos(ry)], out = (d) => [x + n[0] * d, z + n[1] * d];
     const [lx, lz] = out(0.16);
-    // The left sconce is decorative only: with the revolver's flash light the scene is at four point lights.
+    // The left sconce is decorative only, which keeps the scene at three point lights (the budget is four).
     const l = inten ? new THREE.PointLight(0xff9440, inten, 7.5, 2) : null;
     if (l) { l.position.set(lx, y + 0.08, lz); scene.add(l); }
     const [hx, hz] = out(0.025);
