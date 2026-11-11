@@ -250,7 +250,18 @@ export function cupTo(v, kind, opts = { dur: 0.45 }) {
   return c.mover;
 }
 export function cupSnap(v, kind) { const c = table.cups[v]; cupPose(v, kind, _p, _q2); c.mover.snap(table.group, _p, _q2, 1); }
-export const cupWorld = (v, out) => out.copy(table.cups[v].obj.position);
+export const cupWorld = (v, out) => table.cups[v].obj.getWorldPosition(out);
+export const CUP_TOP = CUP_H;
+/** Hands the cup to `parent` (a hand) where it stands, so it rides along from here. */
+export function cupToHand(v, parent) {
+  const o = table.cups[v].obj;
+  o.updateWorldMatrix(true, false); parent.updateWorldMatrix(true, false);
+  o.matrixWorld.decompose(_p, _q2, _s);
+  parent.worldToLocal(_p);
+  parent.matrixWorld.decompose(_s, _q, _s);
+  _q.invert().multiply(_q2);
+  table.cups[v].mover.go(parent, _p, _q, 1, { dur: 0.1 });
+}
 export function setShake(v, on) { table.cups[v].shakeTarget = on ? 1 : 0; }
 export function setCupHidden(v, hidden) { table.cups[v].hidden = hidden; }
 
@@ -365,13 +376,15 @@ export function updateDiceTable(dt, t) {
     c.mover.update(dt);
     c.shake += (c.shakeTarget - c.shake) * (1 - Math.exp(-dt * 12));
     const o = c.obj, sh = c.shake, ph = t * 21 + v * 1.7;
-    _p.copy(o.position);
+    // a cup in a hand rides the hand; the table group sits at the origin, so world space is group space
+    if (o.parent !== table.group) { o.updateWorldMatrix(true, false); o.matrixWorld.decompose(_p, _q, _s); }
+    else { _p.copy(o.position); _q.copy(o.quaternion); }
     if (sh > 0.001) {
       _p.y += (Math.sin(ph) * 0.5 + 0.5) * 0.03 * sh;
       _p.x += Math.sin(ph * 0.5 + 1) * 0.012 * sh;
       _p.z += Math.cos(ph * 0.5) * 0.012 * sh;
-      _q.copy(o.quaternion).multiply(_w.setFromEuler(_e.set(Math.sin(ph * 0.5) * 0.22 * sh, 0, Math.cos(ph * 0.5 + 0.4) * 0.22 * sh)));
-    } else _q.copy(o.quaternion);
+      _q.multiply(_w.setFromEuler(_e.set(Math.sin(ph * 0.5) * 0.22 * sh, 0, Math.cos(ph * 0.5 + 0.4) * 0.22 * sh)));
+    }
     _m.compose(_p, _q, c.hidden ? ZERO_SCALE : ONE);
     M.cup.setMatrixAt(v, _m); M.cupBrass.setMatrixAt(v, _m);
     table.dice[v].forEach((d, i) => {

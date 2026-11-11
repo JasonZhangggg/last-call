@@ -151,6 +151,10 @@ let peeking = false;
 let held = null; // { v, i } the glass in someone's hand
 let bound = null;
 let clock = 0;
+let myShake = null; // the world point your hand shakes your cup around, while it does
+const armQ = new THREE.Quaternion();
+/** Where your palm goes to hold your cup in a pose: just over its closed end. */
+const cupTop = (kind, out) => { DT.cupPose(0, kind, out, _q); return out.setY(out.y + DT.CUP_TOP + 0.016); };
 const cupHands = new Set(); // views whose right hand rides their cup
 const viewSeat = (T, v) => T.seatAt(v);
 
@@ -189,21 +193,35 @@ async function round(T, msg) {
     DT.setDice(v, n, null, { fly: true, dur: 0.45 });
     DT.cupTo(v, 'rest', { dur: 0.5, arc: 0.08, delay: 0.25 });
   }
-  await T.step(800);
+  const mine = msg.diceCounts[T.me] > 0;
+  await T.step(350);
+  // your hand comes in over your cup as it lands
+  if (mine) { rig.leanTarget = 0.35; armReach(cupTop('rest', _b)); }
+  await T.step(450);
   const shakers = [];
   for (let v = 0; v < 4; v++) if (msg.diceCounts[viewSeat(T, v)]) shakers.push(v);
+  if (mine) {
+    await T.landed(arm.mover);
+    DT.cupToHand(0, arm.grip);
+    armQ.copy(arm.root.quaternion);
+    arm.mover.go(arm.root.parent, cupTop('air', _b), armQ, 1, { dur: 0.32 });
+    rig.leanTarget = 0;
+  }
   // pick up and shake
   for (const v of shakers) {
-    const s = viewSeat(T, v);
-    if (v) { cupHands.add(v); react(T.char(s), 'reach'); }
+    if (!v) continue;
+    cupHands.add(v); react(T.char(viewSeat(T, v)), 'reach');
     DT.cupTo(v, 'air', { dur: 0.32, delay: v * 0.05 });
   }
   await T.step(330);
-  for (const v of shakers) { DT.setDice(v, 0, null); DT.setShake(v, true); }
+  for (const v of shakers) { DT.setDice(v, 0, null); if (v) DT.setShake(v, true); }
+  if (mine) myShake = cupTop('air', new THREE.Vector3());
   audio.rattle?.(0, 1.05);
   for (const v of shakers) if (v) audio.rattle?.(T.pan(viewSeat(T, v)) * 0.8, 0.95, 0.6);
   await T.step(1050);
   // slam
+  myShake = null;
+  if (mine) arm.mover.go(arm.root.parent, cupTop('rest', _b), armQ, 1, { dur: 0.16, ease: (u) => u * u });
   for (const v of shakers) { DT.setShake(v, false); DT.cupTo(v, 'rest', { dur: 0.16, ease: (u) => u * u }); }
   await T.step(170);
   if (token !== T.token()) return;
@@ -216,6 +234,7 @@ async function round(T, msg) {
   T.refresh();
   await T.step(260);
   for (const v of shakers) if (v) { cupHands.delete(v); react(T.char(viewSeat(T, v)), 'reach', false); }
+  if (mine) armHide();
   ui.toast(`Round ${msg.round}`, 'gold');
   ui.log(`Round ${msg.round}: <b>${totalDice(g)}</b> dice on the table.`);
   // everyone peeks under their own cup
@@ -576,7 +595,7 @@ function settle(T) {
 /* ---------- rebuild ---------- */
 function rebuild(T, { fresh }) {
   const g = T.game;
-  beating = false; pendingTurn = null; held = null; peeking = false;
+  beating = false; pendingTurn = null; held = null; peeking = false; myShake = null;
   hideControls();
   cupHands.clear();
   for (const s of sips.values()) { s.w = s.wT = s.tilt = s.tiltT = 0; }
@@ -637,7 +656,7 @@ export const diceMode = {
     DT.showDiceTable(true);
   },
   exit() {
-    beating = false; pendingTurn = null; held = null; peeking = false;
+    beating = false; pendingTurn = null; held = null; peeking = false; myShake = null;
     hideControls(); cupHands.clear(); sips.clear();
     $('#me-dice').hidden = true; $('#table-icon').classList.remove('die');
     document.body.classList.remove('mode-dice');
@@ -710,11 +729,14 @@ export const diceMode = {
   },
   frame(T, reservePx, dt = 1 / 60) {
     clock += dt;
+    if (myShake) {
+      const p = clock * 26;
+      arm.mover.pos.copy(myShake).add(_a.set(Math.sin(p * 0.5) * 0.02, Math.abs(Math.sin(p * 0.5)) * 0.05, Math.cos(p * 0.25) * 0.012));
+    }
     for (const v of cupHands) {
       const ch = T.viewChars[v];
       DT.cupWorld(v, ch.reachTarget); ch.reachTarget.y += 0.118;
     }
     for (const [v, s] of sips) if (!poseSip(s, dt)) sips.delete(v);
-    DT.updateDiceTable(dt, clock);
   },
 };

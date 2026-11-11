@@ -6,7 +6,7 @@ import { buildCharacter, updateCharacter } from './render/characters.js';
 import { buildCards, updateCards, warmCards, bodies, hands } from './render/cards.js';
 import { buildGun, updateGun, gun } from './render/gun.js';
 import { buildPlayerArm, updatePlayerArm, arm } from './render/playerArm.js';
-import { buildDiceTable, table as diceTable } from './render/diceTable.js';
+import { buildDiceTable, updateDiceTable, table as diceTable } from './render/diceTable.js';
 import { rig, updateCamera, fitToViewport, lookFromPointer, lookByDelta, centerLook } from './render/camera.js';
 import { dampVec3 } from './render/motion.js';
 import { audio } from './audio.js';
@@ -42,6 +42,7 @@ function simulate(dt, t) {
   updateCards(dt);
   updatePlayerArm(dt);
   updateGun(dt);
+  updateDiceTable(dt, t);
   camera.updateMatrixWorld();
   updateHover(dt);
 }
