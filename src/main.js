@@ -69,11 +69,12 @@ function placeTags() {
   for (let s = 1; s < 4; s++) {
     const ch = characters[s];
     _v.copy(ch.tagAnchor).project(camera);
-    const behind = _v.z > 1;
+    // a head turned well out of view takes its tag with it, rather than stacking tags at the edge
+    const inView = _v.z <= 1 && Math.abs(_v.x) < 1.08;
     let x, y;
     if (narrow) { x = W * (s === 1 ? 0.18 : s === 2 ? 0.5 : 0.82); y = 226; }
     else { x = clamp((_v.x * 0.5 + 0.5) * W, 90, W - 90); y = clamp((-_v.y * 0.5 + 0.5) * H, 150, H - 230); }
-    ui.placeTag(s, x, y, narrow || !behind, TAG_SNAP);
+    ui.placeTag(s, x, y, narrow || inView, TAG_SNAP);
   }
 }
 
