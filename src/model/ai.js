@@ -1,5 +1,5 @@
 // AI policy. Reads only a publicView, never the hidden hands.
-import { matchesTable, TRUE_CARDS_PER_RANK, shuffleInPlace } from './rules.js';
+import { matchesTable, TRUE_CARDS_PER_RANK, shuffleInPlace, DEVIL, JOKER, DEVIL_VOLLEY_MIN_ALIVE } from './rules.js';
 
 export const PERSONAS = {
   brass:   { bluff: 0.22, suspicion: 0.42, tell: 0.3, count: 1.0, greed: 0.35 },
@@ -34,17 +34,26 @@ export function suspicionOf(view, persona, memory) {
   p += (liarRate(memory, lp.seat) - 0.4) * 0.6;
   if (accused.handCount === 0) p += 0.12;
   if (myTrue === 0) p += 0.18;
+  // A lone card might be the Devil: calling it makes the caller shoot as surely as being wrong.
+  if (lp.claim === 1 && devilVolleyLive(view) && !view.hand.some((c) => c.rank === DEVIL)) p -= 0.1;
   p += (persona.suspicion - 0.5) * 0.3;
   return Math.min(0.95, Math.max(0.03, p));
 }
 
+const devilVolleyLive = (view) => view.variant === 'devil' && view.players.filter((p) => p.alive).length >= DEVIL_VOLLEY_MIN_ALIVE;
+
 export function choosePlay(view, persona, rng) {
   const T = view.tableRank;
+  const devil = view.hand.find((c) => c.rank === DEVIL);
   const real = view.hand.filter((c) => c.rank === T);
-  const wild = view.hand.filter((c) => c.rank === 'wild');
-  const lies = shuffleInPlace(view.hand.filter((c) => !matchesTable(c, T)), rng);
-  const trues = [...real, ...wild];
+  const jokers = view.hand.filter((c) => c.rank === JOKER);
+  const lies = shuffleInPlace(view.hand.filter((c) => !matchesTable(c, T) && c.rank !== DEVIL), rng);
+  const trues = [...real, ...jokers];
   const max = view.options.maxCards;
+  if (devil) {
+    const eager = devilVolleyLive(view) ? 0.3 + persona.bluff * 0.4 + (trues.length ? 0 : 0.3) : 0;
+    if ((!trues.length && !lies.length) || rng() < eager) return [devil.id];
+  }
   if (!trues.length) {
     const n = Math.min(max, lies.length >= 2 && rng() < 0.2 + persona.bluff * 0.3 ? 2 : 1);
     return lies.slice(0, n).map((c) => c.id);

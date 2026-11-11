@@ -6,8 +6,11 @@
 //   mode, variants, ranks, messageKeys: { type: [keys] }, bots: [{ persona, name }]
 //   newGame({ seats, rng, options }) -> state S (plain JSON, persisted by the Room)
 //   stage(S) -> { kind: 'deal' } | { kind: 'turn'|'roulette', seat, forced } | { kind: 'over', winner }
+//     'roulette' is the Room's penalty prompt, answered by the seat's 'pull' action. An event
+//     may leave several seats to pay in turn: stage() names the next one each time.
 //   startRound(S, rng, mintToken) -> event
-//   applyAction(S, seat, action) -> event; throws Error(reason) when illegal
+//   applyAction(S, seat, action) -> event; throws Error(reason) when illegal, changing nothing.
+//     action is { type, ...fields } for one of the protocol's GAME_ACTIONS.
 //   turnOptions(S, seat) -> options for the acting seat's prompt (null for roulette)
 //   botDecide(S, seat, persona | null, memory, rng) -> action
 //   observe(memory, event)
@@ -26,12 +29,12 @@ const between = (rng, lo, hi) => lo + Math.round(rng() * (hi - lo));
 
 export const deckEngine = {
   mode: 'deck',
-  variants: ['basic'],
+  variants: R.VARIANTS,
   ranks: R.RANKS,
   messageKeys: {
     round: ['round', 'tableRank', 'starter', 'hand', 'handCounts'],
     played: ['seat', 'tokens', 'claim', 'handCounts'],
-    challenge: ['caller', 'accused', 'forced', 'cards', 'lie', 'loser'],
+    challenge: ['caller', 'accused', 'forced', 'cards', 'lie', 'shooters'],
     shot: ['seat', 'fired', 'pulls'],
   },
   bots: [
@@ -40,8 +43,8 @@ export const deckEngine = {
     { persona: 'gristle', name: 'Captain Gristle' },
   ],
 
-  newGame({ seats, rng }) {
-    return { g: R.newGame({ seats, rng }), tokenOf: {}, reveal: null };
+  newGame({ seats, rng, options }) {
+    return { g: R.newGame({ seats, rng, variant: options?.variant ?? 'basic' }), tokenOf: {}, reveal: null };
   },
 
   stage(S) {
@@ -77,7 +80,7 @@ export const deckEngine = {
     if (action.type === 'challenge') {
       const forced = !!R.turnOptions(g)?.mustChallenge;
       const res = R.challenge(g, seat);
-      const ev = { type: 'challenge', caller: res.caller, accused: res.accused, forced, cards: res.cards.map((c) => shown(S, c)), lie: res.lie, loser: res.loser };
+      const ev = { type: 'challenge', caller: res.caller, accused: res.accused, forced, cards: res.cards.map((c) => shown(S, c)), lie: res.lie, shooters: res.shooters };
       S.reveal = ev;
       return ev;
     }
@@ -115,7 +118,7 @@ export const deckEngine = {
   snapshot(S, seat) {
     const g = S.g;
     return {
-      round: g.round, tableRank: g.tableRank, starter: g.starter,
+      variant: g.variant, round: g.round, tableRank: g.tableRank, starter: g.starter,
       hand: g.round ? g.players[seat].hand.map((c) => shown(S, c)) : [],
       handCounts: handCounts(g),
       plays: g.plays.map((p) => ({ seat: p.seat, claim: p.claim, tokens: p.cards.map((c) => S.tokenOf[c.id]) })),

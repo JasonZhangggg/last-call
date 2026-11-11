@@ -1,7 +1,8 @@
 // Wire protocol for Last Call multiplayer. One JSON object per WebSocket text frame, each with a
 // `type`. Seats are absolute indices 0..3; a client rotates them so its own seat sits at the
-// player position. Card identity is an opaque per-round `token`; a seat only ever receives a
-// `rank` for cards in its own hand and for cards turned over by a challenge.
+// player position. Deck: card identity is an opaque per-round `token`; a seat only ever receives a
+// `rank` for cards in its own hand and for cards turned over by a challenge. Dice: a seat only
+// ever receives its own dice, until a call lifts every cup.
 //
 // Client to server
 //   hello      { name, roomCode?, resumeToken? }  first message on every connection
@@ -10,23 +11,39 @@
 //   start      {}                                 host only, lobby or finished (rematch)
 //   addBot     { persona? }                       host only, lobby or finished
 //   removeBot  { seat }                           host only; also clears a disconnected human
-//   play       { tokens: string[] }               acting seat, turn prompt
-//   challenge  {}                                 acting seat, turn prompt
-//   pull       {}                                 acting seat, roulette prompt
+//   play       { tokens: string[] }               deck: acting seat, turn prompt
+//   bid        { quantity, face }                 dice: acting seat, turn prompt
+//   challenge  {}                                 acting seat, turn prompt (dice: call Liar)
+//   spotOn     {}                                 dice traditional: acting seat, turn prompt
+//   pull       {}                                 acting seat, roulette prompt (dice: drink)
 //   leave      {}                                 the server closes the socket after it
 //
 // Server to client
 //   welcome   { seat, roomCode, resumeToken }     you hold `seat`; keep the token to reclaim it
 //   lobby     { roomCode, phase, host, options, seats: SeatInfo[] }   any roster/option change
 //   state     { phase, game, prompt, result }     full rebuild, sent right after welcome
-//   round     { round, tableRank, starter, hand: Card[], handCounts }   your hand only
 //   turn      { seat, timeoutMs, options }        options only for the acting seat, else null
-//   played    { seat, tokens, claim, handCounts }
-//   challenge { caller, accused, forced, cards: Card[], lie, loser }
-//   roulette  { seat, timeoutMs, options }        options is always null
-//   shot      { seat, fired, pulls }
-//   over      { winner, seats: [{ name, kind, alive, pulls }] }
+//   roulette  { seat, timeoutMs, options }        the penalty prompt (deck: pull, dice: drink);
+//                                                 options is always null. One per shooter or
+//                                                 drinker, in the order the call announced.
+//   over      { winner, seats: [{ name, kind, alive, ...results }] }  deck: pulls, dice: drinks
 //   error     { code, message }                   see ERR; codes in FATAL end the connection
+//
+// Deck mode (options.mode 'deck', variant 'basic' | 'devil')
+//   round     { round, tableRank, starter, hand: Card[], handCounts }   your hand only
+//   played    { seat, tokens, claim, handCounts }
+//   challenge { caller, accused, forced, cards: Card[], lie, shooters }  shooters pull in order
+//   shot      { seat, fired, pulls }
+//   turn options { canPlay, canChallenge, mustChallenge, maxCards }
+//
+// Dice mode (options.mode 'dice', variant 'basic' | 'traditional')
+//   round     { round, starter, dice: number[], diceCounts }            your dice only
+//   bid       { seat, quantity, face }
+//   challenge { caller, bidder, call: 'liar'|'spotOn', forced, quantity, face,
+//               cups: number[][], count, callerRight, drinkers }        every cup, by seat
+//   drink     { seat, poisoned, drinks }
+//   turn options { canBid, canChallenge, canSpotOn, mustChallenge, maxQuantity,
+//                  raises: [{ face, minQuantity }] }                     legal bids by face
 //
 //   SeatInfo  { kind: 'human'|'bot'|'empty', name, connected, ready, persona }  persona: bots only
 //   Card      { token, rank }                     rank names come from the active engine
@@ -34,8 +51,11 @@
 //   timeoutMs milliseconds left when the message was sent (relative, so client clocks don't
 //             matter); null when a bot is acting for the seat.
 //   prompt    in `state`: { type: 'turn'|'roulette', seat, timeoutMs, options } or null
-//   game      in `state`: the engine snapshot for your seat (deck: round, tableRank, starter,
-//             hand, handCounts, plays: [{ seat, claim, tokens }], alive, pulls, reveal)
+//   game      in `state`: the engine snapshot for your seat
+//             deck: variant, round, tableRank, starter, hand, handCounts,
+//                   plays: [{ seat, claim, tokens }], alive, pulls, reveal (last challenge or null)
+//             dice: variant, round, starter, dice, diceCounts, bids: [{ seat, quantity, face }],
+//                   alive, drinks, reveal (last challenge or null)
 //
 // Treat `turn` and `roulette` as "set the current prompt": the server re-sends them for the same
 // seat when control moves between a person and a bot, with a fresh timeoutMs.
@@ -119,6 +139,9 @@ const isStr = (v, max) => typeof v === 'string' && v.length <= max;
 const optStr = (v, max) => v === undefined || v === null || isStr(v, max);
 const isSeat = (v) => Number.isInteger(v) && v >= 0 && v < MAX_SEATS;
 
+/** Messages that act in the game, with the fields passed on to the engine. The engine judges legality. */
+export const GAME_ACTIONS = Object.freeze({ play: ['tokens'], bid: ['quantity', 'face'], challenge: [], spotOn: [], pull: [] });
+
 const CLIENT = {
   hello: (m) => isStr(m.name, 64) && optStr(m.roomCode, 16) && optStr(m.resumeToken, 64),
   setReady: (m) => typeof m.ready === 'boolean',
@@ -127,7 +150,9 @@ const CLIENT = {
   addBot: (m) => optStr(m.persona, 32),
   removeBot: (m) => isSeat(m.seat),
   play: (m) => Array.isArray(m.tokens) && m.tokens.length >= 1 && m.tokens.length <= 8 && m.tokens.every((t) => isStr(t, 64)),
+  bid: (m) => Number.isInteger(m.quantity) && Number.isInteger(m.face),
   challenge: () => true,
+  spotOn: () => true,
   pull: () => true,
   leave: () => true,
 };
