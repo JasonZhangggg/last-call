@@ -34,6 +34,7 @@
 // setWatch, focusSeat, refresh() (redraws the seat HUD), eliminated() (offers Watch or Leave).
 import { deckMode } from './deck.js';
 import { diceMode } from './dice.js';
+import { auctionMode } from './auction.js';
 
-export const MODES = { deck: deckMode, dice: diceMode };
+export const MODES = { deck: deckMode, dice: diceMode, auction: auctionMode };
 export const isPlayable = (mode) => !!MODES[mode]?.ready;

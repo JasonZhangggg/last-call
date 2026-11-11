@@ -5,6 +5,7 @@ import { buildWorld, updateWorld, setShadowSize } from './render/world.js';
 import { buildCharacter, updateCharacter } from './render/characters.js';
 import { buildCards, updateCards, warmCards, bodies, hands } from './render/cards.js';
 import { buildGun, updateGun, gun } from './render/gun.js';
+import { buildAuctionTable, updateAuctionTable } from './render/auctionTable.js';
 import { buildPlayerArm, updatePlayerArm, arm } from './render/playerArm.js';
 import { buildDiceTable, updateDiceTable, table as diceTable } from './render/diceTable.js';
 import { rig, updateCamera, fitToViewport, lookFromPointer, lookByDelta, centerLook } from './render/camera.js';
@@ -40,6 +41,7 @@ function simulate(dt, t) {
   }
   D.mode?.frame(T, innerWidth < 720 ? 112 : 124, dt);
   updateCards(dt);
+  updateAuctionTable(dt);
   updatePlayerArm(dt);
   updateGun(dt);
   updateDiceTable(dt, t);
@@ -311,6 +313,7 @@ async function boot() {
     D.viewChars[i + 1] = ch;
   });
   buildCards();
+  buildAuctionTable();
   buildGun();
   buildPlayerArm();
   buildDiceTable();
@@ -333,9 +336,9 @@ async function boot() {
   renderer.setAnimationLoop(frame);
   $('#loading').hidden = true; $('#title-menu').hidden = false;
   $('#solo-btn').focus({ preventScroll: true });
-  window.__lastcall = { D, S, quality, hooks, gun, arm, rig, camera, renderer, MODES, CATALOG, leaveTable, cards: { bodies, hands }, diceTable, T };
+  window.__lastcall = { D, S, quality, hooks, gun, arm, rig, camera, renderer, MODES, CATALOG, leaveTable, cards: { bodies, hands }, diceTable, T, settings };
   const room = new URLSearchParams(location.search).get('room');
-  const AUTO = { '#autoplay-devil': ['deck', 'devil'], '#autoplay-dice': ['dice', 'basic'], '#autoplay-dice-traditional': ['dice', 'traditional'] };
+  const AUTO = { '#autoplay-devil': ['deck', 'devil'], '#autoplay-dice': ['dice', 'basic'], '#autoplay-dice-traditional': ['dice', 'traditional'], '#autoplay-auction': ['auction', 'classic'] };
   if (settings.autoplay) { const [mode, variant] = AUTO[location.hash] || ['deck', 'basic']; startSolo({ mode, variant }); }
   else if (room) enterTable('join', normalizeRoomCode(room));
 }

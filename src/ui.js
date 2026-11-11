@@ -286,14 +286,14 @@ export function recordResult(won) {
   return s;
 }
 const listJoin = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
-export function showEnd({ won, rounds, survivors, recap, online }) {
+export function showEnd({ won, rounds, survivors, recap, online, kicker, title, text }) {
   const end = $('#end');
   end.classList.toggle('won', won); end.classList.toggle('lost', !won);
-  $('#end-kicker').textContent = won ? 'The house salutes you' : 'Closing time';
-  $('#end-title').textContent = won ? 'Last One Sitting' : 'Lights Out';
-  $('#end-text').textContent = won
+  $('#end-kicker').textContent = kicker ?? (won ? 'The house salutes you' : 'Closing time');
+  $('#end-title').textContent = title ?? (won ? 'Last One Sitting' : 'Lights Out');
+  $('#end-text').textContent = text ?? (won
     ? `You outlasted the table in ${rounds} ${rounds === 1 ? 'round' : 'rounds'}. The Lantern pours you one on the house.`
-    : `${listJoin(survivors)} ${survivors.length === 1 ? 'keeps' : 'keep'} the table after ${rounds} ${rounds === 1 ? 'round' : 'rounds'}.`;
+    : `${listJoin(survivors)} ${survivors.length === 1 ? 'keeps' : 'keep'} the table after ${rounds} ${rounds === 1 ? 'round' : 'rounds'}.`);
   $('#recap').innerHTML = recap.map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join('');
   $('#again-btn').textContent = online ? 'Back to the lobby' : 'Deal me in again';
   $('#menu-btn').textContent = online ? 'Leave the table' : 'Back to the door';
@@ -466,3 +466,4 @@ export function initEnter() {
     enterSubmit?.({ name, code });
   });
 }
+

@@ -182,7 +182,7 @@ async function playState(msg) {
     leaveTable();
     return ui.toast('That game is coming in the next update.', 'small');
   }
-  const fresh = msg.phase === 'playing' && msg.game.round === 0;
+  const fresh = msg.phase === 'playing' && (msg.game.round ?? msg.game.auction) === 0;
   if (D.mode !== mode || fresh || D.phase === 'idle') enterTable(mode);
   D.phase = msg.phase;
   D.shown = structuredClone(msg.game);
