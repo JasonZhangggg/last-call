@@ -229,6 +229,7 @@ function hold(body, parent, pos, quat, scale, dealArc) {
  * Lays out your hand in camera space, sized to the viewport so it reads the same on a phone and a
  * monitor, and each other view's hand as a fan held over the table edge. `characters` is by view.
  */
+const HAND_TILT = -0.06, HAND_LAYER = 0.0025, _X = new THREE.Vector3(1, 0, 0);
 export function layoutHands(characters, reserveBottomPx) {
   const mine = myHand(), n = mine.length;
   if (n) {
@@ -243,8 +244,11 @@ export function layoutHands(characters, reserveBottomPx) {
       const b = mine[i], t = i - (n - 1) / 2;
       const sel = handUI.selected.has(b.token), hov = handUI.hover === b.token && handUI.enabled;
       const lift = sel ? CH * s * 0.3 : hov ? CH * s * 0.1 : 0;
-      _v.set(t * spacing, baseY - t * t * 0.0025 * s + lift, -d + i * 0.0015);
-      quatE(-0.06 + (hov ? 0.04 : 0), 0, -t * 0.045, _q);
+      // Every card shares one tilt and sits on its own layer of the tilted stack, so a lift slides it
+      // within its layer: cards that overlap can never pass through each other.
+      _v.set(t * spacing, baseY - t * t * 0.0025 * s + lift, i * HAND_LAYER).applyAxisAngle(_X, HAND_TILT);
+      _v.z -= d;
+      quatE(HAND_TILT, 0, -t * 0.045, _q);
       hold(b, camera, _v, _q, s * (hov && !sel ? 1.04 : 1), 0.03);
       // the hovered card's hit area grows, so its own lift can't carry it out from under the pointer
       b.hit.scale.y = hov ? 1.3 : 1;
