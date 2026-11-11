@@ -212,7 +212,12 @@ async function reveal(T, msg) {
   for (let s = 1; s < 4; s++) ui.setStatus(s, '');
   setGlow(0);
   // the top card of the stack; any face-down body there looks the same, so the swap can't be seen
-  if (body.place === 'deck') sendTo(body, 'deck', { k: msg.deckCount, snap: true });
+  // The cards above it close the gap and it takes the top: the poses drawn don't change, and the
+  // stack stays in the order the next layout expects, so nothing reflows through it later.
+  if (body.place === 'deck' && body.slot !== msg.deckCount) {
+    for (const b of table.bodies) if (b !== body && b.place === 'deck' && !b.money && b.slot > body.slot) sendTo(b, 'deck', { k: b.slot - 1, snap: true });
+    sendTo(body, 'deck', { k: msg.deckCount, snap: true });
+  }
   setStatusFace(body, c);
   body.place = 'flight';
   audio.deal();
@@ -345,7 +350,8 @@ async function taken(T, msg) {
   }
   await T.step(450);
   let d = 0;
-  paid.forEach((p, s) => p.forEach((value) => { const b = moneyBody(s, value); setTint(b, 0.85); sendTo(b, 'spent', { dur: 0.5, arc: 0.06, delay: (d += 0.06) - 0.06 }); }));
+  // spent money turns face down in the air: it needs more lift than half its length to clear the felt
+  paid.forEach((p, s) => p.forEach((value) => { const b = moneyBody(s, value); setTint(b, 0.85); sendTo(b, 'spent', { dur: 0.5, arc: 0.11, delay: (d += 0.06) - 0.06 }); }));
   for (let i = 0; i < Math.min(spent, 6); i++) setTimeout(() => audio.deal(T.pan(seat)), i * 60 + 200);
   hud(T);
   await T.step(500 + 60 * spent);
@@ -436,6 +442,8 @@ function rebuild(T, { fresh }) {
   for (const b of table.bodies) setTint(b, 1);
   setGilded(gildedCount(g), false);
   for (let s = 0; s < 4; s++) if (!T.isMe(s)) react(T.char(s), 'out', !!g.scoring?.castOut[s]);
+  // coming in, money is dealt off the top of the stack, not out of wherever it was parked
+  if (!entered) for (const b of table.bodies) if (b.money) sendTo(b, 'deck', { k: table.bodies.length - STATUS_BASE + b.i, snap: true });
   layoutAll(T, { snap: !entered, dur: fresh ? 0.6 : 0.4, stagger: fresh ? 0.012 : 0 });
   entered = true;
   if (g.scoring) g.scoring.castOut.forEach((x, s) => ui.setStatus(T.view(s), x ? 'cast out' : `status <b>${fmtStatus(g.scoring.status[s])}</b>`));

@@ -2,7 +2,8 @@
 // and HUD. Handlers take (T, msg); they read the mirrored table as it stands after `msg` from
 // T.game and never decide anything the server hasn't said.
 import * as THREE from 'three';
-import { $, pick, clamp, damp, settings } from '../util.js';
+import { $, pick, clamp, settings } from '../util.js';
+import { smoothDamp } from '../render/motion.js';
 import { audio } from '../audio.js';
 import * as ui from '../ui.js';
 import { react, tell, poseRightHand } from '../render/characters.js';
@@ -101,9 +102,10 @@ const sips = new Map(); // view -> { ch, w, wT, tilt, tiltT }
 function sipFor(ch, v) { let s = sips.get(v); if (!s) sips.set(v, s = { ch, w: 0, wT: 0, tilt: 0, tiltT: 0 }); s.ch = ch; return s; }
 const SIP_YAW = new THREE.Quaternion().setFromAxisAngle(Y, Math.PI - 0.35);
 function poseSip(s, dt) {
-  s.w += (s.wT - s.w) * damp(dt, 5);
-  s.tilt += (s.tiltT - s.tilt) * damp(dt, 4.5);
-  if (s.w < 0.002 && s.wT === 0) return false;
+  // critically damped, so the head tips back and the glass rises without a jolt at the start
+  s.w = smoothDamp(s.w, s.wT, s, 'wv', 0.32, dt);
+  s.tilt = smoothDamp(s.tilt, s.tiltT, s, 'tv', 0.34, dt);
+  if (s.w < 0.002 && s.wT === 0) { s.w = s.wv = 0; return false; }
   const ch = s.ch, tilt = s.tilt;
   ch.head.rotation.x -= 0.55 * tilt;
   ch.neck.rotation.y *= 1 - 0.7 * s.w;
@@ -130,6 +132,7 @@ let held = null; // { v, i } the glass in someone's hand
 let bound = null;
 let clock = 0;
 let myShake = null; // the world point your hand shakes your cup around, while it does
+const shakeIn = { k: 0, v: {} }; // the shake's amplitude, eased in once the cup is up
 const armQ = new THREE.Quaternion();
 /** Where your palm goes to hold your cup in a pose: just over its closed end. */
 const cupTop = (kind, out) => { DT.cupPose(0, kind, out, _q); return out.setY(out.y + DT.CUP_TOP + 0.016); };
@@ -579,7 +582,7 @@ function rebuild(T, { fresh }) {
   beating = false; pendingTurn = null; held = null; peeking = false; myShake = null;
   hideControls();
   cupHands.clear();
-  for (const s of sips.values()) { s.w = s.wT = s.tilt = s.tiltT = 0; }
+  for (const s of sips.values()) { s.w = s.wT = s.tilt = s.tiltT = s.wv = s.tv = 0; }
   DT.dropHeld(null);
   armHide();
   audio.setTension(0); ui.setTense(false);
@@ -710,9 +713,13 @@ export const diceMode = {
   },
   frame(T, reservePx, dt = 1 / 60) {
     clock += dt;
-    if (myShake) {
-      const p = clock * 26;
-      arm.mover.pos.copy(myShake).add(_a.set(Math.sin(p * 0.5) * 0.02, Math.abs(Math.sin(p * 0.5)) * 0.05, Math.cos(p * 0.25) * 0.012));
+    // the offset moves the arm's spring target, never a flight's: a target that jumps near a
+    // flight's end drags the hand with it in one frame
+    shakeIn.k = myShake && !arm.mover.flying ? smoothDamp(shakeIn.k, 1, shakeIn.v, 'k', 0.08, dt) : 0;
+    if (!shakeIn.k) shakeIn.v.k = 0;
+    if (myShake && shakeIn.k) {
+      const p = clock * 26, k = shakeIn.k;
+      arm.mover.pos.copy(myShake).add(_a.set(Math.sin(p * 0.5) * 0.02 * k, Math.abs(Math.sin(p * 0.5)) * 0.05 * k, Math.cos(p * 0.25) * 0.012 * k));
     }
     for (const v of cupHands) {
       const ch = T.viewChars[v];
