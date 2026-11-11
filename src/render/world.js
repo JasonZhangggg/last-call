@@ -272,8 +272,9 @@ function buildDecor() {
   const stool = mergeGeometries(sk.map((g) => worldUV(g, 3)));
   instanced(stool, darkWood, [[[-1.55, FLOOR, -2.95], [0, 0.3, 0]], [[-0.5, FLOOR, -3.0], [0, 1.1, 0]], [[0.55, FLOOR, -2.92], [0, 2.3, 0]], [[1.6, FLOOR, -3.0], [0, 0.6, 0]], [[-3.0, FLOOR, -0.9], [0, 0.1, 0]], [[3.3, FLOOR, -1.6], [0, 0.9, 0]]]);
 
-  // a plate rail of pewter and a keg tap on the right wall
-  for (let i = 0; i < 5; i++) k.add(mats.pewter, place(new THREE.CylinderGeometry(0.13, 0.1, 0.02, 24), [X1 - 0.08, 2.15, -3.4 + i * 0.32], [0, 0, Math.PI / 2 - 0.25]));
+  // a rail of glazed stoneware plates on the right wall
+  const plates = new THREE.MeshStandardMaterial({ color: 0x4a3a2c, roughness: 0.55 });
+  for (let i = 0; i < 5; i++) k.add(plates, place(new THREE.CylinderGeometry(0.13, 0.1, 0.02, 24), [X1 - 0.08, 2.15, -3.4 + i * 0.32], [0, 0, Math.PI / 2 - 0.25]));
   k.add(darkWood, worldUV(box(0.14, 0.04, 1.9, [X1 - 0.08, 2.04, -2.76]), 2));
   k.build(scene);
 }
