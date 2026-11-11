@@ -53,7 +53,7 @@ export function openOverlay(id) {
   if (!stack.includes(id)) { stack.push(id); openers.set(id, document.activeElement); }
   void el.offsetWidth; // commit the unhidden, faded state so removing .fade transitions
   el.classList.remove('fade'); syncCovered();
-  setTimeout(() => el.querySelector('.btn.primary:not([hidden]):not(:disabled), button:not([hidden])')?.focus({ preventScroll: true }), 50);
+  el.querySelector('.btn.primary:not([hidden]):not(:disabled), button:not([hidden])')?.focus({ preventScroll: true });
 }
 export function closeOverlay(id) {
   const el = $(`#${id}`); el.classList.add('fade');
