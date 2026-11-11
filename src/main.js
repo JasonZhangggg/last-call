@@ -5,6 +5,7 @@ import { buildWorld, updateWorld, setShadowSize } from './render/world.js';
 import { buildCharacter, updateCharacter } from './render/characters.js';
 import { buildCards, updateCards, warmCards, bodies, hands } from './render/cards.js';
 import { buildGun, updateGun, gun } from './render/gun.js';
+import { buildAuctionTable, updateAuctionTable } from './render/auctionTable.js';
 import { buildPlayerArm, updatePlayerArm, arm } from './render/playerArm.js';
 import { rig, updateCamera, fitToViewport, lookFromPointer, lookByDelta, centerLook } from './render/camera.js';
 import { dampVec3 } from './render/motion.js';
@@ -39,6 +40,7 @@ function simulate(dt, t) {
   }
   D.mode?.frame(T, innerWidth < 720 ? 112 : 124);
   updateCards(dt);
+  updateAuctionTable(dt);
   updatePlayerArm(dt);
   updateGun(dt);
   camera.updateMatrixWorld();
@@ -309,6 +311,7 @@ async function boot() {
     D.viewChars[i + 1] = ch;
   });
   buildCards();
+  buildAuctionTable();
   buildGun();
   buildPlayerArm();
   ui.initUI();
@@ -330,9 +333,9 @@ async function boot() {
   renderer.setAnimationLoop(frame);
   $('#loading').hidden = true; $('#title-menu').hidden = false;
   $('#solo-btn').focus({ preventScroll: true });
-  window.__lastcall = { D, S, quality, hooks, gun, arm, rig, camera, renderer, MODES, CATALOG, leaveTable, cards: { bodies, hands } };
+  window.__lastcall = { D, S, quality, hooks, gun, arm, rig, camera, renderer, MODES, CATALOG, leaveTable, cards: { bodies, hands }, settings };
   const room = new URLSearchParams(location.search).get('room');
-  if (settings.autoplay) startSolo({ mode: 'deck', variant: location.hash === '#autoplay-devil' ? 'devil' : 'basic' });
+  if (settings.autoplay) startSolo(location.hash === '#autoplay-auction' ? { mode: 'auction', variant: 'classic' } : { mode: 'deck', variant: location.hash === '#autoplay-devil' ? 'devil' : 'basic' });
   else if (room) enterTable('join', normalizeRoomCode(room));
 }
 boot().catch((err) => {

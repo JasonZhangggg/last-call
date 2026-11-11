@@ -3,6 +3,8 @@
 //   node scripts/verify.mjs --size 390x844        phone-sized play-through
 //   node scripts/verify.mjs --soak 3              N self-playing solo games (#autoplay), fails on any error
 //   node scripts/verify.mjs --variant devil       play the Devil variant
+//   node scripts/verify.mjs --mode auction        The Gilded Bid (#autoplay-auction): your bid UI, a won
+//                                                 card, a disgrace, the scoring and the end; --soak works too
 // three.js is served from tools/vendor so the run works offline. Exits non-zero on page errors.
 import { createRequire } from 'node:module';
 import { mkdirSync, existsSync } from 'node:fs';
@@ -47,7 +49,63 @@ const shown = (id) => page.waitForFunction((id) => { const el = document.getElem
 
 const url = 'file://' + path.join(ROOT, 'dist/index.html');
 process.on('unhandledRejection', async (e) => { console.error(String(e).split('\n')[0]); console.error('PROBLEMS:\n' + (problems.join('\n') || '(none recorded)')); try { console.error(JSON.stringify(await state())); } catch {} process.exit(1); });
-if (args.soak) {
+if (args.mode === 'auction') {
+  // The game plays itself (#autoplay-auction) so a slow machine never meets the turn clock. A watcher
+  // inside the page freezes game time the instant a moment worth capturing appears; motion keeps
+  // running, so each shot shows the scene settled. Your first turn is held and played by clicking.
+  const games = args.soak ? +args.soak : 1;
+  if (!args.soak) await page.addInitScript(() => { globalThis.__auctionHold = true; });
+  await page.goto(url + '#autoplay-auction');
+  await page.waitForFunction(() => window.__lastcall?.settings);
+  if (!args.soak) await page.evaluate(() => {
+    const L = window.__lastcall, seen = new Set(), bad = (c) => ['ale', 'debt', 'scandal'].includes(c?.kind);
+    window.__cap = null;
+    // a timer, not a frame callback: on a software renderer frames can be seconds apart
+    const tick = () => {
+      const D = L.D, g = D.shown;
+      if (window.__cap || !g || !g.turned) return;
+      const toast = document.getElementById('toast-t').textContent;
+      const want = [
+        ['opening', g.card && D.prompt && D.prompt.seat !== D.me && g.auction === 1],
+        ['my-turn', !document.getElementById('bid-actions').hidden],
+        ['disgrace', bad(g.card) && D.prompt],
+        ['won', g.won.some((w) => w.some((c) => !bad(c)))],
+        ['purses', g.scoring && /poorest|tie for/.test(toast)],
+        ['scoring', g.scoring && /win|heat/.test(toast)],
+      ].find(([k, on]) => on && !seen.has(k));
+      if (want) { seen.add(want[0]); L.settings.paused = true; window.__cap = want[0]; }
+    };
+    setInterval(tick, 15);
+  });
+  const taken = new Set();
+  const SHOTS = { opening: '02-opening', 'my-turn': '03-my-turn', disgrace: '04-disgrace', won: '05-won-card', purses: '06-purses', scoring: '07-scoring' };
+  for (let i = 0; i < games; i++) {
+    for (let tick = 0; tick < 4000; tick++) {
+      const s = await page.evaluate(() => ({ cap: window.__cap, end: !document.getElementById('end').classList.contains('fade'), winner: window.__lastcall.D.result?.winner, me: window.__lastcall.D.me }));
+      if (s.end) {
+        console.log(`  game ${i + 1}: ${s.winner === s.me ? 'player won' : s.winner == null ? 'no winner' : 'player lost'}`);
+        if (!args.soak) { await shown('end'); await page.waitForTimeout(600); await shot('99-end'); }
+        break;
+      }
+      if (!s.cap) { await page.waitForTimeout(250); continue; }
+      taken.add(s.cap);
+      if (s.cap === 'my-turn') {
+        await page.click('#min-btn');
+        await page.waitForTimeout(900);
+        await shot(SHOTS[s.cap]);
+        await page.evaluate(() => { globalThis.__auctionHold = false; });
+        await page.click(await page.isEnabled('#bid-btn') ? '#bid-btn' : '#pass-btn');
+      } else {
+        await page.waitForTimeout(1300);
+        await shot(SHOTS[s.cap]);
+      }
+      await page.evaluate(() => { window.__cap = null; window.__lastcall.settings.paused = false; });
+    }
+    if (i < games - 1) await page.click('#again-btn');
+  }
+  for (const k of ['my-turn', 'won', 'purses', 'scoring']) if (!args.soak && !taken.has(k)) problems.push(`never captured ${k}`);
+  if (!args.soak && !taken.has('disgrace')) console.log('  (no disgrace came up this game)');
+} else if (args.soak) {
   const games = +args.soak;
   await page.goto(url + (args.variant === 'devil' ? '#autoplay-devil' : '#autoplay'));
   for (let i = 0; i < games; i++) {

@@ -330,6 +330,27 @@ input.text::placeholder { color: var(--ink-faint); opacity: 0.5; }
   #title .sheet { gap: 14px; }
   .sheet h1 { font-size: clamp(46px, 14vh, 104px); }
 }
+/* The Gilded Bid: bid controls, seat details, the card in the top chip, its rules. */
+#bid-actions .btn { min-width: 150px; }
+#bid-actions #min-btn { min-width: 0; padding: 0 16px; }
+.has-aux > .cnt, .has-aux > .pips, #me-card.has-aux > .pips, #me-card.has-aux > .odds { display: none; }
+.tag .aux { display: inline-flex; gap: 8px; align-items: center; white-space: nowrap; color: var(--ink-dim); }
+.aux b { color: var(--ink); font-weight: 700; }
+.aux .bid { color: var(--brass-hi); font-weight: 700; }
+.aux .passed { color: var(--ink-faint); font-style: italic; }
+.aux .won { display: inline-flex; gap: 5px; align-items: center; }
+.aux .won i { font-style: normal; font-weight: 700; color: var(--brass-hi); }
+.aux .won i.bad { color: var(--blood-hi); }
+.aux .won i.none { color: var(--ink-faint); font-weight: 400; }
+#me-card .aux { font-size: 13px; color: var(--ink-dim); display: grid; gap: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#table-card.card-icon img { width: 25px; height: 35px; border-radius: 3px; background: none; box-shadow: 0 0 0 1px var(--brass), 0 2px 8px rgba(0, 0, 0, 0.5); margin-left: 7px; }
+body.mode-auction #rules .panel:not(.auction-rules), body:not(.mode-auction) #rules .auction-rules { display: none; }
+@media (max-width: 720px) {
+  #bid-actions .btn { min-width: 0; flex: 1; padding: 0 10px; font-size: 13px; letter-spacing: 0.08em; }
+  #bid-actions { width: 100%; flex-wrap: nowrap; }
+  #bid-actions #min-btn { flex: 0 0 auto; padding: 0 12px; }
+  #me-card .aux { font-size: 11.5px; }
+}
 @media (max-width: 1000px), (max-height: 560px) { #log { display: none; } }
 @media (max-width: 720px) {
   .icon-btn { width: 40px; height: 40px; padding: 0; justify-content: center; }
@@ -460,6 +481,11 @@ body.reduce-motion .recap div { animation: none; opacity: 1; }
     <button class="btn danger" id="liar-btn" type="button">Liar!<span class="k" aria-hidden="true">L</span></button>
     <button class="btn primary" id="play-btn" type="button"><span class="lbl">Play</span><span class="k" aria-hidden="true">Enter</span></button>
   </div>
+  <div class="row" id="bid-actions" hidden>
+    <button class="btn" id="pass-btn" type="button"><span class="lbl">Pass</span><span class="k" aria-hidden="true">P</span></button>
+    <button class="btn ghost" id="min-btn" type="button" title="Pick the cheapest bid that leads (R)">Min</button>
+    <button class="btn primary" id="bid-btn" type="button"><span class="lbl">Bid</span><span class="k" aria-hidden="true">Enter</span></button>
+  </div>
   <div class="row" id="trigger-row" hidden>
     <button class="btn" id="trigger-btn" type="button"><span class="fill"></span><span class="lbl">Hold to pull the trigger</span></button>
   </div>
@@ -506,6 +532,23 @@ body.reduce-motion .recap div { animation: none; opacity: 1; }
         <dt><kbd>L</kbd></dt><dd>Call Liar</dd>
         <dt>Hold <kbd>Space</kbd></dt><dd>Pull the trigger</dd>
         <dt>Mouse or drag</dt><dd>Look around the table</dd>
+        <dt><kbd>Esc</kbd> · <kbd>M</kbd></dt><dd>Menu · Sound on or off</dd>
+      </dl>
+    </div>
+    <div class="panel auction-rules">
+      <ol class="rules">
+        <li><span>Everyone starts with the same eleven money cards: <b>1 to 25 crowns</b>, 106 in all. Money you spend is gone for good.</span></li>
+        <li><span>One status card is turned at a time: ten <b>curios</b> worth 1 to 10, three <b>Patron's Favours</b> that double your status, and three <b>disgraces</b>.</span></li>
+        <li><span>Bid in turn by adding money to the cards in front of you, beating the high bid, or pass to take yours back. The last bidder pays and takes the card.</span></li>
+        <li><span>A <b>disgrace</b> runs in reverse: the first to pass takes it and keeps their money; everyone else pays. Spilled Ale costs a curio, Bad Debt is minus 5, Public Scandal halves you.</span></li>
+        <li><span>When the <b>fourth gilded card</b> turns (favours and the scandal), the evening ends. The poorest player is cast out; the richest in status wins.</span></li>
+      </ol>
+      <dl class="keys">
+        <dt><kbd>1</kbd>–<kbd>0</kbd> or tap</dt><dd>Pick money cards</dd>
+        <dt><kbd>R</kbd></dt><dd>Pick the cheapest leading bid</dd>
+        <dt><kbd>Enter</kbd></dt><dd>Bid the picked cards</dd>
+        <dt><kbd>P</kbd></dt><dd>Pass</dd>
+        <dt><kbd>Backspace</kbd></dt><dd>Clear your pick</dd>
         <dt><kbd>Esc</kbd> · <kbd>M</kbd></dt><dd>Menu · Sound on or off</dd>
       </dl>
     </div>

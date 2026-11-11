@@ -129,7 +129,7 @@ export function setTable(rank, round) {
   $('#top').hidden = false;
   const tc = $('#table-card'); tc.classList.remove('pulse'); void tc.offsetWidth; tc.classList.add('pulse');
 }
-export function setClaim(html) { $('#claim').innerHTML = html ? `<span class="lbl">Last claim</span>${html}` : ''; }
+export function setClaim(html, label = 'Last claim') { $('#claim').innerHTML = html ? `<span class="lbl">${label}</span>${html}` : ''; }
 
 function pipsHTML(pulls, fresh) { let s = ''; for (let i = 0; i < 6; i++) s += `<span class="pip${i < pulls ? ' spent' : ''}${fresh && i === pulls - 1 ? ' fresh' : ''}"></span>`; return s; }
 /**
@@ -276,14 +276,14 @@ export function recordResult(won) {
   return s;
 }
 const listJoin = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
-export function showEnd({ won, rounds, survivors, recap, online }) {
+export function showEnd({ won, rounds, survivors, recap, online, kicker, title, text }) {
   const end = $('#end');
   end.classList.toggle('won', won); end.classList.toggle('lost', !won);
-  $('#end-kicker').textContent = won ? 'The house salutes you' : 'Closing time';
-  $('#end-title').textContent = won ? 'Last One Sitting' : 'Lights Out';
-  $('#end-text').textContent = won
+  $('#end-kicker').textContent = kicker ?? (won ? 'The house salutes you' : 'Closing time');
+  $('#end-title').textContent = title ?? (won ? 'Last One Sitting' : 'Lights Out');
+  $('#end-text').textContent = text ?? (won
     ? `You outlasted the table in ${rounds} ${rounds === 1 ? 'round' : 'rounds'}. The Lantern pours you one on the house.`
-    : `${listJoin(survivors)} ${survivors.length === 1 ? 'keeps' : 'keep'} the table after ${rounds} ${rounds === 1 ? 'round' : 'rounds'}.`;
+    : `${listJoin(survivors)} ${survivors.length === 1 ? 'keeps' : 'keep'} the table after ${rounds} ${rounds === 1 ? 'round' : 'rounds'}.`);
   $('#recap').innerHTML = recap.map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join('');
   $('#again-btn').textContent = online ? 'Back to the lobby' : 'Deal me in again';
   $('#menu-btn').textContent = online ? 'Leave the table' : 'Back to the door';
@@ -456,3 +456,31 @@ export function initEnter() {
     enterSubmit?.({ name, code });
   });
 }
+
+/* ---------- mode HUD hooks ---------- */
+/**
+ * Mode-specific seat details, HTML by view (0 is you), shown in place of the card count and pips.
+ * null gives every seat back its card-table look.
+ */
+export function setSeatDetails(list) {
+  for (let v = 0; v < 4; v++) {
+    const host = v === 0 ? $('#me-card') : tags[v]?.el.querySelector('.meta');
+    if (!host) continue;
+    const html = list?.[v];
+    let aux = host.querySelector(':scope > .aux');
+    host.classList.toggle('has-aux', html != null);
+    if (html == null) { aux?.remove(); continue; }
+    if (!aux) { aux = document.createElement(v === 0 ? 'div' : 'span'); aux.className = 'aux'; host.appendChild(aux); }
+    if (aux.innerHTML !== html) aux.innerHTML = html;
+  }
+}
+/** The top chip for a mode without a table rank: a card thumbnail, an eyebrow line and a name. */
+export function setTopCard({ src, alt = '', eyebrow, name, pulse = false }) {
+  $('#table-card').classList.add('card-icon');
+  $('#table-icon').src = src; $('#table-icon').alt = alt;
+  $('#table-name').textContent = name;
+  $('#round-label').innerHTML = eyebrow;
+  $('#top').hidden = false;
+  if (pulse) { const tc = $('#table-card'); tc.classList.remove('pulse'); void tc.offsetWidth; tc.classList.add('pulse'); }
+}
+export const clearTopCard = () => $('#table-card').classList.remove('card-icon');

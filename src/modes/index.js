@@ -32,6 +32,7 @@
 // design(seat), pan(seat), step, landed, token() (changes when a rebuild cancels the flow), send(action), setActor,
 // setWatch, focusSeat, refresh() (redraws the seat HUD), eliminated() (offers Watch or Leave).
 import { deckMode } from './deck.js';
+import { auctionMode } from './auction.js';
 
-export const MODES = { deck: deckMode };
+export const MODES = { deck: deckMode, auction: auctionMode };
 export const isPlayable = (mode) => !!MODES[mode]?.ready;
