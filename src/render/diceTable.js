@@ -171,16 +171,19 @@ export function buildDiceTable() {
   M.halo = instancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), haloMat, PER_SEAT * 4);
   M.halo.renderOrder = 1;
   M.cup = instancedMesh(cup.leather, leather, 4, { cast: true, receive: true });
-  M.cupBrass = instancedMesh(cup.brass, mats.brass, 4, { cast: true });
+  // instanced copies of shared materials: three rebuilds a material's program state each time it
+  // alternates between instanced and plain meshes
+  const brass = mats.brass.clone();
+  M.cupBrass = instancedMesh(cup.brass, brass, 4, { cast: true });
   M.trayWood = instancedMesh(tray.wood, trayWood, 4, { receive: true, cast: true });
-  M.trayBrass = instancedMesh(tray.brass, mats.brass, 4);
+  M.trayBrass = instancedMesh(tray.brass, brass, 4);
   M.liquid = instancedMesh(gl.liquid, liquidMat, GLASSES * 4);
   M.glass = instancedMesh(gl.glass, glassMat, GLASSES * 4);
   M.liquid.renderOrder = 2; M.glass.renderOrder = 3;
 
   const held = table.held = new THREE.Group();
   const heldLiquid = table.heldLiquid = new THREE.Mesh(gl.liquid, liquidMat.clone());
-  const heldGlass = new THREE.Mesh(gl.glass, glassMat);
+  const heldGlass = new THREE.Mesh(gl.glass, glassMat.clone());
   heldLiquid.renderOrder = 2; heldGlass.renderOrder = 3;
   held.add(heldLiquid, heldGlass); held.visible = false; g.add(held);
   table.heldMover = new Mover(held, g); table.heldMover.smooth = table.heldMover.rotSmooth = 0.06;
@@ -314,6 +317,11 @@ function writeGlasses(v) {
   table.glasses[v].forEach((gl, i) => {
     const idx = v * GLASSES + i;
     if (gl.state === 'gone') { _m.compose(gl.pos, s.quat, ZERO_SCALE); M.glass.setMatrixAt(idx, _m); M.liquid.setMatrixAt(idx, _m); return; }
+    if (gl.state === 'spilled') {
+      spillPose(v, _s, _q); _m.compose(_s, _q, ONE); M.glass.setMatrixAt(idx, _m);
+      _m.compose(gl.pos, s.quat, ZERO_SCALE); M.liquid.setMatrixAt(idx, _m);
+      return;
+    }
     if (gl.state === 'empty') {
       _q.copy(s.quat).multiply(_q2.setFromAxisAngle(AX, Math.PI));
       _m.compose(_s.copy(gl.pos).setY(gl.pos.y + GLASS_H), _q, ONE); M.glass.setMatrixAt(idx, _m);
@@ -348,10 +356,14 @@ export function returnGlass(v, i, dur = 0.45) {
 export function dropHeld(v, i, state = 'empty') { table.held.visible = false; if (v != null) setGlassState(v, i, state); }
 /** The glass falls from a limp hand and lies on its side by the tray. */
 export function spillHeld(v) {
-  const s = table.spots[v];
-  _s.copy(s.tray).addScaledVector(s.out, -0.11).addScaledVector(s.right, -0.05).setY(0.021);
-  _q.copy(s.quat).multiply(_q2.setFromEuler(_e.set(0, 0.7, Math.PI / 2, 'YXZ')));
+  spillPose(v, _s, _q);
   return table.heldMover.go(table.group, _s, _q, 1, { dur: 0.55, arc: 0.05 });
+}
+/** Where a spilled glass lies: on its side by the tray. Once it lands, dropHeld(v, i, 'spilled') keeps it there. */
+function spillPose(v, pos, quat) {
+  const s = table.spots[v];
+  pos.copy(s.tray).addScaledVector(s.out, -0.11).addScaledVector(s.right, -0.05).setY(0.021);
+  return quat.copy(s.quat).multiply(_q2.setFromEuler(_e.set(0, 0.7, Math.PI / 2, 'YXZ')));
 }
 
 /* ---------- picking ---------- */
