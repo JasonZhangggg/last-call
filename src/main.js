@@ -3,7 +3,7 @@ import { $, clamp, settings } from './util.js';
 import { renderer, scene, camera, canvas, render, adapt, applyQuality, quality } from './render/core.js';
 import { buildWorld, updateWorld, setShadowSize } from './render/world.js';
 import { buildCharacter, updateCharacter } from './render/characters.js';
-import { buildCards, layoutHands, updateCards, pickCard, handUI, warmCards } from './render/cards.js';
+import { buildCards, layoutHands, updateCards, pickCard, handUI, warmCards, views } from './render/cards.js';
 import { buildGun, updateGun, gun } from './render/gun.js';
 import { rig, updateCamera, fitToViewport, lookFromPointer, lookByDelta } from './render/camera.js';
 import { audio } from './audio.js';
@@ -19,8 +19,7 @@ const _v = new THREE.Vector3();
 const EMPTY_GAME = { players: [0, 1, 2, 3].map((seat) => ({ seat, hand: [] })) };
 
 /* ---------- frame ---------- */
-function frame() {
-  const dt = Math.min(clock.getDelta(), 1 / 20), t = clock.elapsedTime;
+function simulate(dt, t) {
   updateWorld(dt, t);
   updateCamera(dt, t);
   camera.updateMatrixWorld();
@@ -34,8 +33,20 @@ function frame() {
   updateGun(dt);
   camera.updateMatrixWorld();
   updateHover();
-  render(dt, t);
+}
+
+// scripts/motion-probe.mjs sets hooks.probe to sample motion at a finer step than the frame rate.
+const hooks = { probe: null };
+function frame() {
+  const dt = Math.min(clock.getDelta(), 1 / 20), t = clock.elapsedTime, probe = hooks.probe;
+  if (probe) {
+    const n = Math.max(1, Math.ceil(dt * probe.hz));
+    for (let i = 1; i <= n; i++) { simulate(dt / n, t - dt + (dt * i) / n); probe.sample(dt / n); }
+  } else simulate(dt, t);
+  // a probe may skip most draws so the software renderer can't starve the simulation it measures
+  if (!probe || probe.draw(dt)) render(dt, t);
   placeTags(dt);
+  probe?.frame(dt);
   adapt(dt);
 }
 
@@ -164,7 +175,7 @@ async function boot() {
   renderer.setAnimationLoop(frame);
   $('#loading').hidden = true; $('#title-menu').hidden = false;
   $('#start-btn').focus({ preventScroll: true });
-  window.__lastcall = { D, quality };
+  window.__lastcall = { D, quality, hooks, views, gun, rig, camera, renderer, characters, handUI };
   if (settings.autoplay) startGame();
 }
 boot().catch((err) => {
