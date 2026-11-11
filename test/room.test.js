@@ -417,6 +417,36 @@ test('lobby: options, bots, joining full tables, and a rematch', () => {
   assert.ok(people.every((p) => p.over));
 });
 
+test('the local transport seats you with three bots and plays a whole game', async () => {
+  const { createLocalTransport } = await import('../src/net/client.js');
+  const clock = new FakeClock();
+  const log = [], statuses = [];
+  let hand = [], seat = null;
+  const t = createLocalTransport({ name: 'Solo', clock });
+  t.connect({
+    onStatus: (s) => statuses.push(s),
+    onMessage: (m) => {
+      log.push(m);
+      if (m.type === 'welcome') seat = m.seat;
+      if (m.type === 'round') hand = m.hand.map((c) => c.token);
+      if (m.type === 'played' && m.seat === seat) hand = hand.filter((x) => !m.tokens.includes(x));
+      if (m.type === 'turn' && m.options) t.send(m.options.canPlay ? { type: 'play', tokens: hand.slice(0, 1) } : { type: 'challenge' });
+      if (m.type === 'roulette' && m.seat === seat) t.send({ type: 'pull' });
+    },
+  });
+  const settle = () => new Promise((r) => setImmediate(r));
+  await settle();
+  assert.deepEqual(log.slice(0, 3).map((m) => m.type), ['welcome', 'lobby', 'state']);
+  assert.deepEqual(log.filter((m) => m.type === 'lobby').at(-1).seats.map((s) => s.persona), [null, 'brass', 'noctua', 'gristle']);
+  t.send({ type: 'start' });
+  for (let i = 0; i < 100_000 && !log.some((m) => m.type === 'over'); i++) { await settle(); if (!clock.next()) await settle(); }
+  assert.ok(log.some((m) => m.type === 'over'));
+  assert.deepEqual(log.filter((m) => m.type === 'error'), []);
+  t.close();
+  assert.deepEqual(statuses, ['open', 'closed']);
+  assert.equal(clock.pending, 0);
+});
+
 test('the room ends cleanly when everyone leaves', () => {
   const { t, people, host } = seatTable({ seed: 2, humans: 2 });
   host.send({ type: 'start' });

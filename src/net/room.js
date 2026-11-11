@@ -83,7 +83,8 @@ export class Room {
     const i = this.seats.findIndex((x) => x.kind === 'human' && x.connected && x.clientId === clientId);
     return i < 0 ? null : i;
   }
-  connectedHumans() { return this.seats.filter((x) => x.kind === 'human' && x.connected).length; }
+  connectedHumans() { return this.connectedClients().length; }
+  connectedClients() { return this.seats.filter((x) => x.kind === 'human' && x.connected).map((x) => x.clientId); }
   /** No person holds or can reclaim a seat: the host may discard the room. */
   isAbandoned() { return !this.seats.some((x) => x.kind === 'human' && !x.left); }
   pendingTimer() { return this.timer ? { ...this.timer } : null; }
