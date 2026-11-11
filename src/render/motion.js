@@ -1,14 +1,25 @@
 // Motion primitives shared by cards, the revolver and the camera.
 //
 // Two kinds of movement, chosen per object:
-//   flights  discrete moves (deal, play, reveal): timed, eased, optionally arced. They re-read
-//            the target every frame, so a moving target (a reflowing hand) is still hit exactly.
-//   springs  continuous following once settled: critically damped, no velocity jump, no overshoot.
+//   flights  discrete moves (deal, play, reveal): timed, eased, optionally arced. A flight is
+//            blended in world space between a world snapshot of where the object was and its
+//            target in the new parent's space, re-read every frame. So a reparent never teleports,
+//            a card waiting to be dealt doesn't ride along with the camera, and a moving target (a
+//            reflowing hand, a leaning character) is still hit exactly.
+//   springs  continuous following once settled: critically damped position, rotation and scale.
+// Flight eases leave from rest and land at rest (a dropped revolver's impact is the deliberate
+// exception). A flight that interrupts motion inherits the object's current velocity, so nothing
+// jumps from moving to still.
 import * as THREE from 'three';
+import { settings } from '../util.js';
 
 export const easeInOutCubic = (u) => (u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2);
 export const easeOutCubic = (u) => 1 - Math.pow(1 - u, 3);
-export const easeOutBack = (u) => { const c = 1.4; return 1 + (c + 1) * Math.pow(u - 1, 3) + c * Math.pow(u - 1, 2); };
+/** Front-loaded like an ease-out (peak speed at a third of the way), but leaves from rest. */
+export const easeFling = (u) => 1 - Math.pow(1 - u, 3) * (1 + 3 * u);
+
+/** Flight durations shrink with the game pace setting, less than linearly so motion stays legible. */
+export const paced = (sec) => sec / Math.sqrt(settings.speed || 1);
 
 /** Critically damped spring step (Game Programming Gems 4, "SmoothDamp"). Returns the new value. */
 export function smoothDamp(cur, target, state, key, smoothTime, dt) {
@@ -19,8 +30,27 @@ export function smoothDamp(cur, target, state, key, smoothTime, dt) {
   state[key] = (vel - omega * temp) * exp;
   return target + (change + temp) * exp;
 }
+/** smoothDamp on each axis of a Vector3, in place. `vel` is a plain object holding x/y/z. */
+export function dampVec3(cur, target, vel, smoothTime, dt) {
+  cur.x = smoothDamp(cur.x, target.x, vel, 'x', smoothTime, dt);
+  cur.y = smoothDamp(cur.y, target.y, vel, 'y', smoothTime, dt);
+  cur.z = smoothDamp(cur.z, target.z, vel, 'z', smoothTime, dt);
+  return cur;
+}
 
-const _p = new THREE.Vector3();
+const _w = new THREE.Vector3(), _tw = new THREE.Vector3(), _pp = new THREE.Vector3(), _ps = new THREE.Vector3(), _s = new THREE.Vector3();
+const _pq = new THREE.Quaternion(), _tq = new THREE.Quaternion(), _q = new THREE.Quaternion(), _m = new THREE.Matrix4(), _r = new THREE.Vector3();
+
+/** Rotation vector (axis * angle) of a unit quaternion, shortest way round. */
+function logQuat(q, out) {
+  const sgn = q.w < 0 ? -1 : 1, w = Math.min(1, q.w * sgn), s = Math.sqrt(Math.max(0, 1 - w * w));
+  const k = s < 1e-6 ? 2 : (2 * Math.acos(w)) / s;
+  return out.set(q.x * sgn * k, q.y * sgn * k, q.z * sgn * k);
+}
+function expQuat(r, out) {
+  const a = r.length(), k = a < 1e-6 ? 0.5 : Math.sin(a / 2) / a;
+  return out.set(r.x * k, r.y * k, r.z * k, Math.cos(a / 2)).normalize();
+}
 
 /**
  * A transform that follows a target (parent, position, rotation, scale).
@@ -35,48 +65,84 @@ export class Mover {
     this.scale = obj.scale.x;
     this.flight = null;
     this.vel = {};
+    this.rvel = {};
     this.smooth = 0.09;
-    this.rotRate = 14;
+    this.rotSmooth = 0.09;
+    this.world = obj.getWorldPosition(new THREE.Vector3());
+    this.worldVel = new THREE.Vector3();
+    this.from = { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), scale: 1, vel: new THREE.Vector3() };
   }
-  /** Set a new resting target without a flight (springs carry it there). */
+  /** Set a new resting target without a flight (springs carry it there, or the flight in progress). */
   follow(parent, pos, quat, scale = this.scale) {
     if (parent !== this.parent) return this.go(parent, pos, quat, scale);
     this.pos.copy(pos); this.quat.copy(quat); this.scale = scale;
     return this;
   }
-  /** Fly to a new target over `dur` seconds, lifting by `arc` at the midpoint. */
+  /** Fly to a new target over `dur` seconds (scaled by the pace setting), lifting by `arc` mid-way. */
   go(parent, pos, quat, scale = 1, { dur = 0.5, arc = 0, delay = 0, ease = easeInOutCubic } = {}) {
-    if (this.obj.parent !== parent) parent.attach(this.obj);
+    const o = this.obj, f = this.from;
+    o.updateWorldMatrix(true, false);
+    o.matrixWorld.decompose(f.pos, f.quat, _s);
+    f.scale = _s.x;
+    f.vel.copy(this.worldVel);
+    if (delay > 0) f.vel.set(0, 0, 0);
+    if (o.parent !== parent) parent.add(o);
     this.parent = parent;
     this.pos.copy(pos); this.quat.copy(quat); this.scale = scale;
-    this.flight = {
-      fromPos: this.obj.position.clone(), fromQuat: this.obj.quaternion.clone(), fromScale: this.obj.scale.x,
-      t: -delay, dur: Math.max(0.01, dur), arc, ease,
-    };
-    this.vel = {};
+    this.flight = { t: -delay, dur: Math.max(0.01, paced(dur)), arc, ease };
+    this.vel = {}; this.rvel = {};
+    this.applyWorld(f.pos, f.quat, f.scale);
     return this;
+  }
+  /** Place instantly (only for moves nobody can see). */
+  snap(parent, pos, quat, scale = 1) {
+    if (this.obj.parent !== parent) parent.add(this.obj);
+    this.parent = parent; this.flight = null; this.vel = {}; this.rvel = {};
+    this.pos.copy(pos); this.quat.copy(quat); this.scale = scale;
+    this.obj.position.copy(pos); this.obj.quaternion.copy(quat); this.obj.scale.setScalar(scale);
+  }
+  /** Writes a world-space pose into the object's local transform under its current parent. */
+  applyWorld(pos, quat, scale) {
+    const o = this.obj, p = this.parent;
+    p.updateWorldMatrix(true, false);
+    p.matrixWorld.decompose(_pp, _pq, _ps);
+    o.position.copy(pos).applyMatrix4(_m.copy(p.matrixWorld).invert());
+    o.quaternion.copy(_pq).invert().multiply(quat);
+    o.scale.setScalar(scale / _ps.x);
   }
   update(dt) {
     const o = this.obj, f = this.flight;
     if (f) {
       f.t += dt;
-      const u = Math.min(1, Math.max(0, f.t / f.dur)), e = f.ease(u);
-      o.position.lerpVectors(f.fromPos, this.pos, e);
-      if (f.arc) o.position.y += Math.sin(Math.PI * u) * f.arc;
-      o.quaternion.slerpQuaternions(f.fromQuat, this.quat, e);
-      o.scale.setScalar(f.fromScale + (this.scale - f.fromScale) * e);
-      if (u >= 1) this.flight = null;
-      return;
+      const u = Math.min(1, Math.max(0, f.t / f.dur)), e = f.ease(u), F = this.from, p = this.parent;
+      p.updateWorldMatrix(true, false);
+      p.matrixWorld.decompose(_pp, _pq, _ps);
+      _tw.copy(this.pos).applyMatrix4(p.matrixWorld);
+      _tq.copy(_pq).multiply(this.quat);
+      _w.lerpVectors(F.pos, _tw, e);
+      // lift follows eased progress, so it too leaves and lands at zero vertical speed
+      if (f.arc) _w.y += f.arc * 4 * e * (1 - e);
+      // Hermite velocity term: matches the inherited velocity at u = 0, fades to nothing by u = 1
+      if (u > 0) _w.addScaledVector(F.vel, f.dur * u * (1 - u) * (1 - u));
+      _q.slerpQuaternions(F.quat, _tq, e);
+      this.applyWorld(_w, _q, F.scale + (this.scale * _ps.x - F.scale) * e);
+      if (u >= 1) { this.flight = null; o.position.copy(this.pos); o.quaternion.copy(this.quat); o.scale.setScalar(this.scale); }
+    } else {
+      const st = this.smooth, v = this.vel;
+      dampVec3(o.position, this.pos, v, st, dt);
+      o.scale.setScalar(smoothDamp(o.scale.x, this.scale, v, 's', st, dt));
+      // rotation spring: damp the rotation vector from target to current toward zero
+      logQuat(_q.copy(this.quat).invert().multiply(o.quaternion), _r);
+      const rv = this.rvel;
+      if (_r.lengthSq() > 1e-12 || rv.x || rv.y || rv.z) {
+        const rs = this.rotSmooth;
+        _r.set(smoothDamp(_r.x, 0, rv, 'x', rs, dt), smoothDamp(_r.y, 0, rv, 'y', rs, dt), smoothDamp(_r.z, 0, rv, 'z', rs, dt));
+        o.quaternion.copy(this.quat).multiply(expQuat(_r, _q));
+      }
     }
-    const st = this.smooth, v = this.vel;
-    _p.set(
-      smoothDamp(o.position.x, this.pos.x, v, 'x', st, dt),
-      smoothDamp(o.position.y, this.pos.y, v, 'y', st, dt),
-      smoothDamp(o.position.z, this.pos.z, v, 'z', st, dt),
-    );
-    o.position.copy(_p);
-    o.quaternion.slerp(this.quat, 1 - Math.exp(-this.rotRate * dt));
-    o.scale.setScalar(smoothDamp(o.scale.x, this.scale, v, 's', st, dt));
+    _w.copy(o.position).applyMatrix4(o.parent.matrixWorld);
+    if (dt > 0) this.worldVel.subVectors(_w, this.world).divideScalar(dt);
+    this.world.copy(_w);
   }
-  get flying() { return !!this.flight && this.flight.t < this.flight.dur; }
+  get flying() { return !!this.flight; }
 }

@@ -3,9 +3,11 @@ import { $, clamp, settings } from './util.js';
 import { renderer, scene, camera, canvas, render, adapt, applyQuality, quality } from './render/core.js';
 import { buildWorld, updateWorld, setShadowSize } from './render/world.js';
 import { buildCharacter, updateCharacter } from './render/characters.js';
-import { buildCards, layoutHands, updateCards, pickCard, handUI, warmCards } from './render/cards.js';
+import { buildCards, layoutHands, updateCards, pickCard, handUI, warmCards, views, sortForDisplay } from './render/cards.js';
 import { buildGun, updateGun, gun } from './render/gun.js';
-import { rig, updateCamera, fitToViewport, lookFromPointer, lookByDelta } from './render/camera.js';
+import { buildPlayerArm, updatePlayerArm, arm } from './render/playerArm.js';
+import { rig, updateCamera, fitToViewport, lookFromPointer, lookByDelta, centerLook } from './render/camera.js';
+import { dampVec3 } from './render/motion.js';
 import { audio } from './audio.js';
 import * as ui from './ui.js';
 import { D, SEATS, runGame, abortGame, setCharacters, toggleCard, submitPlay, submitChallenge, lookTargetFor } from './director.js';
@@ -14,79 +16,117 @@ import { createDeck } from './model/rules.js';
 const clock = new THREE.Clock(false);
 const characters = [null];
 const raycaster = new THREE.Raycaster();
-const pointer = { ndc: new THREE.Vector2(9, 9), moved: false, x: 0, y: 0, touchLook: null };
-const _v = new THREE.Vector3();
+const pointer = { ndc: new THREE.Vector2(9, 9), moved: false, idle: 0, touch: false, touchLook: null };
+const _v = new THREE.Vector3(), _look = new THREE.Vector3();
+const lookVel = [null, {}, {}, {}];
+// Procedural motion runs on simulated time: dt is clamped after a long stall, and a wall clock that
+// kept running would make every sway, breath and flicker jump forward in that frame.
+let simT = 0;
 const EMPTY_GAME = { players: [0, 1, 2, 3].map((seat) => ({ seat, hand: [] })) };
 
 /* ---------- frame ---------- */
-function frame() {
-  const dt = Math.min(clock.getDelta(), 1 / 20), t = clock.elapsedTime;
+function simulate(dt, t) {
   updateWorld(dt, t);
   updateCamera(dt, t);
   camera.updateMatrixWorld();
   for (let s = 1; s < 4; s++) {
     const ch = characters[s];
-    lookTargetFor(s, camera, ch.lookTarget);
+    // the gaze target glides between subjects, so a head starts turning gently instead of all at once
+    dampVec3(ch.lookTarget, lookTargetFor(s, camera, _look), lookVel[s], 0.16, dt);
     updateCharacter(ch, dt, t);
   }
   layoutHands(D.game || EMPTY_GAME, characters, innerWidth < 720 ? 112 : 124);
   updateCards(dt);
+  updatePlayerArm(dt);
   updateGun(dt);
   camera.updateMatrixWorld();
-  updateHover();
-  render(dt, t);
-  placeTags(dt);
+  updateHover(dt);
+}
+
+// A slow frame is simulated in steps of at most 1/50 s, so motion keeps time with the director and
+// the audio (both on the wall clock) down to 4 fps; only a longer stall is dropped.
+// scripts/motion-probe.mjs sets hooks.probe to sample every step at a finer rate.
+const hooks = { probe: null };
+function frame() {
+  const probe = hooks.probe, dt = Math.min(clock.getDelta(), probe ? probe.maxDt : 0.25), t0 = simT;
+  simT += dt;
+  const t = simT, n = Math.max(1, Math.ceil(dt * (probe ? probe.hz : 50) - 1e-6));
+  for (let i = 1; i <= n; i++) { simulate(dt / n, t0 + (dt * i) / n); probe?.sample(dt / n); }
+  // a probe may skip most draws so the software renderer can't starve the simulation it measures
+  if (!probe || probe.draw(dt)) render(dt, t);
+  placeTags();
+  probe?.frame(dt);
   adapt(dt);
 }
 
-function placeTags(dt) {
+// Tags hang over where each head rests, not the head itself, so they ride the (already smooth)
+// camera rigidly and don't shiver when a character trembles or slumps.
+// ui.placeTag low-passes by dt; a full second's step makes it land exactly, with no trailing.
+const TAG_SNAP = 1;
+function placeTags() {
   const W = innerWidth, H = innerHeight, narrow = W < 600;
   for (let s = 1; s < 4; s++) {
     const ch = characters[s];
-    ch.head.getWorldPosition(_v); _v.y += 0.27; _v.project(camera);
-    const behind = _v.z > 1;
+    _v.copy(ch.tagAnchor).project(camera);
+    // a head turned well out of view takes its tag with it, rather than stacking tags at the edge
+    const inView = _v.z <= 1 && Math.abs(_v.x) < 1.08;
     let x, y;
     if (narrow) { x = W * (s === 1 ? 0.18 : s === 2 ? 0.5 : 0.82); y = 226; }
     else { x = clamp((_v.x * 0.5 + 0.5) * W, 90, W - 90); y = clamp((-_v.y * 0.5 + 0.5) * H, 150, H - 230); }
-    ui.placeTag(s, x, y, narrow || !behind, dt);
+    ui.placeTag(s, x, y, narrow || inView, TAG_SNAP);
   }
 }
 
-function updateHover() {
-  if (!handUI.enabled || !pointer.moved || !D.game) { if (!handUI.enabled && handUI.hover != null) { handUI.hover = null; canvas.style.cursor = ''; } return; }
-  pointer.moved = false;
+// Re-picked on every pointer move, and a few times a second while it rests, because the hand
+// reflows under a still pointer.
+function updateHover(dt) {
+  if (!handUI.enabled || !D.game || pointer.touch) { if (handUI.hover != null) { handUI.hover = null; canvas.style.cursor = ''; } return; }
+  pointer.idle += dt;
+  if (!pointer.moved && pointer.idle < 0.1) return;
+  pointer.moved = false; pointer.idle = 0;
   raycaster.setFromCamera(pointer.ndc, camera);
-  const id = pickCard(raycaster, D.game);
+  const id = pickCard(raycaster, D.game, handUI.hover);
   if (id !== handUI.hover) { handUI.hover = id; canvas.style.cursor = id != null ? 'pointer' : ''; if (id != null) audio.hover(); }
 }
 
 /* ---------- input ---------- */
-canvas.addEventListener('pointermove', (e) => {
-  const nx = (e.clientX / innerWidth) * 2 - 1, ny = (e.clientY / innerHeight) * 2 - 1;
-  pointer.ndc.set(nx, -ny); pointer.moved = true;
-  if (e.pointerType === 'mouse') { if (!settings.paused && ui.topOverlay() == null) lookFromPointer(nx, ny); }
-  else if (pointer.touchLook && pointer.touchLook.id === e.pointerId) {
+// Listened for on the window so the HUD floating over the canvas never interrupts a head turn.
+// Over a HUD control the head holds still rather than swinging away from the button.
+const ndcOf = (e, out) => out.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+addEventListener('pointermove', (e) => {
+  const onCanvas = e.target === canvas;
+  if (onCanvas) ndcOf(e, pointer.ndc); else pointer.ndc.set(9, 9);
+  pointer.moved = true;
+  if (e.pointerType === 'mouse') {
+    pointer.touch = false;
+    if (onCanvas && !settings.paused && ui.topOverlay() == null) lookFromPointer(pointer.ndc.x, -pointer.ndc.y);
+  } else if (pointer.touchLook && pointer.touchLook.id === e.pointerId) {
     const tl = pointer.touchLook, dx = e.clientX - tl.x, dy = e.clientY - tl.y;
     if (Math.hypot(e.clientX - tl.x0, e.clientY - tl.y0) > 8) tl.dragging = true;
-    lookByDelta(dx, dy); tl.x = e.clientX; tl.y = e.clientY;
+    if (tl.dragging) lookByDelta(dx, dy);
+    tl.x = e.clientX; tl.y = e.clientY;
   }
 });
 canvas.addEventListener('pointerdown', (e) => {
-  pointer.ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
-  if (e.pointerType !== 'mouse') pointer.touchLook = { id: e.pointerId, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, dragging: false };
-  if (e.pointerType === 'mouse') tryPick();
+  ndcOf(e, pointer.ndc);
+  pointer.touch = e.pointerType !== 'mouse';
+  if (pointer.touch) pointer.touchLook = { id: e.pointerId, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, dragging: false };
+  else tryPick();
 });
-canvas.addEventListener('pointerup', (e) => {
+addEventListener('pointerup', (e) => {
   const tl = pointer.touchLook;
-  if (tl && tl.id === e.pointerId) { if (!tl.dragging) tryPick(); pointer.touchLook = null; }
+  if (!tl || tl.id !== e.pointerId) return;
+  if (tl.dragging) centerLook(0.7); else tryPick();
+  pointer.touchLook = null;
 });
-canvas.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') lookFromPointer(0, 0); });
+addEventListener('pointercancel', (e) => { if (pointer.touchLook?.id === e.pointerId) { pointer.touchLook = null; centerLook(0.7); } });
+document.addEventListener('pointerout', (e) => { if (e.pointerType === 'mouse' && !e.relatedTarget) { pointer.ndc.set(9, 9); centerLook(0.6); } });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 function tryPick() {
   if (!handUI.enabled || !D.game) return;
   camera.updateMatrixWorld();
   raycaster.setFromCamera(pointer.ndc, camera);
-  const id = pickCard(raycaster, D.game);
+  const id = pickCard(raycaster, D.game, handUI.hover);
   if (id != null) toggleCard(id);
 }
 
@@ -97,8 +137,7 @@ addEventListener('keydown', (e) => {
   if (e.key === 'm' || e.key === 'M') return $('#sound-btn').click();
   if (settings.paused || !handUI.enabled) return;
   if (e.key >= '1' && e.key <= '9') {
-    const mine = [...D.game.players[0].hand].sort((a, b) => ({ sun: 0, moon: 1, star: 2, wild: 3 }[a.rank] - { sun: 0, moon: 1, star: 2, wild: 3 }[b.rank] || a.id - b.id));
-    const c = mine[+e.key - 1]; if (c) toggleCard(c.id);
+    const c = sortForDisplay(D.game.players[0].hand)[+e.key - 1]; if (c) toggleCard(c.id);
   } else if (e.key === 'Enter') { e.preventDefault(); submitPlay(); }
   else if (e.key === 'l' || e.key === 'L') submitChallenge();
 });
@@ -110,7 +149,7 @@ function togglePause(force) {
   if (!D.running) return;
   const open = force ?? !ui.isOpen('pause');
   settings.paused = open;
-  if (open) { ui.openOverlay('pause'); lookFromPointer(0, 0); } else ui.closeOverlay('pause');
+  if (open) { ui.openOverlay('pause'); centerLook(0.5); } else ui.closeOverlay('pause');
 }
 $('#pause-btn').addEventListener('click', () => togglePause(true));
 $('#resume-btn').addEventListener('click', () => togglePause(false));
@@ -141,10 +180,15 @@ canvas.addEventListener('webglcontextlost', (e) => {
 async function boot() {
   try { await Promise.race([Promise.all([document.fonts.load('700 25px Cinzel'), document.fonts.load('500 16px "Alegreya Sans"')]), new Promise((r) => setTimeout(r, 2500))]); } catch { /* fallback fonts */ }
   buildWorld();
-  for (let s = 1; s < 4; s++) characters[s] = buildCharacter(SEATS[s].design, SEATS[s].angle);
+  for (let s = 1; s < 4; s++) {
+    const ch = characters[s] = buildCharacter(SEATS[s].design, SEATS[s].angle);
+    ch.tagAnchor = ch.head.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.27, 0));
+    ch.lookTarget.copy(camera.position);
+  }
   setCharacters(characters);
   buildCards(createDeck());
   buildGun();
+  buildPlayerArm();
   ui.initUI();
   quality.onShadowSize = setShadowSize;
   fitToViewport(); applyQuality();
@@ -164,7 +208,7 @@ async function boot() {
   renderer.setAnimationLoop(frame);
   $('#loading').hidden = true; $('#title-menu').hidden = false;
   $('#start-btn').focus({ preventScroll: true });
-  window.__lastcall = { D, quality };
+  window.__lastcall = { D, quality, hooks, views, gun, arm, rig, camera, renderer, characters, handUI };
   if (settings.autoplay) startGame();
 }
 boot().catch((err) => {
