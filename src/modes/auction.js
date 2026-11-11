@@ -378,7 +378,6 @@ async function scoring(T, msg) {
     if (!T.isMe(s)) T.focusSeat(s, 0.35); else focusOn(null);
     res.forEach((value, k) => { const b = moneyBody(s, value); b.n = res.length; sendTo(b, 'purse', { view: v, k, n: res.length, dur: 0.5, arc: 0.08, delay: k * 0.05 }); });
     audio.shuffle();
-    ui.setStatus(v, `purse <b>${msg.money[s]}</b>`);
     hud(T);
     await T.step(750);
   }
@@ -498,7 +497,8 @@ export const auctionMode = {
     const g = T.game;
     return [0, 1, 2, 3].map((v) => {
       const s = T.seatAt(v), line = seatLine(T, s);
-      return { alive: !g.scoring?.castOut[s], cards: g.handCounts[s], pulls: 0, cnt: line, odds: line };
+      // your own card keeps its purse line when cast out; other tags dim and strike through
+      return { alive: v === 0 || !g.scoring?.castOut[s], cards: g.handCounts[s], pulls: 0, cnt: line, odds: line };
     });
   },
   auto(T, msg) {
