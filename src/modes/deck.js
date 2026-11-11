@@ -8,7 +8,7 @@ import * as ui from '../ui.js';
 import { hands, handUI, gatherToDeck, deal, takeFromHand, discardHand, toPile, toReveal, settleRevealed, setGlow, clearGlows, setDeckSize, bodyOf, setFace, myHand, layoutHands, pickCard, placeTable } from '../render/cards.js';
 import { react, tell } from '../render/characters.js';
 import { rig, focusOn, centerLook } from '../render/camera.js';
-import { gun, gunHome, gunToCharacter, gunSlideTo, slideSpotFor, gunToGrip, gunSetDown, gunDrop, spinDrum, cockHammer, fire } from '../render/gun.js';
+import { gun, gunHome, gunToCharacter, gunSlideTo, slideSpotFor, lieAt, gunToGrip, gunSetDown, gunDrop, spinDrum, cockHammer, fire } from '../render/gun.js';
 import { arm, armReach, armRaise, armHide } from '../render/playerArm.js';
 import { RANK_STYLE } from '../render/textures.js';
 import { createDeck, HAND_SIZE, CHAMBERS } from '../model/rules.js';
@@ -59,7 +59,7 @@ const truthful = (rank, tableRank) => rank === tableRank || rank === 'joker';
 
 const CENTER = new THREE.Vector3(0, 0, 0);
 const REVEAL_AT = new THREE.Vector3(0, 0.3, 0.56);
-const _g = new THREE.Vector3();
+const _g = new THREE.Vector3(), _lq = new THREE.Quaternion();
 const voice = (T, seat, kind) => { const l = LINES[T.design(seat)]?.[kind]; return l ? pick(l) : ''; };
 const say = (T, seat, text) => { if (!T.isMe(seat)) ui.say(T.view(seat), text); };
 
@@ -267,7 +267,7 @@ async function takeUpGun(T, seat) {
   if (T.isMe(seat)) {
     gunSlideTo(slideSpotFor(rig.seat.x, rig.seat.z, _g)); rig.leanTarget = 1;
     await T.step(220);
-    armReach(_g);
+    armReach(_g, lieAt(_g, _lq));
     await T.landed(arm.mover); await T.landed(gun.mover);
     gunToGrip(arm.grip); rig.leanTarget = 0;
     await T.landed(gun.mover);
@@ -277,9 +277,10 @@ async function takeUpGun(T, seat) {
     ch.group.getWorldPosition(_g);
     gunSlideTo(slideSpotFor(_g.x, _g.z, _g));
     await T.landed(gun.mover);
-    ch.reachTarget.copy(_g); react(ch, 'reach');
-    await T.step(500);
-    gunToGrip(ch.grip); react(ch, 'reach', false); react(ch, 'aim');
+    // lean in and lay the hand on it as it lies; the fingers close, then the arm brings it up
+    ch.reachTarget.copy(_g); lieAt(_g, ch.reachQuat); react(ch, 'reach'); react(ch, 'lean');
+    await settled(T, () => ch.env.reach > 0.94);
+    gunToGrip(ch.grip); react(ch, 'reach', false); react(ch, 'lean', false); react(ch, 'aim');
     await T.landed(gun.mover);
     await T.step(450);
   } else {
@@ -288,21 +289,29 @@ async function takeUpGun(T, seat) {
   }
 }
 
+/** Waits for a character's pose to arrive: its springs run on the frame clock, not the game's pace. */
+async function settled(T, done) { const t0 = performance.now(); while (!done() && performance.now() - t0 < 2500) await T.step(20); }
+
 /** The arm comes down, the revolver goes back on the felt and slides home. */
 async function putDownGun(T, seat) {
   const ch = T.char(seat);
   holder = null;
   if (T.isMe(seat)) {
-    armReach(slideSpotFor(rig.seat.x, rig.seat.z, _g)); rig.leanTarget = 0.6;
+    armReach(slideSpotFor(rig.seat.x, rig.seat.z, _g), lieAt(_g, _lq)); rig.leanTarget = 0.6;
     await T.landed(arm.mover);
     gunSetDown(); rig.leanTarget = 0;
     await T.landed(gun.mover);
+    await T.step(150);
     armHide(); gunHome({ slide: true });
   } else if (ch.grip) {
-    react(ch, 'aim', false);
-    await T.step(500);
+    // lowered onto the spot it was taken from and laid as it lay, before the hand lets go
+    ch.group.getWorldPosition(_g); slideSpotFor(_g.x, _g.z, ch.reachTarget); lieAt(ch.reachTarget, ch.reachQuat);
+    react(ch, 'aim', false); react(ch, 'reach');
+    await settled(T, () => ch.env.reach > 0.94 && ch.env.aim < 0.04);
     gunSetDown();
     await T.landed(gun.mover);
+    react(ch, 'reach', false);
+    await T.step(200);
     gunHome({ slide: true });
   } else gunHome();
 }
