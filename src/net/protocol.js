@@ -2,7 +2,9 @@
 // `type`. Seats are absolute indices 0..3; a client rotates them so its own seat sits at the
 // player position. Deck: card identity is an opaque per-round `token`; a seat only ever receives a
 // `rank` for cards in its own hand and for cards turned over by a challenge. Dice: a seat only
-// ever receives its own dice, until a call lifts every cup.
+// ever receives its own dice, until a call lifts every cup. Auction: a seat only ever receives
+// its own money hand (other seats get counts) until the scoring opens every purse; status cards
+// are sent only once turned over.
 //
 // Client to server
 //   hello      { name, roomCode?, resumeToken? }  first message on every connection
@@ -16,6 +18,9 @@
 //   challenge  {}                                 acting seat, turn prompt (dice: call Liar)
 //   spotOn     {}                                 dice traditional: acting seat, turn prompt
 //   pull       {}                                 acting seat, roulette prompt (dice: drink)
+//   raise      { cards: number[] }                auction: money values from your hand to add
+//                                                 to your bid, acting seat, turn prompt
+//   pass       {}                                 auction: acting seat, turn prompt
 //   leave      {}                                 the server closes the socket after it
 //
 // Server to client
@@ -26,7 +31,9 @@
 //   roulette  { seat, timeoutMs, options }        the penalty prompt (deck: pull, dice: drink);
 //                                                 options is always null. One per shooter or
 //                                                 drinker, in the order the call announced.
-//   over      { winner, seats: [{ name, kind, alive, ...results }] }  deck: pulls, dice: drinks
+//   over      { winner, seats: [{ name, kind, ...results }] }
+//             deck: alive, pulls; dice: alive, drinks; auction: castOut, money, status, place
+//             (winner null in the auction when every seat is cast out or first place is shared)
 //   error     { code, message }                   see ERR; codes in FATAL end the connection
 //
 // Deck mode (options.mode 'deck', variant 'basic' | 'devil')
@@ -45,6 +52,22 @@
 //   turn options { canBid, canChallenge, canSpotOn, mustChallenge, maxQuantity,
 //                  raises: [{ face, minQuantity }] }                     legal bids by face
 //
+// The Gilded Bid (options.mode 'auction', variant 'classic')
+//   reveal    { auction, card: StatusCard, starter, final, deckCount }  the next card is turned;
+//             final: the 4th gilded card, which ends the game unauctioned (scoring follows)
+//   raise     { seat, cards: number[], bid, handCounts }   cards added, bid = seat's new total
+//   pass      { seat, returned: number[], handCounts }     the seat's bid goes back to its hand
+//   taken     { seat, card, paid: number[][], spilled, aleOwed, handCounts }
+//             the auction is settled: seat takes card; paid[s] is the money seat s spent (gone
+//             for good); spilled: the curio value Spilled Ale discarded, or null; aleOwed: the
+//             seat's next curio will spill
+//   scoring   { remaining: number[][], money, castOut, status, topCurio, place, winner }
+//             every purse opened; castOut: tied for the least money; status exact (halves);
+//             place: 1 = best, shared on a dead heat, null when cast out
+//   turn options { disgrace, highBid, ownBid, canRaise }   a raise must make ownBid > highBid
+//   StatusCard { kind: 'curio'|'favour'|'ale'|'debt'|'scandal', value }  value: curios 1..10, else null
+//             favour and scandal have the gilded border; ale, debt and scandal are disgraces
+//
 //   SeatInfo  { kind: 'human'|'bot'|'empty', name, connected, ready, persona }  persona: bots only
 //   Card      { token, rank }                     rank names come from the active engine
 //   Options   { mode, variant, turnSeconds, private }
@@ -56,6 +79,10 @@
 //                   plays: [{ seat, claim, tokens }], alive, pulls, reveal (last challenge or null)
 //             dice: variant, round, starter, dice, diceCounts, bids: [{ seat, quantity, face }],
 //                   alive, drinks, reveal (last challenge or null)
+//             auction: variant, auction, card (up for auction or null), final (the card that
+//                   ended the game or null), starter, deckCount, turned (every card turned, in
+//                   order), hand, handCounts, and by seat: bids, passed, won, spent, spilled
+//                   (curio values lost to Spilled Ale), aleOwed; scoring (the scoring payload or null)
 //
 // Treat `turn` and `roulette` as "set the current prompt": the server re-sends them for the same
 // seat when control moves between a person and a bot, with a fresh timeoutMs.
@@ -140,7 +167,7 @@ const optStr = (v, max) => v === undefined || v === null || isStr(v, max);
 const isSeat = (v) => Number.isInteger(v) && v >= 0 && v < MAX_SEATS;
 
 /** Messages that act in the game, with the fields passed on to the engine. The engine judges legality. */
-export const GAME_ACTIONS = Object.freeze({ play: ['tokens'], bid: ['quantity', 'face'], challenge: [], spotOn: [], pull: [] });
+export const GAME_ACTIONS = Object.freeze({ play: ['tokens'], bid: ['quantity', 'face'], challenge: [], spotOn: [], pull: [], raise: ['cards'], pass: [] });
 
 const CLIENT = {
   hello: (m) => isStr(m.name, 64) && optStr(m.roomCode, 16) && optStr(m.resumeToken, 64),
@@ -154,6 +181,8 @@ const CLIENT = {
   challenge: () => true,
   spotOn: () => true,
   pull: () => true,
+  raise: (m) => Array.isArray(m.cards) && m.cards.length >= 1 && m.cards.length <= 11 && m.cards.every(Number.isInteger),
+  pass: () => true,
   leave: () => true,
 };
 

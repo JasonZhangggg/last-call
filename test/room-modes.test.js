@@ -4,8 +4,43 @@ import { Room } from '../src/net/room.js';
 import { ENGINES } from '../src/net/engines.js';
 import { ERR, SERVER_KEYS, parseClientMessage } from '../src/net/protocol.js';
 import { mulberry32, DEVIL } from '../src/model/rules.js';
+import { KINDS, MONEY } from '../src/model/auction.js';
 
 const MODES = Object.values(ENGINES).flatMap((e) => e.variants.map((variant) => ({ mode: e.mode, variant })));
+const oneAlive = (over) => {
+  assert.equal(over.seats.filter((s) => s.alive).length, 1);
+  assert.ok(over.seats[over.winner].alive);
+};
+
+/** What differs between modes in these Room-level suites. Every registered mode must have an entry. */
+const SUITES = {
+  deck: {
+    results: ['alive', 'kind', 'name', 'pulls'],
+    snapshot: ['alive', 'hand', 'handCounts', 'plays', 'pulls', 'reveal', 'round', 'starter', 'tableRank', 'variant'],
+    options: ['canChallenge', 'canPlay', 'maxCards', 'mustChallenge'],
+    rejoinAt: (m) => m.type === 'round' && m.round === 2,
+    checkOver: oneAlive,
+  },
+  dice: {
+    results: ['alive', 'drinks', 'kind', 'name'],
+    snapshot: ['alive', 'bids', 'dice', 'diceCounts', 'drinks', 'reveal', 'round', 'starter', 'variant'],
+    options: ['canBid', 'canChallenge', 'canSpotOn', 'maxQuantity', 'mustChallenge', 'raises'],
+    rejoinAt: (m) => m.type === 'round' && m.round === 2,
+    checkOver: oneAlive,
+  },
+  auction: {
+    results: ['castOut', 'kind', 'money', 'name', 'place', 'status'],
+    snapshot: ['aleOwed', 'auction', 'bids', 'card', 'deckCount', 'final', 'hand', 'handCounts', 'passed', 'scoring', 'spent', 'spilled', 'starter', 'turned', 'variant', 'won'],
+    options: ['canRaise', 'disgrace', 'highBid', 'ownBid'],
+    rejoinAt: (m) => m.type === 'reveal' && m.auction === 3,
+    checkOver(over) {
+      assert.ok(over.seats.some((s) => s.castOut), 'the poorest is cast out');
+      const first = over.seats.filter((s) => s.place === 1);
+      if (over.winner == null) assert.ok(first.length !== 1, 'no winner only when first place is shared or empty');
+      else assert.deepEqual([first.length, over.seats[over.winner].castOut], [1, false]);
+    },
+  },
+};
 
 class FakeClock {
   t = 1_000_000; seq = 0; q = new Map();
@@ -36,7 +71,7 @@ class Player {
     Object.assign(this, { table, name, idle, think, rng });
     this.id = `client-${++table.ids}`;
     this.log = []; this.truth = [];
-    this.seat = null; this.token = null; this.hand = new Map(); this.pending = null; this.over = null;
+    this.seat = null; this.token = null; this.hand = new Map(); this.money = []; this.pending = null; this.over = null;
     table.clients.set(this.id, this);
   }
   hello(extra = {}) { this.table.room.receive(this.id, { type: 'hello', name: this.name, ...extra }); }
@@ -48,15 +83,26 @@ class Player {
     this.truth.push(this.table.room.game ? structuredClone(this.table.room.game) : null);
     if (m.type === 'welcome') { this.seat = m.seat; this.token = m.resumeToken; }
     if (m.type === 'round' && m.hand) this.hand = new Map(m.hand.map((c) => [c.token, c.rank]));
-    if (m.type === 'state' && m.game?.hand) this.hand = new Map(m.game.hand.map((c) => [c.token, c.rank]));
+    if (m.type === 'state' && m.game?.hand) {
+      if (m.game.hand.every(Number.isInteger)) this.money = m.game.hand.slice();
+      else this.hand = new Map(m.game.hand.map((c) => [c.token, c.rank]));
+    }
     if (m.type === 'played' && m.seat === this.seat) for (const t of m.tokens) this.hand.delete(t);
+    if (m.type === 'raise' && m.seat === this.seat) for (const v of m.cards) this.money.splice(this.money.indexOf(v), 1);
+    if (m.type === 'pass' && m.seat === this.seat) this.money.push(...m.returned);
     if (m.type === 'over') this.over = m;
-    if (['played', 'bid', 'challenge', 'shot', 'drink', 'over'].includes(m.type)) this.cancel();
+    if (['played', 'bid', 'challenge', 'shot', 'drink', 'raise', 'pass', 'over'].includes(m.type)) this.cancel();
     if (this.idle || m.seat !== this.seat) return;
     if (m.type === 'turn' && m.options) this.later(() => this.send(this.chooseTurn(m.options)));
     if (m.type === 'roulette') this.later(() => this.send({ type: 'pull' }));
   }
   chooseTurn(o) {
+    if ('highBid' in o) {
+      if (!o.canRaise || this.rng() < 0.4) return { type: 'pass' };
+      const cards = [], pool = this.money.slice().sort(() => this.rng() - 0.5);
+      while (o.ownBid + cards.reduce((a, b) => a + b, 0) <= o.highBid) cards.push(pool.pop());
+      return { type: 'raise', cards };
+    }
     if ('canBid' in o) {
       if (o.canBid && (!o.canChallenge || this.rng() < 0.75)) {
         const r = o.raises[Math.floor(this.rng() * o.raises.length)];
@@ -96,7 +142,7 @@ const finished = (people) => () => people.every((p) => p.over || p.table.room.se
 
 for (const { mode, variant } of MODES) {
   test(`${mode} ${variant}: full games with 1 to 4 people reach one winner and stop cleanly`, () => {
-    const results = mode === 'deck' ? ['alive', 'kind', 'name', 'pulls'] : ['alive', 'drinks', 'kind', 'name'];
+    const suite = SUITES[mode];
     for (let humans = 1; humans <= 4; humans++) {
       for (let seed = 1; seed <= 8; seed++) {
         const { t, people, host } = seatTable({ seed: seed * 10 + humans, humans, mode, variant });
@@ -106,9 +152,8 @@ for (const { mode, variant } of MODES) {
         for (const p of people) {
           assert.deepEqual(p.errors(), [], `seat ${p.seat} got no errors`);
           assert.ok(p.over, 'everyone sees the end');
-          assert.equal(p.over.seats.filter((s) => s.alive).length, 1);
-          assert.ok(p.over.seats[p.over.winner].alive);
-          for (const s of p.over.seats) assert.deepEqual(Object.keys(s).sort(), results);
+          suite.checkOver(p.over);
+          for (const s of p.over.seats) assert.deepEqual(Object.keys(s).sort(), suite.results);
         }
         assert.equal(t.clock.pending, 0, 'no timers left behind');
       }
@@ -117,14 +162,6 @@ for (const { mode, variant } of MODES) {
 }
 
 const FORBIDDEN_KEYS = new Set(['id', 'bullet', 'poison', 'hands', 'clientId', 'cardIds', 'deck', 'tokenOf', 'pending', 'queue', 'startFrom']);
-const SNAPSHOT_KEYS = {
-  deck: ['alive', 'hand', 'handCounts', 'plays', 'pulls', 'reveal', 'round', 'starter', 'tableRank', 'variant'],
-  dice: ['alive', 'bids', 'dice', 'diceCounts', 'drinks', 'reveal', 'round', 'starter', 'variant'],
-};
-const OPTION_KEYS = {
-  deck: ['canChallenge', 'canPlay', 'maxCards', 'mustChallenge'],
-  dice: ['canBid', 'canChallenge', 'canSpotOn', 'maxQuantity', 'mustChallenge', 'raises'],
-};
 // The 'devil' variant shares its name with the Devil rank, so the variant fields may carry it.
 const RANK_PATHS = [
   /^round\.tableRank$/, /^round\.hand\.\d+\.rank$/, /^challenge\.cards\.\d+\.rank$/,
@@ -133,6 +170,34 @@ const RANK_PATHS = [
 ];
 const DICE_PATHS = [/^round\.dice$/, /^state\.game\.dice$/];
 const CUP_PATHS = [/^challenge\.cups$/, /^state\.game\.reveal\.cups$/];
+const HAND_PATHS = [/^round\.hand$/, /^state\.game\.hand$/];
+const PURSE_PATHS = [/^scoring\.remaining$/, /^state\.game\.scoring\.remaining$/];
+const cardKey = (c) => `${c.kind}:${c.value}`;
+const isStatusCard = (v) => v && typeof v === 'object' && Object.hasOwn(KINDS, v.kind) && 'value' in v;
+
+/** Auction: only your own hand, every purse only once the game is over, and only turned cards. */
+function auditAuction(m, S, seat, stats) {
+  const g = S?.g;
+  const turned = new Set(g ? g.turned.map(cardKey) : []);
+  walk(m, m.type, (v, path) => {
+    const key = path.split('.').at(-1);
+    if (key === 'hand') assert.ok(HAND_PATHS.some((re) => re.test(path)), `hand at ${path}`);
+    if (key === 'remaining') {
+      assert.ok(PURSE_PATHS.some((re) => re.test(path)), `purses at ${path}`);
+      if (v) assert.equal(g.phase, 'over', 'purses open only at the end');
+    }
+    if (isStatusCard(v)) assert.ok(turned.has(cardKey(v)), `${cardKey(v)} at ${path} was turned over`);
+  });
+  if (m.type === 'state' && m.game) {
+    assert.deepEqual(m.game.hand, g.players[seat].hand, 'a rebuild holds your own hand');
+    assert.deepEqual(m.game.turned, g.turned);
+    assert.equal(m.game.deckCount, g.deck.length);
+  }
+  if (m.handCounts) assert.deepEqual(m.handCounts, g.players.map((p) => p.hand.length));
+  if (m.type === 'reveal') stats.reveals++;
+  if (m.type === 'taken' && m.paid.flat().length) stats.multi++;
+  if (m.type === 'scoring') assert.deepEqual(m.remaining, g.players.map((p) => p.hand), 'the scoring opens every true purse');
+}
 
 function walk(v, path, visit) {
   visit(v, path);
@@ -160,8 +225,8 @@ function auditSeat(p, mode) {
   p.log.forEach((m, i) => {
     const S = p.truth[i];
     if (KEYS[m.type]) assert.deepEqual(Object.keys(m).filter((k) => k !== 'type').sort(), [...KEYS[m.type]].sort(), `${m.type} has exactly the documented fields`);
-    if (m.type === 'turn' && m.options) assert.deepEqual(Object.keys(m.options).sort(), OPTION_KEYS[mode]);
-    if (m.type === 'state' && m.game) assert.deepEqual(Object.keys(m.game).sort(), SNAPSHOT_KEYS[mode]);
+    if (m.type === 'turn' && m.options) assert.deepEqual(Object.keys(m.options).sort(), SUITES[mode].options);
+    if (m.type === 'state' && m.game) assert.deepEqual(Object.keys(m.game).sort(), SUITES[mode].snapshot);
     walk(m, m.type, (v, path) => {
       const key = path.split('.').at(-1);
       assert.ok(!FORBIDDEN_KEYS.has(key), `no ${key} field on the wire (${path})`);
@@ -170,7 +235,8 @@ function auditSeat(p, mode) {
       if (key === 'dice') assert.ok(DICE_PATHS.some((re) => re.test(path)), `dice at ${path}`);
       if (key === 'cups') assert.ok(CUP_PATHS.some((re) => re.test(path)), `cups at ${path}`);
     });
-    if (mode === 'deck') {
+    if (mode === 'auction') auditAuction(m, S, p.seat, stats);
+    else if (mode === 'deck') {
       if (m.type === 'round') ownCardsTrue(m.hand, S, p.seat);
       if (m.type === 'state' && m.game?.round) ownCardsTrue(m.game.hand, S, p.seat);
     } else {
@@ -201,7 +267,7 @@ for (const { mode, variant } of MODES) {
       host.send({ type: 'start' });
       let dropped = false;
       t.clock.runUntil(() => {
-        if (!dropped && humans > 1 && seed % 3 === 0 && people[1].log.some((m) => m.type === 'round' && m.round === 2)) {
+        if (!dropped && humans > 1 && seed % 3 === 0 && people[1].log.some(SUITES[mode].rejoinAt)) {
           dropped = true; people[1].disconnect(); people[1].log.length = 0; people[1].truth.length = 0;
           people[1].hello({ resumeToken: people[1].token });
           rebuilds++;
@@ -216,7 +282,8 @@ for (const { mode, variant } of MODES) {
     }
     assert.ok(reveals > 300, `reveals were exercised (${reveals})`);
     assert.ok(rebuilds > 5, 'mid-game rebuilds were exercised');
-    if (variant === 'devil' || variant === 'traditional') assert.ok(multi > 5, `several seats paid for one call (${multi})`);
+    if (mode === 'auction') assert.ok(multi > 300, `auctions were paid for (${multi})`);
+    else if (variant === 'devil' || variant === 'traditional') assert.ok(multi > 5, `several seats paid for one call (${multi})`);
     else assert.equal(multi, 0, 'one seat pays per call');
   });
 }
@@ -250,6 +317,8 @@ test('dice: illegal and out-of-turn actions get an error and change nothing', ()
   refusedWithoutChange(t, host, { type: 'play', tokens: ['x'] }, ERR.illegal);
   refusedWithoutChange(t, host, { type: 'pull' }, ERR.illegal);
   refusedWithoutChange(t, host, { type: 'spotOn' }, ERR.illegal);
+  refusedWithoutChange(t, host, { type: 'raise', cards: [1] }, ERR.illegal);
+  refusedWithoutChange(t, host, { type: 'pass' }, ERR.illegal);
   if (!o.canChallenge) refusedWithoutChange(t, host, { type: 'challenge' }, ERR.illegal);
   const minFor3 = o.raises.find((r) => r.face === 3).minQuantity;
   host.send({ type: 'bid', quantity: minFor3, face: 3 });
@@ -287,6 +356,57 @@ test('protocol: bid and spotOn have their shapes checked at the boundary', () =>
   assert.ok(parseClientMessage({ type: 'spotOn' }).msg);
 });
 
+test('protocol: raise and pass have their shapes checked at the boundary', () => {
+  assert.ok(parseClientMessage({ type: 'raise', cards: [1, 25] }).msg);
+  assert.ok(parseClientMessage({ type: 'pass' }).msg);
+  for (const cards of [undefined, [], ['1'], [1.5], 3, new Array(12).fill(1)]) assert.ok(parseClientMessage({ type: 'raise', cards }).error, JSON.stringify(cards));
+});
+
+test('auction: two people get two bots, and everyone starts with the same eleven money cards', () => {
+  const { t, people, host } = seatTable({ seed: 5, humans: 2, mode: 'auction', variant: 'classic' });
+  host.send({ type: 'start' });
+  assert.deepEqual(host.last('lobby').seats.map((s) => s.kind), ['human', 'human', 'bot', 'bot']);
+  for (const p of people) {
+    const g = p.last('state').game;
+    assert.deepEqual([g.hand, g.handCounts, g.turned, g.deckCount, g.card], [MONEY, [11, 11, 11, 11], [], 16, null]);
+  }
+  t.clock.runUntil(finished(people));
+  for (const p of people) {
+    assert.equal(p.log.filter((m) => m.type === 'scoring').length, 1, 'the purses are opened once, before the result');
+    assert.deepEqual(p.log.slice(-3).map((m) => m.type), ['scoring', 'over', 'lobby']);
+    assert.equal(p.last('reveal').final, true, 'the last card turned ends the game');
+  }
+});
+
+test('auction: illegal and out-of-turn actions get an error and change nothing', () => {
+  let beaten = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    const { t, people, host } = seatTable({ seed, humans: 2, mode: 'auction', variant: 'classic', opts: { 0: { idle: true }, 1: { idle: true } } });
+    const other = people[1];
+    host.send({ type: 'start' });
+    refusedWithoutChange(t, host, { type: 'raise', cards: [1] }, ERR.notYourTurn);
+    const o = toTurn(t, host);
+    refusedWithoutChange(t, other, { type: 'pass' }, ERR.notYourTurn);
+    refusedWithoutChange(t, host, { type: 'raise', cards: [5] }, ERR.illegal);
+    refusedWithoutChange(t, host, { type: 'raise', cards: [25, 25] }, ERR.illegal);
+    refusedWithoutChange(t, host, { type: 'raise', cards: [] }, ERR.badMessage);
+    refusedWithoutChange(t, host, { type: 'raise', cards: ['1'] }, ERR.badMessage);
+    for (const msg of [{ type: 'play', tokens: ['x'] }, { type: 'bid', quantity: 1, face: 2 }, { type: 'challenge' }, { type: 'spotOn' }, { type: 'pull' }]) refusedWithoutChange(t, host, msg, ERR.illegal);
+    const short = host.money.find((v) => o.ownBid + v <= o.highBid);
+    if (short) { refusedWithoutChange(t, host, { type: 'raise', cards: [short] }, ERR.illegal); beaten++; }
+    const cards = [];
+    for (const v of host.money.slice().reverse()) if (o.ownBid + cards.reduce((a, b) => a + b, 0) <= o.highBid) cards.push(v);
+    host.send({ type: 'raise', cards });
+    const bid = o.ownBid + cards.reduce((a, b) => a + b, 0);
+    assert.deepEqual(host.last('raise'), { type: 'raise', seat: host.seat, cards, bid, handCounts: t.room.game.g.players.map((p) => p.hand.length) }, 'a legal raise goes through');
+    refusedWithoutChange(t, host, { type: 'raise', cards: [host.money[0]] }, ERR.notYourTurn);
+    for (const p of people) p.idle = false;
+    t.clock.runUntil(finished(people));
+    assert.ok(people.every((p) => p.over && p.errors().length === 0));
+  }
+  assert.ok(beaten > 3, `raises that fail to beat the high bid were tried (${beaten})`);
+});
+
 test('lobby: the host picks a mode and a variant; a mode change resets the variant', () => {
   const { host } = seatTable({ seed: 3, humans: 1, mode: 'dice', variant: 'traditional' });
   assert.deepEqual(host.last('lobby').options, { mode: 'dice', variant: 'traditional', turnSeconds: 30, private: true });
@@ -300,10 +420,10 @@ test('lobby: the host picks a mode and a variant; a mode change resets the varia
   assert.deepEqual([host.last('lobby').options.mode, host.last('lobby').options.variant], ['dice', 'traditional']);
 });
 
-test('dice: a room restored from its JSON mid-game plays on to the end', () => {
-  const { t, people, host } = seatTable({ seed: 8, humans: 2, mode: 'dice', variant: 'traditional' });
+for (const [mode, variant, event] of [['dice', 'traditional', 'drink'], ['auction', 'classic', 'taken']]) test(`${mode}: a room restored from its JSON mid-game plays on to the end`, () => {
+  const { t, people, host } = seatTable({ seed: 8, humans: 2, mode, variant });
   host.send({ type: 'start' });
-  t.clock.runUntil(() => host.log.filter((m) => m.type === 'drink').length >= 2);
+  t.clock.runUntil(() => host.log.filter((m) => m.type === event).length >= 2);
   const saved = JSON.parse(JSON.stringify(t.room.toJSON()));
   const clock2 = new FakeClock();
   clock2.t = t.clock.now() + 50;
