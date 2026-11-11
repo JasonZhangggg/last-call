@@ -59,6 +59,52 @@ revolver's escalation so the risk feels identical across modes]
 - Adds **Spot On**. Instead of raising or calling Liar, a seat may claim the last bid is exactly right. [ref?]
 - If the exact count equals the quantity, every living seat except the caller drinks. Otherwise the caller drinks. [ref?]
 
+## Mode: The Gilded Bid (auction)
+
+An auction game for 3 to 5 seats. It follows the classic Knizia auction design, rebuilt with our own names,
+theme and art. Our table seats 4, so bots fill any seat below 3 humans. [ref: 3 to 5] [ours: 4 seats]
+
+**Money.** Every seat starts with the same 11 money cards, kept hidden: 1, 2, 3, 4, 6, 8, 10, 12, 15, 20
+and 25 (crowns). [ref? values] Money spent leaves the game for good. [ref]
+
+**Status deck, 16 cards, shuffled.** [ref]
+- 10 **curios** worth 1 to 10.
+- 3 **Patron's Favour** cards, each of which doubles the holder's final status. These have a gilded border.
+- 3 **disgraces**:
+  - **Spilled Ale.** Discard one of your curios. If you have none, the next curio you win is discarded instead.
+  - **Bad Debt.** Minus 5 status.
+  - **Public Scandal.** Halves your final status. It has a gilded border.
+
+**Game end.** Turn over status cards one at a time. The moment the **4th gilded-border card** is turned
+over, the game ends and that card isn't auctioned. [ref]
+
+**Normal auction (curio or favour).** [ref]
+- Bidding goes clockwise (left), starting with the auction's starter.
+- On your turn, either raise or pass. To raise, add one or more money cards from your hand to the cards
+  already in front of you. Your new total must beat the current highest bid. You can't take back or swap
+  cards, and there is no change.
+- Passing returns your bid cards to your hand, and you're out of this auction.
+- When one bidder remains, they discard every money card they bid and take the status card.
+- If everyone else passes before anyone bids, the remaining seat takes the card for free. [ref?]
+
+**Disgrace auction (reverse).** [ref]
+- Same bidding, but the auction ends the moment **one** seat passes.
+- That seat takes the disgrace and takes its bid back. Every other seat discards what it bid.
+
+**Next starter.** The seat that took the last status card starts the next auction. The very first auction
+is started by a random seat. [ref]
+
+**Scoring.** [ref]
+1. Cast out the poorest. Count each seat's remaining money. Every seat tied for the least money is cast out
+   and can't win.
+2. Status: the sum of curios, minus 5 for Bad Debt, then ×2 for each Patron's Favour, then ½ for Public
+   Scandal. Fractions are kept exactly, not rounded. [ref? order] [ours: no rounding]
+3. The highest status among the remaining seats wins. Break ties by most money left, then by the highest
+   single curio. [ref]
+
+**Bots.** The bots bid by valuing a card against their remaining money and the cards still to come. They
+are more willing to pay to dodge a disgrace when they have lots of money, and they avoid ending up poorest. [ours]
+
 ## Not included in this release
 
 Card-mode follow-up variants (larger hands, kept hands, special deals), the shoot-a-target variant, and
