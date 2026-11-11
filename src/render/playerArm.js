@@ -44,9 +44,14 @@ export function buildPlayerArm() {
   arm.mover = new Mover(root, camera); arm.mover.smooth = arm.mover.rotSmooth = 0.1;
 }
 
-/** Lay the open hand on the revolver where it lies (world position and its lying rotation). */
+const FWD = new THREE.Vector3(0, 0, 1);
+/**
+ * Lay the open hand on something at a world point: the revolver passes its lying rotation; without
+ * one the hand comes in upright, knuckles toward the point, as for a cup or a glass.
+ */
 export function armReach(world, quat) {
   arm.hidden = false; arm.root.visible = true;
+  if (!quat) quat = _q.setFromUnitVectors(FWD, _d.subVectors(world, camera.position).setY(0).normalize());
   arm.mover.go(scene, _v.copy(world).setY(world.y + LIFT), quat, 1, { dur: 0.55, ease: easeInOutCubic });
 }
 /** Raise whatever is in the hand up beside your head, kept inside a narrow (portrait) view. */
