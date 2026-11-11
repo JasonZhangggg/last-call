@@ -319,6 +319,22 @@ canvas.addEventListener('webglcontextlost', (e) => {
   document.body.appendChild(f);
 });
 
+// three draws every plain shadow caster with one shared depth material. An instanced, morphing or
+// skinned caster needs a different program, so each switch between kinds re-initialised that shared
+// material, several times per shadow pass. Each such kind gets its own depth material instead.
+function splitShadowDepthMaterials() {
+  const byKind = new Map();
+  scene.traverse((o) => {
+    if (!o.isMesh || o.customDepthMaterial) return;
+    const m = o.geometry.morphAttributes;
+    if (!o.isInstancedMesh && !o.isSkinnedMesh && !m.position && !m.normal && !m.color) return;
+    if ([].concat(o.material).some((mat) => mat.alphaTest > 0 || mat.displacementMap)) return;
+    const kind = [o.isInstancedMesh, !!o.instanceColor, o.isSkinnedMesh, m.position?.length, m.normal?.length, m.color?.length].join();
+    if (!byKind.has(kind)) byKind.set(kind, new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }));
+    o.customDepthMaterial = byKind.get(kind);
+  });
+}
+
 /* ---------- boot ---------- */
 async function boot() {
   try { await Promise.race([Promise.all([document.fonts.load('700 25px Cinzel'), document.fonts.load('500 16px "Alegreya Sans"')]), new Promise((r) => setTimeout(r, 2500))]); } catch { /* fallback fonts */ }
@@ -337,6 +353,8 @@ async function boot() {
   ui.initUI();
   quality.onShadowSize = setShadowSize;
   fitToViewport(); applyQuality();
+
+  splitShadowDepthMaterials();
 
   // Compile every shader and upload every texture now, including things that start hidden,
   // so nothing hitches the first time it appears mid-game.
