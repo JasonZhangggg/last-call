@@ -6,10 +6,11 @@ import * as AI from './model/ai.js';
 import { wait, pick, rand, settings } from './util.js';
 import { audio } from './audio.js';
 import * as ui from './ui.js';
-import { views, handUI, gatherToDeck, toPile, toSpare, toReveal, settleRevealed, dealTo, setGlow, clearGlows } from './render/cards.js';
+import { views, handUI, gatherToDeck, orderDeck, toPile, toSpare, toReveal, settleRevealed, dealTo, setGlow, clearGlows } from './render/cards.js';
 import { react, resetCharacter, tell, headWorld } from './render/characters.js';
 import { rig, focusOn, centerLook } from './render/camera.js';
-import { gunHome, gunToCharacter, gunToPlayer, spinDrum, cockHammer, fire } from './render/gun.js';
+import { gunHome, gunToCharacter, gunSlideTo, slideSpotFor, gunToGrip, gunSetDown, gunDrop, spinDrum, cockHammer, fire } from './render/gun.js';
+import { arm, armReach, armRaise, armHide } from './render/playerArm.js';
 import { RANK_STYLE } from './render/textures.js';
 
 export const SEATS = [
@@ -55,7 +56,7 @@ export const D = {
   watch: null, // world point everyone looks at, overriding the actor (the pile, the revolver)
   recap: null, running: false,
 };
-const _h = new THREE.Vector3();
+const _h = new THREE.Vector3(), _g = new THREE.Vector3();
 
 async function step(ms, token) {
   await wait(ms);
@@ -107,7 +108,7 @@ export function abortGame() {
   for (let s = 1; s < 4; s++) resetCharacter(D.characters[s]);
   D.actor = null; D.watch = null;
   focusOn(null); rig.zoomTarget = 1; rig.rollTarget = 0;
-  gunHome(); gatherToDeck(); clearGlows();
+  gunHome(); armHide(); rig.leanTarget = 0; gatherToDeck(); clearGlows();
   ui.setInGame(false);
 }
 
@@ -121,13 +122,9 @@ async function dealRound(token) {
   audio.shuffle();
   await step(700, token);
   const { deal, unused, tableRank } = R.startRound(game);
-  deal.forEach(({ seat, card }, i) => {
-    dealTo(views.get(card.id), seat, i * 0.065);
-    audio.deal(SEATS[seat].pan || 0, i * 0.065 + 0.05);
-  });
-  unused.forEach((c, i) => toSpare(views.get(c.id), i));
+  stageDeal(deal.map(({ seat, card }) => ({ seat, id: card.id })), unused.map((c) => c.id));
   ui.refreshSeats(game, null);
-  await step(deal.length * 65 + 600, token);
+  await step(deal.length * 65 + 700, token);
   ui.setTable(tableRank, game.round);
   audio.tableCard();
   ui.toast(`Table card: ${RANK_STYLE[tableRank].plural}`, 'gold');
@@ -135,6 +132,17 @@ async function dealRound(token) {
   D.watch = null;
   await step(1500, token);
   if (game.round === 1) ui.coach('lead', 'Each turn, play 1–3 cards face down and claim they match the table card. You may lie.');
+}
+
+/** Deals off the top of the stack. `deal` is [{ seat, id }] in dealing order; `unused` go to the spare pile. */
+function stageDeal(deal, unused) {
+  orderDeck([...unused, ...deal.map((d) => d.id)]);
+  const gap = 0.065 / settings.speed;
+  unused.forEach((id, i) => toSpare(views.get(id), i));
+  deal.forEach(({ seat, id }, i) => {
+    dealTo(views.get(id), seat, 0.1 + i * gap);
+    audio.deal(SEATS[seat].pan || 0, 0.1 + i * gap + 0.05);
+  });
 }
 
 /* ---------- turns ---------- */
@@ -199,13 +207,9 @@ async function stagePlay(seat, cardIds, token) {
   const play = R.play(game, seat, cardIds);
   handUI.selected.clear();
   const lie = play.cards.some((c) => !R.matchesTable(c, game.tableRank));
-  play.cards.forEach((c, i) => toPile(views.get(c.id), i * 0.09));
-  play.cards.forEach((_, i) => setTimeout(() => audio.card(SEATS[seat].pan || 0), 120 + i * 90));
+  presentPlay(seat, play.cards.map((c) => c.id), lie);
   const claim = ui.claimText(play.claim, game.tableRank);
-  if (seat !== 0) {
-    ui.say(seat, `${claim}. ${voice(seat, 'claim')}`.trim());
-    if (AI.showsTell(SEATS[seat].persona, lie, Math.random)) setTimeout(() => tell(D.characters[seat]), 380);
-  }
+  if (seat !== 0) ui.say(seat, `${claim}. ${voice(seat, 'claim')}`.trim());
   if (seat === 0) D.recap.pendingBluff = lie;
   ui.setClaim(`<b>${SEATS[seat].name}</b> claims ${claim.toLowerCase()} · pile of ${game.plays.reduce((n, p) => n + p.claim, 0)}`);
   ui.log(`<b>${SEATS[seat].name}</b> ${seat === 0 ? 'play' : 'plays'} ${claim.toLowerCase()}.`);
@@ -214,82 +218,169 @@ async function stagePlay(seat, cardIds, token) {
   if (seat !== 0 && D.recap.pendingBluff) { D.recap.bluffs++; D.recap.pendingBluff = false; }
 }
 
+/** Cards leave a hand for the pile, one after another, each with its own slap. */
+function presentPlay(seat, ids, lie) {
+  const gap = 0.09 / settings.speed, pan = SEATS[seat].pan || 0;
+  ids.forEach((id, i) => {
+    toPile(views.get(id), i * gap);
+    setTimeout(() => audio.card(pan), (i * gap + 0.22) * 1000);
+  });
+  if (seat !== 0 && AI.showsTell(SEATS[seat].persona, lie, Math.random)) setTimeout(() => tell(D.characters[seat]), 380);
+}
+
 async function stageChallenge(caller, forced, token) {
   const game = D.game;
   const res = R.challenge(game, caller);
   for (const m of D.memory) AI.observeReveal(m, res.accused, res.lie);
   if (res.accused === 0) D.recap.pendingBluff = false;
   if (caller === 0 && res.lie) D.recap.caught++;
-  D.actor = caller;
-  const accusedName = res.accused === 0 ? 'you' : SEATS[res.accused].name;
-  if (caller !== 0) { react(D.characters[caller], 'lean'); ui.say(caller, forced ? 'Nobody else holds a card. Show them.' : voice(caller, 'liar')); }
-  ui.toast(caller === 0 ? (forced ? 'Show me.' : 'LIAR!') : `${SEATS[caller].name}: LIAR!`, forced && caller === 0 ? 'small' : 'liar');
-  audio.sting(); audio.setTension(0.5); rig.shake = Math.max(rig.shake, 0.25);
-  ui.log(`<b>${SEATS[caller].name}</b> ${caller === 0 ? 'call' : 'calls'} <b>${accusedName}</b> a liar.`);
-  await step(1150, token);
+  await presentChallenge({
+    caller, accused: res.accused, forced, lie: res.lie,
+    ids: res.cards.map((c) => c.id), matches: res.cards.map((c) => R.matchesTable(c, game.tableRank)),
+  }, token);
+}
 
-  D.watch = new THREE.Vector3(0, 0.25, 0.14);
-  focusOn(D.watch, 0.35);
-  res.cards.forEach((c, i) => toReveal(views.get(c.id), i, res.cards.length));
+const REVEAL_AT = new THREE.Vector3(0, 0.3, 0.56);
+/**
+ * The Liar call, staged in three beats: the accusation (the camera snaps its attention to whoever
+ * is on the spot), the reveal (the cards rise and turn to you one by one), the verdict (each card
+ * lights green or red as you read it).
+ */
+async function presentChallenge({ caller, accused, forced, lie, ids, matches }, token) {
+  const name = (s) => SEATS[s].name;
+  D.actor = caller;
+  if (caller !== 0) { react(D.characters[caller], 'lean'); ui.say(caller, forced ? 'Nobody else holds a card. Show them.' : voice(caller, 'liar')); }
+  ui.toast(caller === 0 ? (forced ? 'Show me.' : 'LIAR!') : `${name(caller)}: LIAR!`, forced && caller === 0 ? 'small' : 'liar');
+  audio.sting(); audio.setTension(0.5); rig.shake = Math.max(rig.shake, 0.22);
+  const onSpot = accused !== 0 ? accused : caller;
+  if (onSpot !== 0) focusOn(headWorld(D.characters[onSpot], _h), 0.6);
+  rig.zoomTarget = 1.08;
+  ui.log(`<b>${name(caller)}</b> ${caller === 0 ? 'call' : 'calls'} <b>${accused === 0 ? 'you' : name(accused)}</b> a liar.`);
+  await step(950, token);
+
+  D.watch = REVEAL_AT;
+  focusOn(REVEAL_AT, 0.75); rig.zoomTarget = 1.12;
+  const stagger = 0.12 / settings.speed;
+  ids.forEach((id, i) => toReveal(views.get(id), i, ids.length, i * stagger));
   audio.reveal();
-  await step(1000, token);
-  res.cards.forEach((c) => setGlow(views.get(c.id), 0.9, R.matchesTable(c, game.tableRank) ? 0x7fd06a : 0xff4a30));
-  audio.verdict(res.lie);
-  if (res.lie) ui.toast(res.accused === 0 ? 'Caught lying.' : `${SEATS[res.accused].name} was lying.`, 'small');
-  else ui.toast(res.accused === 0 ? 'You told the truth.' : `${SEATS[res.accused].name} told the truth.`, 'truth');
-  ui.log(res.lie ? `The cards don't match. <b>${SEATS[res.accused].name}</b> ${res.accused === 0 ? 'were' : 'was'} lying.` : `Every card matches. <b>${SEATS[caller].name}</b> ${caller === 0 ? 'were' : 'was'} wrong.`);
-  if (res.accused !== 0) ui.say(res.accused, voice(res.accused, res.lie ? 'caught' : 'honest'));
-  if (caller !== 0 && !res.lie) setTimeout(() => ui.say(caller, voice(caller, 'wrong')), 900);
-  await step(1700, token);
+  await step(800 + ids.length * 120, token);
+  ids.forEach((id, i) => setTimeout(() => { if (token === D.token) setGlow(views.get(id), 0.9, matches[i] ? 0x7fd06a : 0xff4a30); }, i * stagger * 1000));
+  audio.verdict(lie);
+  if (lie) rig.shake = Math.max(rig.shake, 0.12);
+  if (lie) ui.toast(accused === 0 ? 'Caught lying.' : `${name(accused)} was lying.`, 'small');
+  else ui.toast(accused === 0 ? 'You told the truth.' : `${name(accused)} told the truth.`, 'truth');
+  ui.log(lie ? `The cards don't match. <b>${name(accused)}</b> ${accused === 0 ? 'were' : 'was'} lying.` : `Every card matches. <b>${name(caller)}</b> ${caller === 0 ? 'were' : 'was'} wrong.`);
+  if (accused !== 0) ui.say(accused, voice(accused, lie ? 'caught' : 'honest'));
+  if (caller !== 0 && !lie) setTimeout(() => ui.say(caller, voice(caller, 'wrong')), 900);
+  await step(1600, token);
   if (caller !== 0) react(D.characters[caller], 'lean', false);
-  res.cards.forEach((c, i) => settleRevealed(views.get(c.id), i, res.cards.length));
-  D.watch = null;
+  ids.forEach((id, i) => settleRevealed(views.get(id), i, ids.length));
+  D.watch = null; rig.zoomTarget = 1;
 }
 
 /* ---------- the revolver ---------- */
 async function roulette(seat, token) {
-  const game = D.game, human = seat === 0, p = game.players[seat];
+  const game = D.game, p = game.players[seat];
   D.actor = seat;
   ui.refreshSeats(game, seat);
+  await rouletteBuildUp(seat, 6 - p.pulls, token);
+  const shot = R.pullTrigger(game, seat);
+  ui.refreshSeats(game, seat);
+  const witnesses = game.players.filter((q) => q.alive && q.seat !== 0 && q.seat !== seat).map((q) => q.seat);
+  await rouletteOutcome(seat, shot.fired, witnesses, token);
+}
+
+/** The revolver comes up, the drum spins, a pause, the hammer goes back. Resolves at the pull. */
+async function rouletteBuildUp(seat, odds, token) {
+  const human = seat === 0, ch = D.characters[seat];
   audio.setTension(1); document.body.classList.add('tense');
   ui.toast(`${SEATS[seat].name} ${human ? 'pick' : 'picks'} up the revolver`, 'small');
-  const ch = D.characters[seat];
-  if (human) { gunToPlayer(); rig.rollTarget = 0.05; focusOn(null); centerLook(); }
-  else { gunToCharacter(ch); D.watch = null; focusOn(headWorld(ch, _h), 0.8); rig.zoomTarget = 1.35; react(ch, 'tremble'); }
-  await step(1100, token);
+  if (human) { rig.rollTarget = 0.05; focusOn(null); centerLook(0.5); rig.zoomTarget = 1.05; }
+  else { D.watch = null; focusOn(headWorld(ch, _h), 0.8); rig.zoomTarget = 1.3; react(ch, 'tremble'); }
+  await takeUpGun(seat, token);
   spinDrum(12); audio.spin();
-  await step(1000, token);
+  await step(1050, token);
   let beating = true, rate = 1;
   const beat = () => { if (!beating || token !== D.token) return; audio.heartbeat(rate); rate = Math.min(2.2, rate + 0.15); setTimeout(beat, 900 / rate); };
   beat();
   try {
     if (human && !settings.autoplay) {
-      const odds = 6 - p.pulls;
       await ui.awaitTrigger(`One chamber in ${odds === 1 ? 'one. It is loaded' : odds} is loaded. Hold to pull.`);
       if (token !== D.token) throw ABORT;
       cockHammer();
       await step(260, token);
     } else {
       cockHammer(); audio.cock();
+      // the slow push-in is the pause before the pull
+      if (!human) rig.zoomTarget = 1.42;
       await step(rand(900, 1900), token);
     }
   } finally { beating = false; }
+}
 
-  const shot = R.pullTrigger(game, seat);
-  if (!shot.fired) {
-    fire(false); audio.click(); rig.shake = 0.35;
-    if (!human) { react(ch, 'flinch'); react(ch, 'tremble', false); react(ch, 'relief'); setTimeout(() => ui.say(seat, voice(seat, 'click')), 500); }
+/**
+ * The revolver slides across the felt to `seat`, a hand picks it up and raises it to the temple.
+ * Characters without a gripping hand yet (older art) get it flown to the temple instead.
+ */
+async function takeUpGun(seat, token) {
+  const ch = D.characters[seat];
+  if (seat === 0) {
+    gunSlideTo(slideSpotFor(rig.seat.x, rig.seat.z, _g)); rig.leanTarget = 1;
+    await step(220, token);
+    armReach(_g);
+    await step(500, token);
+    gunToGrip(arm.grip); rig.leanTarget = 0;
+    await step(200, token);
+    armRaise();
+    await step(550, token);
+  } else if (ch.grip) {
+    ch.group.getWorldPosition(_g);
+    gunSlideTo(slideSpotFor(_g.x, _g.z, _g));
+    await step(380, token);
+    ch.reachTarget.copy(_g); react(ch, 'reach');
+    await step(500, token);
+    gunToGrip(ch.grip); react(ch, 'reach', false); react(ch, 'aim');
+    await step(650, token);
+  } else {
+    gunToCharacter(ch);
+    await step(1100, token);
+  }
+}
+
+/** The arm comes down, the revolver goes back on the felt and slides home. */
+async function putDownGun(seat, token) {
+  const ch = D.characters[seat];
+  if (seat === 0) {
+    armReach(slideSpotFor(rig.seat.x, rig.seat.z, _g)); rig.leanTarget = 0.6;
+    await step(500, token);
+    gunSetDown(); rig.leanTarget = 0;
+    await step(150, token);
+    armHide(); gunHome({ slide: true });
+  } else if (ch.grip) {
+    react(ch, 'aim', false);
+    await step(500, token);
+    gunSetDown();
+    await step(250, token);
+    gunHome({ slide: true });
+  } else gunHome();
+}
+
+/** Click or bang, the reactions, and the table settling back. `witnesses` are the other AIs still in. */
+async function rouletteOutcome(seat, fired, witnesses, token) {
+  const human = seat === 0, ch = D.characters[seat];
+  if (!fired) {
+    fire(false); audio.click(); rig.shake = 0.2;
+    if (!human) { react(ch, 'flinch'); react(ch, 'tremble', false); react(ch, 'relief'); setTimeout(() => ui.say(seat, voice(seat, 'click')), 500); rig.zoomTarget = 1.2; }
     else { D.recap.survived++; setTimeout(() => audio.relief(), 350); }
     ui.toast('*click*', 'gold');
     ui.log(`<b>${SEATS[seat].name}</b> ${human ? 'pull' : 'pulls'} the trigger. Empty chamber.`);
-    ui.refreshSeats(game, seat);
-    await step(1500, token);
+    await step(900, token);
     if (!human) react(ch, 'relief', false);
+    await putDownGun(seat, token);
   } else {
     fire(true); audio.bang(); rig.shake = 1;
     const fl = document.getElementById('flash'); fl.classList.remove('go'); void fl.offsetWidth; fl.classList.add('go');
     ui.log(`<b>${SEATS[seat].name}</b> ${human ? 'were' : 'was'} not so lucky.`);
-    ui.refreshSeats(game, seat);
     if (human) {
       ui.toast('BANG', 'liar');
       document.getElementById('blackout').classList.add('on');
@@ -299,15 +390,20 @@ async function roulette(seat, token) {
     }
     react(ch, 'tremble', false); react(ch, 'out');
     ui.toast(`${SEATS[seat].name} is out`, 'liar');
-    for (const c of [...views.values()]) if (c.seat === seat) toPile(c);
-    const witness = [1, 2, 3].filter((s) => s !== seat && game.players[s].alive);
-    if (witness.length) setTimeout(() => ui.say(pick(witness), voice(pick(witness), 'others')), 1600);
-    await step(2300, token);
+    let i = 0;
+    for (const v of views.values()) if (v.seat === seat) toPile(v, 0.5 + i++ * 0.07);
+    if (witnesses.length) { const w = pick(witnesses); setTimeout(() => ui.say(w, voice(w, 'others')), 1600); }
+    // let the shot land; the revolver falls from the limp hand while the camera eases out
+    await step(ch.grip ? 350 : 650, token);
+    if (ch.grip) gunDrop(); else gunHome();
+    rig.zoomTarget = 1.12; focusOn(headWorld(ch, _h), 0.45);
+    await step(1550, token);
+    if (ch.grip) gunHome({ slide: true });
   }
   audio.setTension(0); document.body.classList.remove('tense');
-  gunHome(); rig.zoomTarget = 1; rig.rollTarget = 0; focusOn(null);
+  rig.zoomTarget = 1; rig.rollTarget = 0; focusOn(null);
   D.actor = null;
-  await step(700, token);
+  await step(500, token);
 }
 
 /* ---------- end ---------- */
