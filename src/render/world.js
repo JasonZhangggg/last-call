@@ -3,12 +3,11 @@
 import * as THREE from 'three';
 import { scene, canvasTex } from './core.js';
 import { woodCanvas, feltCanvas, softDot, roughnessFrom, damaskCanvas, rugCanvas, paintingsCanvas, nightCanvas, brassCanvases, normalCanvas, weaveHeight } from './textures.js';
-import { rand, pick, UP } from '../util.js';
+import { rand, pick } from '../util.js';
 
 export const mats = {};
 export const world = { lights: [], haze: null, dust: null, lampPivot: null, spot: null };
 export const TABLE = { radius: 1.06, feltRadius: 0.8 };
-const _v = new THREE.Vector3();
 
 /* ---------- geometry kit ----------
    Static detail is authored as many primitives, then merged per material so it costs triangles,

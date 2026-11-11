@@ -47,13 +47,6 @@ function lumpy(g, amp, freq, seed = 0) {
   g.computeVertexNormals(); return g;
 }
 
-/** Spheres strung along a curve, tapering from r0 to r1. */
-function strand(points, r0, r1, n) {
-  const c = new THREE.CatmullRomCurve3(points), out = [];
-  for (let i = 0; i < n; i++) { const t = i / (n - 1); out.push(ball(c.getPoint(t), r0 + (r1 - r0) * t, 1, 10)); }
-  return out;
-}
-
 /** A tube with a radius profile along a curve (mustache, feathers' quills, pipes). */
 function sweep(points, radius, seg = 24, radial = 8) {
   const c = new THREE.CatmullRomCurve3(points), g = new THREE.TubeGeometry(c, seg, 1, radial, false);
@@ -235,7 +228,7 @@ const DESIGNS = {
     const porcelain = physical({ color: 0xf2ebe0, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.12, normalMap: T.pores, normalScale: new THREE.Vector2(0.15, 0.15) });
     const mask = physical({ map: T.mask, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.1 });
     const pearl = physical({ color: 0xf6efe4, roughness: 0.2, clearcoat: 1, sheen: 1, sheenColor: new THREE.Color(0xffd8e8), sheenRoughness: 0.3 });
-    const hat = physical({ color: 0x17101a, roughness: 0.82, sheen: 0.8, sheenColor: new THREE.Color(0x5a4466), sheenRoughness: 0.5, side: THREE.DoubleSide });
+    const hat = physical({ color: 0x261a2c, roughness: 0.8, sheen: 1, sheenColor: new THREE.Color(0x7a5a8a), sheenRoughness: 0.5, side: THREE.DoubleSide });
     const ribbon = physical({ color: 0x6a2a5a, roughness: 0.5, sheen: 1, sheenColor: new THREE.Color(0xe0a0d0) });
     const plume = standard({ color: 0x2b7a70, roughness: 0.6, side: THREE.DoubleSide, normalMap: T.hair, normalScale: new THREE.Vector2(0.6, 0.6) });
     const plumeDark = standard({ color: 0x141018, roughness: 0.6, side: THREE.DoubleSide, normalMap: T.hair });
@@ -294,6 +287,7 @@ const DESIGNS = {
         k.add(hat, place(brim, [0, 0.125, -0.005], [-0.14, 0, 0.07]));
         k.add(hat, place(new THREE.LatheGeometry([[0.13, 0], [0.125, 0.08], [0.115, 0.13], [0.09, 0.15], [0, 0.155]].map(([x, y]) => new THREE.Vector2(x, y)), 40), [0, 0.13, -0.015], [-0.14, 0, 0.07]));
         k.add(ribbon, place(new THREE.CylinderGeometry(0.129, 0.131, 0.032, 40, 1, true), [0, 0.15, -0.012], [-0.14, 0, 0.07]));
+        k.add(ribbon, place(new THREE.TorusGeometry(0.315, 0.005, 6, 64).rotateX(Math.PI / 2).translate(0, 0.034, 0), [0, 0.125, -0.005], [-0.14, 0, 0.07]));
         k.add(ribbon, ball(V(0.12, 0.155, -0.04), 1, [0.018, 0.032, 0.03], 10));
         const feather = (pts, w, mat) => {
           const c = new THREE.CatmullRomCurve3(pts), g = new THREE.PlaneGeometry(1, 1, 1, 16), P = g.attributes.position;
@@ -378,10 +372,10 @@ const DESIGNS = {
         k.add(leather, place(new THREE.SphereGeometry(1, 20, 12), [0.06, 0.04, 0.142], [0, 0.36, 0], [0.04, 0.034, 0.016]));
         k.add(leather, place(new THREE.TorusGeometry(0.164, 0.0045, 6, 48), [0, 0.02, 0], [0.12, 0, 0.5]));
         const e = new THREE.Group(); e.position.set(-0.06, 0.035, 0.132); e.rotation.y = -0.3; h.add(e);
-        e.add(new THREE.Mesh(new THREE.SphereGeometry(0.024, 18, 12), eyeball));
-        const iris = new THREE.Mesh(new THREE.CircleGeometry(0.0125, 18), eyeMat); iris.position.z = 0.0236; e.add(iris);
+        e.add(new THREE.Mesh(new THREE.SphereGeometry(0.027, 18, 12), eyeball));
+        const iris = new THREE.Mesh(new THREE.CircleGeometry(0.015, 18), eyeMat); iris.position.z = 0.0266; e.add(iris);
         const lid = new THREE.Group(); e.add(lid);
-        lid.add(new THREE.Mesh(new THREE.SphereGeometry(0.0262, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), skin));
+        lid.add(new THREE.Mesh(new THREE.SphereGeometry(0.0292, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), skin));
         // bicorne: two felt flaps meeting at a ridge, gold-edged, with a cockade
         const sh = new THREE.Shape(); sh.moveTo(-0.33, 0.07); sh.quadraticCurveTo(0, -0.03, 0.33, 0.07); sh.bezierCurveTo(0.24, 0.1, 0.16, 0.2, 0, 0.215); sh.bezierCurveTo(-0.16, 0.2, -0.24, 0.1, -0.33, 0.07);
         const edge = [V(-0.33, 0.07, 0), V(-0.22, 0.13, 0), V(-0.1, 0.195, 0), V(0, 0.215, 0), V(0.1, 0.195, 0), V(0.22, 0.13, 0), V(0.33, 0.07, 0)];
