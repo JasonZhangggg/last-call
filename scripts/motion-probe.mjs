@@ -49,7 +49,7 @@ await page.waitForSelector('#title-menu:not([hidden])');
 
 await page.evaluate(({ HZ, THRESH }) => {
   const L = window.__lastcall, D = L.D;
-  const R = { spikes: {}, maxDv: {}, worst: [], frames: [], tagLag: [], hoverChanges: {}, programs0: L.renderer.info.programs.length, textures0: L.renderer.info.memory.textures, t: 0 };
+  const R = { spikes: {}, maxDv: {}, worst: [], hoverLog: [], frames: [], tagLag: [], hoverChanges: {}, programs0: L.renderer.info.programs.length, textures0: L.renderer.info.memory.textures, t: 0 };
   window.__probe = R;
   const seg = () => window.__probeSeg || (D.game ? (D.game.phase === 'between' ? 'deal' : D.game.phase === 'turn' ? (D.watch ? 'reveal' : 'play') : D.game.phase) : 'title');
   const tracks = new Map();
@@ -101,7 +101,7 @@ await page.evaluate(({ HZ, THRESH }) => {
         tr.v = v; tr.n++;
       }
       const h = L.handUI.hover;
-      if (h !== lastHover) { R.hoverChanges[sg] = (R.hoverChanges[sg] || 0) + 1; lastHover = h; }
+      if (h !== lastHover) { R.hoverChanges[sg] = (R.hoverChanges[sg] || 0) + 1; R.hoverLog.push([+R.t.toFixed(3), sg, h]); lastHover = h; }
     },
     frame() {
       R.frames.push(performance.now());
@@ -188,6 +188,8 @@ const summary = {
   maxDv: Object.fromEntries(Object.entries(R.maxDv).map(([k, v]) => [k, +v.toFixed(2)])),
   worstPerKind: Object.values(worstBy).sort((a, b) => b.dv - a.dv).slice(0, 14),
   hoverChanges: R.hoverChanges,
+  hoverLog: R.hoverLog.slice(0, 200),
+  spikeLog: R.worst.slice(0, 400),
   tagLagPx: { median: +(lag[Math.floor(lag.length / 2)] || 0).toFixed(1), p95: +(lag[Math.floor(lag.length * 0.95)] || 0).toFixed(1), max: +(lag[lag.length - 1] || 0).toFixed(1) },
   frameMs: { median: +med.toFixed(1), p99: +(iv[Math.floor(iv.length * 0.99)] || 0).toFixed(1), max: +(iv[iv.length - 1] || 0).toFixed(1), over3xMedian: iv.filter((x) => x > 3 * med).length, frames: iv.length },
   shaderProgramsAddedAfterBoot: R.programs1 - R.programs0, texturesAddedAfterBoot: R.textures1 - R.textures0,

@@ -147,6 +147,8 @@ export function layoutHands(game, characters, reserveBottomPx) {
       _v.set(t * spacing, baseY - t * t * 0.0025 * s + lift, -d + i * 0.0015);
       quatE(-0.06 + (hov ? 0.04 : 0), 0, -t * 0.045, _q);
       hold(v, camera, _v, _q, s * (hov && !sel ? 1.04 : 1), 0.03);
+      // the hovered card's hit area grows, so its own lift can't carry it out from under the pointer
+      v.hit.scale.y = hov ? 1.3 : 1;
       v.mesh.castShadow = false;
       v.glowTarget = sel ? 0.95 : 0;
       v.glowColor.set(0xffb648);

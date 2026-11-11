@@ -9,7 +9,7 @@ import * as ui from './ui.js';
 import { views, handUI, gatherToDeck, orderDeck, toPile, toSpare, toReveal, settleRevealed, dealTo, setGlow, clearGlows } from './render/cards.js';
 import { react, resetCharacter, tell, headWorld } from './render/characters.js';
 import { rig, focusOn, centerLook } from './render/camera.js';
-import { gunHome, gunToCharacter, gunSlideTo, slideSpotFor, gunToGrip, gunSetDown, gunDrop, spinDrum, cockHammer, fire } from './render/gun.js';
+import { gun, gunHome, gunToCharacter, gunSlideTo, slideSpotFor, gunToGrip, gunSetDown, gunDrop, spinDrum, cockHammer, fire } from './render/gun.js';
 import { arm, armReach, armRaise, armHide } from './render/playerArm.js';
 import { RANK_STYLE } from './render/textures.js';
 
@@ -61,6 +61,10 @@ const _h = new THREE.Vector3(), _g = new THREE.Vector3();
 async function step(ms, token) {
   await wait(ms);
   if (token !== D.token) throw ABORT;
+}
+/** Waits for a flight to land, so a hand never closes on a gun that hasn't arrived when frames run late. */
+async function landed(mover, token) {
+  while (mover.flying) await step(20, token);
 }
 const voice = (seat, kind) => { const l = LINES[seat]?.[kind]; return l ? pick(l) : ''; };
 
@@ -328,19 +332,20 @@ async function takeUpGun(seat, token) {
     gunSlideTo(slideSpotFor(rig.seat.x, rig.seat.z, _g)); rig.leanTarget = 1;
     await step(220, token);
     armReach(_g);
-    await step(500, token);
+    await landed(arm.mover, token); await landed(gun.mover, token);
     gunToGrip(arm.grip); rig.leanTarget = 0;
-    await step(200, token);
+    await landed(gun.mover, token);
     armRaise();
-    await step(550, token);
+    await landed(arm.mover, token);
   } else if (ch.grip) {
     ch.group.getWorldPosition(_g);
     gunSlideTo(slideSpotFor(_g.x, _g.z, _g));
-    await step(380, token);
+    await landed(gun.mover, token);
     ch.reachTarget.copy(_g); react(ch, 'reach');
     await step(500, token);
     gunToGrip(ch.grip); react(ch, 'reach', false); react(ch, 'aim');
-    await step(650, token);
+    await landed(gun.mover, token);
+    await step(450, token);
   } else {
     gunToCharacter(ch);
     await step(1100, token);
@@ -352,15 +357,15 @@ async function putDownGun(seat, token) {
   const ch = D.characters[seat];
   if (seat === 0) {
     armReach(slideSpotFor(rig.seat.x, rig.seat.z, _g)); rig.leanTarget = 0.6;
-    await step(500, token);
+    await landed(arm.mover, token);
     gunSetDown(); rig.leanTarget = 0;
-    await step(150, token);
+    await landed(gun.mover, token);
     armHide(); gunHome({ slide: true });
   } else if (ch.grip) {
     react(ch, 'aim', false);
     await step(500, token);
     gunSetDown();
-    await step(250, token);
+    await landed(gun.mover, token);
     gunHome({ slide: true });
   } else gunHome();
 }

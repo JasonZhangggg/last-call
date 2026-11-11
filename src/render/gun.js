@@ -7,7 +7,7 @@ import { quatE } from '../util.js';
 // attach it with an identity transform). Lying on its side its height is the drum's radius.
 const GRIP = new THREE.Vector3(0, -0.046, -0.056);
 const LYING_Y = 0.026;
-const lying = (yaw, out) => quatE(0, yaw, Math.PI / 2, out);
+const lying = (yaw, out, side = 1) => quatE(0, yaw, side * Math.PI / 2, out);
 const HOME_QUAT = lying(0.9);
 const HOME_POS = new THREE.Vector3(0.44, LYING_Y, 0.3).add(GRIP.clone().applyQuaternion(HOME_QUAT));
 const ZERO = new THREE.Vector3(), IDENTITY = new THREE.Quaternion();
@@ -86,11 +86,16 @@ export function gunSlideTo(spot) {
   gun.mover.go(scene, spot, lying(Math.atan2(spot.x, spot.z) + Math.PI * 0.5, _q), 1, { dur: 0.5, arc });
 }
 /** Into a hand. The hand is already there, so this only settles it into the palm. */
-export function gunToGrip(grip) { gun.mover.go(grip, ZERO, IDENTITY, 1, { dur: 0.22 }); }
-/** Out of a lowered hand onto the felt right under it. */
+export function gunToGrip(grip) { gun.mover.go(grip, ZERO, IDENTITY, 1, { dur: 0.32 }); }
+const _q2 = new THREE.Quaternion();
+/** Out of a lowered hand onto the felt right under it, laid on whichever side turns it least. */
 export function gunSetDown() {
   onFeltBelow(gunWorld(_p));
-  gun.mover.go(scene, _p, lying(Math.atan2(_p.x, _p.z) + Math.PI * 0.5, _q), 1, { dur: 0.25 });
+  gun.obj.getWorldQuaternion(_q2);
+  _x.set(0, 0, 1).applyQuaternion(_q2);
+  const yaw = Math.atan2(_x.x, _x.z);
+  const a = Math.abs(lying(yaw, _q, 1).dot(_q2)), b = Math.abs(lying(yaw, _q, -1).dot(_q2));
+  gun.mover.go(scene, _p, lying(yaw, _q, a >= b ? 1 : -1), 1, { dur: 0.35 });
 }
 function onFeltBelow(p) {
   const r = Math.hypot(p.x, p.z), k = r > 0.86 ? 0.86 / r : 1;
