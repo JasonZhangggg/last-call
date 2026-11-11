@@ -545,6 +545,7 @@ async function drink(T, msg) {
   if (witnesses.length) { const w = pick(witnesses); setTimeout(() => say(T, w, voice(T, w, 'others')), 1500); }
   audio.glassDown?.(T.pan(seat), 0.5);
   rig.zoomTarget = 1.12; T.focusSeat(seat, 0.45);
+  await T.landed(DT.table.heldMover); DT.dropHeld(v, i, 'spilled');
   await T.step(1600);
   held = null;
   settle(T);

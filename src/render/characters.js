@@ -696,6 +696,13 @@ function poseArms(ch, t) {
   if (E.hold > 0.001) { la.pos.lerp(ch.fan.pos, E.hold); la.quat.slerp(ch.fan.quat, E.hold); la.pos.y += bell(E.hold) * 0.025; }
   const up = E.inspect * E.hold;
   if (up > 0.001) { la.pos.lerp(ch.fanUp.pos, up); la.quat.slerp(ch.fanUp.quat, up); }
+  if (E.hold > 0.001) {
+    // leaning in or reaching tips the upper body forward, which would lower the held fan into the
+    // felt; the fan keeps at least the height it has sitting upright
+    _m1.copy(ch.group.matrixWorld).invert().multiply(ch.upper.matrixWorld);
+    const y = _p1.copy(la.pos).applyMatrix4(_m1).y, floor = ch.fan.pos.y - 0.01;
+    if (y < floor) la.pos.y += (floor - y) * E.hold;
+  }
   if (E.out > 0.001) { la.pos.lerp(LEFT_LIMP.pos, E.out); la.quat.slerp(LEFT_LIMP.quat, E.out); }
   solveArm(la, LEFT_WRIST, _pole.set(1, -0.75, -0.25).normalize());
   la.handMesh.morphTargetInfluences[0] = E.hold;
