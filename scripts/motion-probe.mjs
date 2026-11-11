@@ -3,8 +3,9 @@
 // discontinuities: one 1/240 s step whose velocity change is bigger than smooth acceleration allows.
 //   node scripts/motion-probe.mjs [--size 640x360] [--label before] [--seed 7] [--page dist/index.html]
 // Writes artifacts/motion-probe-<label>.json. Needs `npm run build` first. While attached, the page
-// draws only twice a second so the software renderer can't starve the simulation; frame times here
-// are therefore not render times.
+// draws every two seconds and its frame loop accepts long frames (sub-stepped at 240 Hz), so the
+// simulation keeps pace with the game's real-time pacing on a slow software renderer. Frame
+// times here are therefore not render times.
 import { createRequire } from 'node:module';
 import { mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -75,7 +76,8 @@ await page.evaluate(({ HZ, THRESH }) => {
   let sinceDraw = 0;
   L.hooks.probe = {
     hz: HZ,
-    draw(dt) { sinceDraw += dt; if (sinceDraw < 0.5) return false; sinceDraw = 0; return true; },
+    maxDt: 0.5,
+    draw(dt) { sinceDraw += dt; if (sinceDraw < 2) return false; sinceDraw = 0; return true; },
     sample(dt) {
       R.t += dt;
       const sg = seg();
@@ -138,7 +140,7 @@ while (Date.now() - t0 < 900000) {
   if (tagline !== lastLog) { console.error(`  [${((Date.now() - t0) / 1000).toFixed(0)}s] ${tagline}`); lastLog = tagline; }
   if (s.end) break;
   if (s.phase === 'roulette') sawRoulette = true;
-  if (sawRoulette && s.phase === 'turn' && s.round >= 2) break;
+  if (looked && sawRoulette && s.phase === 'turn' && s.round >= 2) break;
   if (s.trigger) { await page.keyboard.down('Space'); await page.waitForTimeout(1000); await page.keyboard.up('Space'); continue; }
   if (s.actions) {
     if (!looked) {

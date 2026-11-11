@@ -38,7 +38,7 @@ function simulate(dt, t) {
 // scripts/motion-probe.mjs sets hooks.probe to sample motion at a finer step than the frame rate.
 const hooks = { probe: null };
 function frame() {
-  const dt = Math.min(clock.getDelta(), 1 / 20), t = clock.elapsedTime, probe = hooks.probe;
+  const probe = hooks.probe, dt = Math.min(clock.getDelta(), probe ? probe.maxDt : 1 / 20), t = clock.elapsedTime;
   if (probe) {
     const n = Math.max(1, Math.ceil(dt * probe.hz));
     for (let i = 1; i <= n; i++) { simulate(dt / n, t - dt + (dt * i) / n); probe.sample(dt / n); }
