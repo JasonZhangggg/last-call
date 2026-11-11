@@ -51,9 +51,9 @@ await page.evaluate(({ HZ, THRESH }) => {
   const L = window.__lastcall, D = L.D;
   const R = { spikes: {}, maxDv: {}, worst: [], hoverLog: [], frames: [], tagLag: [], hoverChanges: {}, roulettes: 0, programs0: L.renderer.info.programs.length, textures0: L.renderer.info.memory.textures, t: 0 };
   window.__probe = R;
-  const chars = [null, D.viewChars[1], D.viewChars[2], D.viewChars[3]], scene = L.gun.obj.parent;
+  const chars = D.viewChars, seats = [1, 2, 3], scene = L.gun.obj.parent;
   // the revolver's whole staging (slide, reach, pickup, raise, shot, set down) counts as roulette
-  const gunBusy = () => L.gun.mover.flying || L.gun.obj.parent !== scene || L.arm?.root.visible || chars.some((c) => c.env.reach > 0.01 || c.env.aim > 0.01);
+  const gunBusy = () => L.gun.mover.flying || L.gun.obj.parent !== scene || L.arm?.root.visible || seats.some((s) => chars[s].env.reach > 0.01 || chars[s].env.aim > 0.01);
   let busy = false;
   const seg = () => window.__probeSeg || (D.shown ? (D.prompt?.type === 'roulette' || gunBusy() ? 'roulette' : D.watch ? (D.shown.reveal ? 'reveal' : 'deal') : 'play') : 'title');
   const tracks = new Map();
@@ -141,11 +141,18 @@ await page.mouse.move(W / 2, H / 2);
 await page.click('#solo-btn'); await page.click('#solo-start-btn');
 const t0 = Date.now();
 let looked = false, sawRoulette = false, liarCalled = false;
-let lastLog = '';
+let lastLog = '', lastChange = Date.now();
 while (Date.now() - t0 < +(args.minutes || 15) * 60000) {
   const s = await state();
   const tagline = `${s.phase} r${s.round} pending=${s.pending}`;
-  if (tagline !== lastLog) { console.error(`  [${((Date.now() - t0) / 1000).toFixed(0)}s] ${tagline}`); lastLog = tagline; }
+  if (tagline !== lastLog) { console.error(`  [${((Date.now() - t0) / 1000).toFixed(0)}s] ${tagline}`); lastLog = tagline; lastChange = Date.now(); }
+  else if (Date.now() - lastChange > 90000) {
+    lastChange = Date.now();
+    console.error('  stalled:', JSON.stringify(await page.evaluate(() => {
+      const L = window.__lastcall, D = L.D, g = L.gun, R = window.__probe;
+      return { simT: +R.t.toFixed(1), frames: R.frames.length, hz: L.hooks.probe?.hz, prompt: D.prompt && { type: D.prompt.type, seat: D.prompt.seat }, queue: D.queue?.length, phase: D.phase, gunFlying: g.mover.flying, gunParent: g.obj.parent?.type, armFlying: L.arm?.mover.flying, env: [1, 2, 3].map((s) => D.viewChars[s].env), overlay: document.querySelector('.overlay:not(.fade)')?.id };
+    })), problems.slice(0, 2).join(' | ').slice(0, 600));
+  }
   if (s.end) break;
   if (s.phase === 'roulette') sawRoulette = true;
   if (looked && sawRoulette && s.phase === 'turn' && s.round >= 2 && (await page.evaluate(() => window.__probe.roulettes)) >= ROULETTES) break;
