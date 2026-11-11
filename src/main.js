@@ -3,7 +3,7 @@ import { $, clamp, settings } from './util.js';
 import { renderer, scene, camera, canvas, render, adapt, applyQuality, quality } from './render/core.js';
 import { buildWorld, updateWorld, setShadowSize } from './render/world.js';
 import { buildCharacter, updateCharacter } from './render/characters.js';
-import { buildCards, updateCards, warmCards } from './render/cards.js';
+import { buildCards, updateCards, warmCards, bodies, hands } from './render/cards.js';
 import { buildGun, updateGun, gun } from './render/gun.js';
 import { buildPlayerArm, updatePlayerArm, arm } from './render/playerArm.js';
 import { rig, updateCamera, fitToViewport, lookFromPointer, lookByDelta, centerLook } from './render/camera.js';
@@ -283,8 +283,11 @@ ui.initLobby({
 
 addEventListener('resize', () => { fitToViewport(); applyQuality(); });
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) clock.stop();
-  else { clock.start(); catchUp(); }
+  if (document.hidden) {
+    clock.stop();
+    // a solo table waits for you; a hosted one can't, and catches up when you come back
+    if (solo() && D.mode && !settings.autoplay && ui.topOverlay() == null) togglePause(true);
+  } else { clock.start(); catchUp(); }
 });
 
 canvas.addEventListener('webglcontextlost', (e) => {
@@ -326,7 +329,7 @@ async function boot() {
   renderer.setAnimationLoop(frame);
   $('#loading').hidden = true; $('#title-menu').hidden = false;
   $('#solo-btn').focus({ preventScroll: true });
-  window.__lastcall = { D, S, quality, hooks, gun, arm, rig, camera, renderer, MODES, CATALOG, leaveTable };
+  window.__lastcall = { D, S, quality, hooks, gun, arm, rig, camera, renderer, MODES, CATALOG, leaveTable, cards: { bodies, hands } };
   const room = new URLSearchParams(location.search).get('room');
   if (settings.autoplay) startSolo({ mode: 'deck', variant: location.hash === '#autoplay-devil' ? 'devil' : 'basic' });
   else if (room) enterTable('join', normalizeRoomCode(room));

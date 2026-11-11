@@ -18,7 +18,8 @@ export const handUI = { selected: new Set(), hover: null, enabled: false };
 const FACE_DOWN = (yaw = 0, out) => quatE(Math.PI / 2, yaw, 0, out);
 const FACE_UP = (yaw = 0, out) => quatE(-Math.PI / 2, yaw, 0, out);
 const _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _o = new THREE.Object3D();
-const bodies = [], faces = {};
+export const bodies = [];
+const faces = {};
 let unknown = null, active = MAX_CARDS;
 
 export function buildCards() {
