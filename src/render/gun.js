@@ -74,7 +74,7 @@ export const gunWorld = (out) => gun.obj.getWorldPosition(out);
 export function slideSpotFor(seatX, seatZ, out) {
   const r = Math.hypot(seatX, seatZ) || 1, ux = seatX / r, uz = seatZ / r;
   // a little to the seat's right, where a right hand finds it
-  return out.set(ux * 0.88 - uz * 0.16, LYING_Y, uz * 0.88 + ux * 0.16);
+  return out.set(ux * 0.88 + uz * 0.16, LYING_Y, uz * 0.88 - ux * 0.16);
 }
 /** Slide it across the table, still lying on its side, turning its grip toward whoever must pull. */
 export function gunSlideTo(spot) {
