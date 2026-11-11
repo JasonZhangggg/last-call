@@ -22,15 +22,30 @@ export const bodies = [];
 const faces = {};
 let unknown = null, active = MAX_CARDS;
 
+/*
+ * Paper right under the lamp is several times brighter than anything else on the table, so it
+ * would tone-map to flat white and feed the bloom. Cards roll their own highlights off instead:
+ * radiance below KNEE is untouched (cards in hand, in shade, all the ink), brighter paper is
+ * compressed toward just under the bloom threshold, keeping hue and the ink's contrast.
+ */
+const PAPER_KNEE = `float cardL = dot(outgoingLight, vec3(0.2126, 0.7152, 0.0722));
+  if (cardL > 0.45) outgoingLight *= (0.45 + (cardL - 0.45) * 0.33 / (0.33 + cardL - 0.45)) / cardL;
+  #include <opaque_fragment>`;
+function rollOffHighlights(m) {
+  m.onBeforeCompile = (s) => { s.fragmentShader = s.fragmentShader.replace('#include <opaque_fragment>', PAPER_KNEE); };
+  m.customProgramCacheKey = () => 'card-paper';
+  return m;
+}
+
 export function buildCards() {
   const geo = new THREE.BoxGeometry(CW, CH, CT);
-  const edge = new THREE.MeshStandardMaterial({ color: 0xe6d8b8, roughness: 0.7 });
+  const edge = rollOffHighlights(new THREE.MeshStandardMaterial({ color: 0xe6d8b8, roughness: 0.7 }));
   const backMap = canvasTex(cardBack());
-  const back = new THREE.MeshStandardMaterial({ map: backMap, roughness: 0.5, alphaTest: 0.5, emissiveMap: backMap, emissive: 0xffffff, emissiveIntensity: 0.07 });
+  const back = rollOffHighlights(new THREE.MeshStandardMaterial({ map: backMap, roughness: 0.5, alphaTest: 0.5, emissiveMap: backMap, emissive: 0xffffff, emissiveIntensity: 0.07 }));
   unknown = [edge, edge, edge, edge, back, back];
   for (const rank of Object.keys(RANK_STYLE)) {
     const map = canvasTex(cardFront(rank));
-    const front = new THREE.MeshStandardMaterial({ map, roughness: 0.55, alphaTest: 0.5, emissiveMap: map, emissive: 0xffffff, emissiveIntensity: 0.14 });
+    const front = rollOffHighlights(new THREE.MeshStandardMaterial({ map, roughness: 0.55, alphaTest: 0.5, emissiveMap: map, emissive: 0xffffff, emissiveIntensity: 0.14 }));
     faces[rank] = [edge, edge, edge, edge, front, back];
   }
   const glowMap = canvasTex(cardGlow(), { srgb: false });
