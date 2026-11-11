@@ -83,7 +83,7 @@ const CH_GLASS = { pos: new THREE.Vector3(0, -0.046, -0.056).addScaledVector(GRI
 const ARM_UP = new THREE.Vector3(0, Math.cos(0.38), -Math.sin(0.38));
 const ARM_GLASS = { pos: ARM_UP.clone().multiplyScalar(-0.028), quat: new THREE.Quaternion().setFromUnitVectors(Y, ARM_UP) };
 // your arm's poses in camera space: glass held up in front of you, and tipped to your lips
-const HOLD = { pos: new THREE.Vector3(0.11, -0.14, -0.34), quat: new THREE.Quaternion() };
+const HOLD = { pos: new THREE.Vector3(0.1, -0.065, -0.34), quat: new THREE.Quaternion() };
 const LIPS = { pos: new THREE.Vector3(0.035, -0.075, -0.15), quat: new THREE.Quaternion() };
 const MOUTH = new THREE.Vector3(0, -0.07, 0.12);
 const LOOK_UP = new THREE.Vector3(0, 2.6, -0.2);
@@ -467,7 +467,9 @@ async function pickUpGlass(T, seat, i = nextGlass(T, seat)) {
     DT.takeGlass(v, i, arm.grip, ARM_GLASS.pos, ARM_GLASS.quat, 0.2);
     audio.glassPick?.(0);
     rig.leanTarget = 0;
-    arm.mover.go(camera, HOLD.pos, HOLD.quat, 1, { dur: 0.65 });
+    // kept inside a narrow (portrait) view, like the raised revolver
+    const halfW = -HOLD.pos.z * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect / camera.zoom;
+    arm.mover.go(camera, _a.copy(HOLD.pos).setX(Math.min(HOLD.pos.x, halfW * 0.4)), HOLD.quat, 1, { dur: 0.65 });
     await T.landed(arm.mover);
   } else {
     T.setWatch(null); T.focusSeat(seat, 0.8); rig.zoomTarget = 1.25;
@@ -546,6 +548,7 @@ async function drink(T, msg) {
     DT.dropHeld(v, i, 'gone'); held = null;
     armHide(); rig.rollTarget = 0;
     DT.setDice(0, 0, null);
+    myDice(T);
     await T.step(1300);
     if (T.game.alive.filter(Boolean).length > 1) T.eliminated();
     return settle(T);

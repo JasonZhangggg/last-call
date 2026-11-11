@@ -333,7 +333,7 @@ async function boot() {
   renderer.setAnimationLoop(frame);
   $('#loading').hidden = true; $('#title-menu').hidden = false;
   $('#solo-btn').focus({ preventScroll: true });
-  window.__lastcall = { D, S, quality, hooks, gun, arm, rig, camera, renderer, MODES, CATALOG, leaveTable, cards: { bodies, hands }, diceTable };
+  window.__lastcall = { D, S, quality, hooks, gun, arm, rig, camera, renderer, MODES, CATALOG, leaveTable, cards: { bodies, hands }, diceTable, T };
   const room = new URLSearchParams(location.search).get('room');
   const AUTO = { '#autoplay-devil': ['deck', 'devil'], '#autoplay-dice': ['dice', 'basic'], '#autoplay-dice-traditional': ['dice', 'traditional'] };
   if (settings.autoplay) { const [mode, variant] = AUTO[location.hash] || ['deck', 'basic']; startSolo({ mode, variant }); }

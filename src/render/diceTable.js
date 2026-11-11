@@ -14,8 +14,8 @@ export const PER_SEAT = 5, GLASSES = 6;
 const CUP_R = 0.076, CUP_H = 0.132;
 const GLASS_H = 0.056, LIQUID_TOP = 0.044;
 // [distance from the table centre, offset to the owner's right] per view
-const CUP_AT = [[0.36, -0.08], [0.62, -0.06], [0.6, -0.04], [0.62, -0.06]];
-const TRAY_AT = [[0.5, 0.3], [0.9, 0.25], [0.9, 0.25], [0.9, 0.25]];
+const CUP_AT = [[0.5, -0.1], [0.62, -0.06], [0.6, -0.04], [0.62, -0.06]];
+const TRAY_AT = [[0.64, 0.3], [0.9, 0.25], [0.9, 0.25], [0.9, 0.25]];
 const RING = 0.038;
 
 const _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _s = new THREE.Vector3();
@@ -162,7 +162,7 @@ export function buildDiceTable() {
   const leather = new THREE.MeshStandardMaterial({ map: leatherTex, bumpMap: leatherBump, bumpScale: 0.6, roughness: 0.62, color: 0xffffff });
   const cup = cupGeometry(), gl = glassGeometry(), tray = trayGeometry();
   const glassMat = new THREE.MeshStandardMaterial({ color: 0xcfe2e4, roughness: 0.04, metalness: 0.1, transparent: true, opacity: 0.32, envMapIntensity: 4, depthWrite: false });
-  const liquidMat = new THREE.MeshStandardMaterial({ color: 0x6b3a12, roughness: 0.12, emissive: 0x3a1a04, emissiveIntensity: 0.35, transparent: true, opacity: 0.9 });
+  const liquidMat = new THREE.MeshStandardMaterial({ color: 0xa35a14, roughness: 0.1, emissive: 0x52240a, emissiveIntensity: 0.5, transparent: true, opacity: 0.88 });
   const trayWood = new THREE.MeshStandardMaterial({ color: 0x3c1e0e, roughness: 0.45 });
   const haloMat = new THREE.MeshBasicMaterial({ map: canvasTex(softDot(), { srgb: false }), color: 0xffb648, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
 

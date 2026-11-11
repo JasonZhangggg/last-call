@@ -79,6 +79,7 @@ if (args.soak) {
     if (s.end) { await page.waitForTimeout(1200); await shot('99-end'); break; }
     if (s.out) { await once('out', async () => { await shown('out'); await page.waitForTimeout(400); await shot('07-out'); }); await page.click('#watch-btn'); continue; }
     if (s.watch && s.reveal) await once('reveal', () => shot('04-reveal'));
+    if (DICE && s.watch && s.reveal) await once('count', async () => { await page.waitForTimeout(2600); await shot('04c-count'); });
     if (s.watch && s.reveal?.includes('devil')) await once('devil', () => shot('04b-devil'));
     if (s.prompt?.type === 'roulette' && s.prompt.seat !== s.me && !s.watch) await once('roulette-ai', async () => { await page.waitForTimeout(1600); await shot('05-roulette-ai'); });
     if (s.trigger) {
