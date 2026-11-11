@@ -557,9 +557,10 @@ function poseArm(ch, t) {
   arm.hand.position.copy(FIST_WRIST).applyQuaternion(arm.hand.quaternion).negate(); arm.hand.position.y -= L2;
 }
 
+const EASED = ['lean', 'tremble', 'relief', 'aim', 'reach'];
 export function updateCharacter(ch, dt, t) {
   const E = ch.env, T = ch.target;
-  for (const k of ['lean', 'tremble', 'relief', 'aim', 'reach']) E[k] += (T[k] - E[k]) * damp(dt, 4);
+  for (const k of EASED) E[k] += (T[k] - E[k]) * damp(dt, 4);
   E.out += (T.out - E.out) * damp(dt, 2.4);
   E.flinch *= Math.exp(-dt * 6);
   const live = 1 - E.out;
