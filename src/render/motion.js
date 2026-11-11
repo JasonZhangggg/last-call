@@ -7,8 +7,9 @@
 //            a card waiting to be dealt doesn't ride along with the camera, and a moving target (a
 //            reflowing hand, a leaning character) is still hit exactly.
 //   springs  continuous following once settled: critically damped position, rotation and scale.
-// Every ease used for a flight starts and ends at zero velocity. A flight that interrupts motion
-// inherits the object's current velocity, so nothing ever jumps from moving to still or back.
+// Flight eases leave from rest and land at rest (a dropped revolver's impact is the deliberate
+// exception). A flight that interrupts motion inherits the object's current velocity, so nothing
+// jumps from moving to still.
 import * as THREE from 'three';
 import { settings } from '../util.js';
 
