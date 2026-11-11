@@ -64,7 +64,7 @@ export function newGame({ seats = 4, rng = Math.random, variant = 'classic' } = 
 }
 
 const gildedTurned = (game) => game.turned.filter(isGilded).length;
-export const highBid = (game) => Math.max(0, ...game.players.map((p) => sum(p.bid)));
+const highBid = (game) => Math.max(0, ...game.players.map((p) => sum(p.bid)));
 const money = (p) => sum(p.hand);
 
 function expect(game, phase) {

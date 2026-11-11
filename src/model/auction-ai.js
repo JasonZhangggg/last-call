@@ -3,8 +3,9 @@
 //
 // A bot turns the card into status points (what it adds to, or costs, its projected final
 // status), then into crowns: its spendable money split between this card and its fair share of
-// the cards still to come. Spendable money is what it holds above a reserve that keeps it clear
-// of the poorest opponent, so it never pays its way into the cast-out.
+// the cards still to come. Spendable money is what it holds above a reserve set by the poorest
+// rival's purse: well under it early, while rivals still have auctions to spend in, and one
+// crown over it by the end. It never bids a total that would leave it tied with that purse.
 import { DEBT_PENALTY, MONEY, isGilded, statusDeck, sum } from './auction.js';
 
 const PURSE = sum(MONEY);
@@ -26,7 +27,7 @@ const PASS = Object.freeze({ type: 'pass' });
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 
 /** The face-down cards: the full deck minus every card turned so far. */
-export function unseenCards(turned) {
+function unseenCards(turned) {
   const left = statusDeck();
   for (const c of turned) left.splice(left.findIndex((x) => x.kind === c.kind && x.value === c.value), 1);
   return left;
@@ -40,17 +41,18 @@ export function outlook(view) {
   const unseen = unseenCards(view.turned);
   const G = unseen.filter(isGilded).length;
   const pPlain = G / (G + 1), pGilded = G ? (G - 1) / G : 0;
+  const curios = unseen.filter((c) => c.kind === 'curio').map((c) => c.value);
   return {
     auctionsLeft: G ? (G * (unseen.length + 1)) / (G + 1) - 1 : 0,
-    curios: sum(unseen.filter((c) => c.kind === 'curio').map((c) => c.value)) * pPlain,
+    curios: sum(curios) * pPlain,
+    meanCurio: curios.length ? sum(curios) / curios.length : 0,
     favours: unseen.filter((c) => c.kind === 'favour').length * pGilded,
-    meanCurio: (() => { const cs = unseen.filter((c) => c.kind === 'curio'); return cs.length ? sum(cs.map((c) => c.value)) / cs.length : 0; })(),
     seats: view.players.length,
   };
 }
 
 /** A seat's projected final base (curios less debt) and multiplier, with a fair share of what is to come. */
-export function projection(player, look) {
+function projection(player, look) {
   const curios = player.won.filter((c) => c.kind === 'curio');
   const favours = player.won.filter((c) => c.kind === 'favour').length;
   const has = (kind) => player.won.some((c) => c.kind === kind);
@@ -60,7 +62,7 @@ export function projection(player, look) {
 }
 
 /** The card's worth to this seat in status points: positive to want, negative to dodge. */
-export function cardValue(card, player, look, persona) {
+function cardValue(card, player, look, persona) {
   const { base, mult, lowestCurio } = projection(player, look);
   switch (card.kind) {
     case 'curio': return player.aleOwed ? 0 : card.value * mult;
@@ -79,7 +81,7 @@ const purse = (p) => PURSE - sum(p.spent);
  * bid: the one that would leave it tied with the poorest rival, since a tie for the least is
  * cast out too.
  */
-export function budget(view, persona, rng) {
+function budget(view, persona, rng) {
   const o = view.options, me = view.players[view.seat], look = outlook(view);
   const mine = sum(view.hand) + o.ownBid;
   const others = view.players.filter((p) => p.seat !== view.seat).map(purse);
@@ -101,7 +103,7 @@ export function budget(view, persona, rng) {
 }
 
 /** For every total the hand can make, the fewest cards that make it. */
-export function totals(hand) {
+function totals(hand) {
   const best = [[]];
   for (const v of hand) {
     for (let s = best.length - 1; s >= 0; s--) {
