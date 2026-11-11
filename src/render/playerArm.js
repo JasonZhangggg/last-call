@@ -63,10 +63,12 @@ export function armReach(world) {
   poseToward(_d, _q).premultiply(camera.quaternion);
   arm.mover.go(scene, world, _q, 1, { dur: 0.5, ease: easeInOutCubic });
 }
-/** Raise whatever is in the hand up beside your head. */
+/** Raise whatever is in the hand up beside your head, kept inside a narrow (portrait) view. */
 export function armRaise() {
   arm.hidden = false; arm.root.visible = true;
-  arm.mover.go(camera, AIM_POS, arm.aimQuat, 1, { dur: 0.6, ease: easeInOutCubic });
+  const halfW = -AIM_POS.z * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect / camera.zoom;
+  _v.copy(AIM_POS).setX(Math.min(AIM_POS.x, halfW * 0.62));
+  arm.mover.go(camera, _v, arm.aimQuat, 1, { dur: 0.6, ease: easeInOutCubic });
 }
 export function armHide() {
   if (arm.hidden) return;
