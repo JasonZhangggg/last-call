@@ -3,39 +3,41 @@ import { $, clamp, settings } from './util.js';
 import { renderer, scene, camera, canvas, render, adapt, applyQuality, quality } from './render/core.js';
 import { buildWorld, updateWorld, setShadowSize } from './render/world.js';
 import { buildCharacter, updateCharacter } from './render/characters.js';
-import { buildCards, layoutHands, updateCards, pickCard, handUI, warmCards, views, sortForDisplay } from './render/cards.js';
+import { buildCards, updateCards, warmCards } from './render/cards.js';
 import { buildGun, updateGun, gun } from './render/gun.js';
 import { buildPlayerArm, updatePlayerArm, arm } from './render/playerArm.js';
 import { rig, updateCamera, fitToViewport, lookFromPointer, lookByDelta, centerLook } from './render/camera.js';
 import { dampVec3 } from './render/motion.js';
 import { audio } from './audio.js';
 import * as ui from './ui.js';
-import { D, SEATS, runGame, abortGame, setCharacters, toggleCard, submitPlay, submitChallenge, lookTargetFor } from './director.js';
-import { createDeck } from './model/rules.js';
+import { D, T, VIEWS, DESIGNS, lookTargetFor, catchUp, leaveTable } from './director.js';
+import { S, playSolo, host, join, send, close as closeTable } from './session.js';
+import { MODES, isPlayable } from './modes/index.js';
+import { CATALOG, modeLabel, variantLabel, variantNote } from './modes/catalog.js';
+import { ENGINES } from './net/engines.js';
+import { ROOM_CODE_RE, normalizeRoomCode } from './net/protocol.js';
 
 const clock = new THREE.Clock(false);
-const characters = [null];
 const raycaster = new THREE.Raycaster();
-const pointer = { ndc: new THREE.Vector2(9, 9), moved: false, idle: 0, touch: false, touchLook: null };
+const pointer = { ndc: new THREE.Vector2(9, 9), moved: false, idle: 0, touch: false, touchLook: null, hover: null };
 const _v = new THREE.Vector3(), _look = new THREE.Vector3();
 const lookVel = [null, {}, {}, {}];
 // Procedural motion runs on simulated time: dt is clamped after a long stall, and a wall clock that
 // kept running would make every sway, breath and flicker jump forward in that frame.
 let simT = 0;
-const EMPTY_GAME = { players: [0, 1, 2, 3].map((seat) => ({ seat, hand: [] })) };
 
 /* ---------- frame ---------- */
 function simulate(dt, t) {
   updateWorld(dt, t);
   updateCamera(dt, t);
   camera.updateMatrixWorld();
-  for (let s = 1; s < 4; s++) {
-    const ch = characters[s];
+  for (let v = 1; v < 4; v++) {
+    const ch = D.viewChars[v];
     // the gaze target glides between subjects, so a head starts turning gently instead of all at once
-    dampVec3(ch.lookTarget, lookTargetFor(s, camera, _look), lookVel[s], 0.16, dt);
+    dampVec3(ch.lookTarget, lookTargetFor(v, camera, _look), lookVel[v], 0.16, dt);
     updateCharacter(ch, dt, t);
   }
-  layoutHands(D.game || EMPTY_GAME, characters, innerWidth < 720 ? 112 : 124);
+  D.mode?.frame(T, innerWidth < 720 ? 112 : 124);
   updateCards(dt);
   updatePlayerArm(dt);
   updateGun(dt);
@@ -65,28 +67,28 @@ function frame() {
 const TAG_SNAP = 1;
 function placeTags() {
   const W = innerWidth, H = innerHeight, narrow = W < 600;
-  for (let s = 1; s < 4; s++) {
-    const ch = characters[s];
-    _v.copy(ch.tagAnchor).project(camera);
+  for (let v = 1; v < 4; v++) {
+    _v.copy(D.viewChars[v].tagAnchor).project(camera);
     // a head turned well out of view takes its tag with it, rather than stacking tags at the edge
     const inView = _v.z <= 1 && Math.abs(_v.x) < 1.08;
     let x, y;
-    if (narrow) { x = W * (s === 1 ? 0.18 : s === 2 ? 0.5 : 0.82); y = 226; }
+    if (narrow) { x = W * (v === 1 ? 0.18 : v === 2 ? 0.5 : 0.82); y = 226; }
     else { x = clamp((_v.x * 0.5 + 0.5) * W, 90, W - 90); y = clamp((-_v.y * 0.5 + 0.5) * H, 150, H - 230); }
-    ui.placeTag(s, x, y, narrow || inView, TAG_SNAP);
+    ui.placeTag(v, x, y, narrow || inView, TAG_SNAP);
   }
 }
 
 // Re-picked on every pointer move, and a few times a second while it rests, because the hand
 // reflows under a still pointer.
 function updateHover(dt) {
-  if (!handUI.enabled || !D.game || pointer.touch) { if (handUI.hover != null) { handUI.hover = null; canvas.style.cursor = ''; } return; }
+  const m = D.mode;
+  if (!m?.pointerEnabled() || pointer.touch) { if (m && pointer.hover != null) { pointer.hover = null; m.hover(null); canvas.style.cursor = ''; } return; }
   pointer.idle += dt;
   if (!pointer.moved && pointer.idle < 0.1) return;
   pointer.moved = false; pointer.idle = 0;
   raycaster.setFromCamera(pointer.ndc, camera);
-  const id = pickCard(raycaster, D.game, handUI.hover);
-  if (id !== handUI.hover) { handUI.hover = id; canvas.style.cursor = id != null ? 'pointer' : ''; if (id != null) audio.hover(); }
+  const id = m.pick(raycaster, pointer.hover);
+  if (id !== pointer.hover) { pointer.hover = id; m.hover(id); canvas.style.cursor = id != null ? 'pointer' : ''; if (id != null) audio.hover(); }
 }
 
 /* ---------- input ---------- */
@@ -123,51 +125,167 @@ addEventListener('pointercancel', (e) => { if (pointer.touchLook?.id === e.point
 document.addEventListener('pointerout', (e) => { if (e.pointerType === 'mouse' && !e.relatedTarget) { pointer.ndc.set(9, 9); centerLook(0.6); } });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 function tryPick() {
-  if (!handUI.enabled || !D.game) return;
+  const m = D.mode;
+  if (!m?.pointerEnabled()) return;
   camera.updateMatrixWorld();
   raycaster.setFromCamera(pointer.ndc, camera);
-  const id = pickCard(raycaster, D.game, handUI.hover);
-  if (id != null) toggleCard(id);
+  const id = m.pick(raycaster, pointer.hover);
+  if (id != null) m.select(T, id);
 }
 
-$('#play-btn').addEventListener('click', submitPlay);
-$('#liar-btn').addEventListener('click', submitChallenge);
 addEventListener('keydown', (e) => {
+  if (e.target instanceof HTMLInputElement) return;
   if (e.key === 'Escape') { e.preventDefault(); return togglePause(); }
   if (e.key === 'm' || e.key === 'M') return $('#sound-btn').click();
-  if (settings.paused || !handUI.enabled) return;
-  if (e.key >= '1' && e.key <= '9') {
-    const c = sortForDisplay(D.game.players[0].hand)[+e.key - 1]; if (c) toggleCard(c.id);
-  } else if (e.key === 'Enter') { e.preventDefault(); submitPlay(); }
-  else if (e.key === 'l' || e.key === 'L') submitChallenge();
+  if (settings.paused || ui.topOverlay()) return;
+  D.mode?.keydown(T, e);
 });
 
-/* ---------- menus ---------- */
+/* ---------- menus and the table flow ---------- */
+const solo = () => S.kind === 'local';
+const MODE_LIST = () => Object.keys(ENGINES).map((mode) => ({ mode, variants: ENGINES[mode].variants, playable: isPlayable(mode) }));
+const LABELS = { label: modeLabel, variantLabel, note: variantNote };
+
 function togglePause(force) {
   const top = ui.topOverlay();
-  if (top && top !== 'pause') { ui.closeOverlay(top); return; }
-  if (!D.running) return;
+  if (top && top !== 'pause') {
+    // the table's own sheets aren't dismissed by Escape: they are where you are
+    if (!['title', 'lobby', 'end', 'out'].includes(top)) ui.closeOverlay(top);
+    return;
+  }
+  if (!D.mode) return;
   const open = force ?? !ui.isOpen('pause');
-  settings.paused = open;
+  // only a solo table can stop; a hosted one carries on for everyone else
+  settings.paused = open && solo();
   if (open) { ui.openOverlay('pause'); centerLook(0.5); } else ui.closeOverlay('pause');
 }
+
+function closeAll() { for (const id of ['title', 'solo', 'enter', 'lobby', 'end', 'out', 'pause', 'rules', 'settings']) ui.closeOverlay(id); }
+function setRoomInUrl(code) {
+  const u = new URL(location.href);
+  if (u.protocol === 'file:') return;
+  if (code) u.searchParams.set('room', code); else u.searchParams.delete('room');
+  history.replaceState(null, '', u);
+}
+
+function toTitle(message) {
+  closeTable();
+  settings.paused = false;
+  setRoomInUrl(null);
+  ui.setNet(null);
+  closeAll();
+  rig.introTarget = 0;
+  ui.openOverlay('title');
+  if (message) ui.toast(message, 'small');
+}
+
+function startSolo(opts) {
+  audio.init();
+  closeAll();
+  playSolo(opts);
+}
+
+function showLobby() {
+  if (!ui.isOpen('lobby')) { closeAll(); ui.openOverlay('lobby'); }
+  rig.introTarget = 0;
+  drawLobby();
+}
+const drawLobby = () => ui.renderLobby(S.lobby, D.me, { modes: MODE_LIST(), ...LABELS, connecting: !!S.transport });
+
+function enterTable(kind, code = '') {
+  ui.openEnter(kind, { code }, async ({ name, code: typed }) => {
+    audio.init();
+    if (kind === 'join') {
+      const c = normalizeRoomCode(typed);
+      if (!ROOM_CODE_RE.test(c)) return ui.setEnterBusy(false, 'That is not a table code.');
+      join(c, name);
+      setRoomInUrl(c);
+      return showLobby();
+    }
+    ui.setEnterBusy(true);
+    try {
+      const c = await host(name);
+      setRoomInUrl(c);
+      ui.setEnterBusy(false);
+      showLobby();
+    } catch {
+      ui.setEnterBusy(false, 'Could not open a table. Check your connection and try again.');
+    }
+  });
+}
+
+const CLOSED = {
+  'not-found': 'There is no table with that code.',
+  'room-full': 'That table is full.',
+  'in-progress': 'That game has already started.',
+  replaced: 'This seat was opened in another tab.',
+  refused: 'The table closed the connection.',
+};
+
+S.hooks = {
+  onLobby() { if (ui.isOpen('lobby')) drawLobby(); },
+  onRefused(msg) { if (!D.prompt) ui.toast(msg.message, 'small'); },
+  onStatus(status, detail) {
+    if (status === 'reconnecting') ui.setNet('Reconnecting to the table…');
+    else if (status === 'rejoined') { ui.setNet(null); ui.toast('Back at the table', 'small'); }
+    else if (status === 'open') ui.setNet(null);
+    else if (status === 'closed') {
+      const code = detail?.code;
+      toTitle();
+      if (code && code !== 'left') {
+        if (['not-found', 'room-full', 'in-progress'].includes(code)) { enterTable('join'); ui.setEnterBusy(false, CLOSED[code]); }
+        else ui.toast(CLOSED[code] || 'Disconnected from the table.', 'small');
+      }
+    }
+  },
+};
+D.hooks = {
+  onLobby() { if (!solo()) showLobby(); },
+  onTable() { for (const id of ['title', 'solo', 'enter', 'lobby', 'end', 'out']) ui.closeOverlay(id); },
+  onOut() { ui.openOverlay('out'); },
+  onOver(summary) {
+    ui.closeOverlay('out');
+    ui.showEnd({ ...summary, online: !solo() });
+  },
+};
+
 $('#pause-btn').addEventListener('click', () => togglePause(true));
 $('#resume-btn').addEventListener('click', () => togglePause(false));
 $('#pause-rules-btn').addEventListener('click', () => ui.openOverlay('rules'));
 $('#pause-settings-btn').addEventListener('click', () => ui.openOverlay('settings'));
-$('#quit-btn').addEventListener('click', () => { settings.paused = false; ui.closeOverlay('pause'); abortGame(); rig.introTarget = 0; ui.openOverlay('title'); });
+$('#quit-btn').addEventListener('click', () => toTitle());
 $('#rules-btn').addEventListener('click', () => ui.openOverlay('rules'));
 $('#settings-btn').addEventListener('click', () => ui.openOverlay('settings'));
-function startGame() {
-  audio.init();
-  ui.closeOverlay('title'); ui.closeOverlay('end');
-  setTimeout(() => runGame(), 300);
-}
-$('#start-btn').addEventListener('click', startGame);
-$('#again-btn').addEventListener('click', startGame);
-$('#menu-btn').addEventListener('click', () => { ui.closeOverlay('end'); rig.introTarget = 0; ui.openOverlay('title'); });
+$('#solo-btn').addEventListener('click', () => ui.openOverlay('solo'));
+$('#host-btn').addEventListener('click', () => enterTable('host'));
+$('#join-btn').addEventListener('click', () => enterTable('join'));
+$('#again-btn').addEventListener('click', () => {
+  ui.closeOverlay('end');
+  if (solo()) send({ type: 'start' }); else showLobby();
+});
+$('#menu-btn').addEventListener('click', () => toTitle());
+$('#watch-btn').addEventListener('click', () => { ui.closeOverlay('out'); ui.setBlackout(false); });
+$('#out-leave-btn').addEventListener('click', () => toTitle());
+ui.initSolo({ modes: MODE_LIST(), ...LABELS }, startSolo);
+ui.initEnter();
+ui.initLobby({
+  addBot: () => send({ type: 'addBot' }),
+  removeBot: (seat) => send({ type: 'removeBot', seat }),
+  setOptions: (options) => send({ type: 'setOptions', options }),
+  ready: (ready) => send({ type: 'setReady', ready }),
+  start: () => send({ type: 'start' }),
+  leave: () => toTitle(),
+  async copy() {
+    const link = `${location.origin}/?room=${S.lobby?.roomCode || S.code}`;
+    try { await navigator.clipboard.writeText(link); ui.toast('Invite link copied', 'small'); } catch { ui.toast(link, 'small'); }
+  },
+});
+
 addEventListener('resize', () => { fitToViewport(); applyQuality(); });
-document.addEventListener('visibilitychange', () => { if (document.hidden) clock.stop(); else { clock.start(); } });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) clock.stop();
+  else { clock.start(); catchUp(); }
+});
 
 canvas.addEventListener('webglcontextlost', (e) => {
   e.preventDefault(); renderer.setAnimationLoop(null);
@@ -180,13 +298,13 @@ canvas.addEventListener('webglcontextlost', (e) => {
 async function boot() {
   try { await Promise.race([Promise.all([document.fonts.load('700 25px Cinzel'), document.fonts.load('500 16px "Alegreya Sans"')]), new Promise((r) => setTimeout(r, 2500))]); } catch { /* fallback fonts */ }
   buildWorld();
-  for (let s = 1; s < 4; s++) {
-    const ch = characters[s] = buildCharacter(SEATS[s].design, SEATS[s].angle);
+  DESIGNS.forEach((design, i) => {
+    const ch = D.characters[design] = buildCharacter(design, VIEWS[i + 1].angle);
     ch.tagAnchor = ch.head.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.27, 0));
     ch.lookTarget.copy(camera.position);
-  }
-  setCharacters(characters);
-  buildCards(createDeck());
+    D.viewChars[i + 1] = ch;
+  });
+  buildCards();
   buildGun();
   buildPlayerArm();
   ui.initUI();
@@ -207,9 +325,11 @@ async function boot() {
   clock.start();
   renderer.setAnimationLoop(frame);
   $('#loading').hidden = true; $('#title-menu').hidden = false;
-  $('#start-btn').focus({ preventScroll: true });
-  window.__lastcall = { D, quality, hooks, views, gun, arm, rig, camera, renderer, characters, handUI };
-  if (settings.autoplay) startGame();
+  $('#solo-btn').focus({ preventScroll: true });
+  window.__lastcall = { D, S, quality, hooks, gun, arm, rig, camera, renderer, MODES, CATALOG, leaveTable };
+  const room = new URLSearchParams(location.search).get('room');
+  if (settings.autoplay) startSolo({ mode: 'deck', variant: location.hash === '#autoplay-devil' ? 'devil' : 'basic' });
+  else if (room) enterTable('join', normalizeRoomCode(room));
 }
 boot().catch((err) => {
   console.error(err);

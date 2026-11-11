@@ -13,7 +13,7 @@ export const quatE = (x, y, z, out = new THREE.Quaternion()) => out.setFromEuler
 export const settings = {
   speed: 1,
   reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
-  autoplay: location.hash === '#autoplay',
+  autoplay: location.hash.startsWith('#autoplay'),
   paused: false,
 };
 /** Game-paced delay. Honors the speed setting, the pause menu and the autoplay test mode. */
