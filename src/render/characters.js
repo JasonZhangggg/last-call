@@ -244,7 +244,7 @@ function ring(p, dir, R, r) {
 const LEFT_FAN = { fingers: loose([0.22, 0.42, 0.36], 0.07), thumb: [0.6, 0.55, 0.9, 0.25, 0.3] };
 /** A left hand (mirrored), morph influence 0 lying open and 1 holding a fan. */
 export const leftHand = (opts, mat) => { const rig = handRig(opts); return morphHand(handGeometry(rig, OPEN), [handGeometry(rig, LEFT_FAN)], mat, true); };
-const LEFT_WRIST = HAND_WRIST;
+const LEFT_WRIST = HAND_WRIST, LEFT_FORE = V(0, -1, 0);
 
 /*
  * The right hand works in the revolver's grip frame (see gun.js: +z along the barrel, +y up, the
@@ -317,7 +317,7 @@ export function rightHand(opts, mat) {
   const geos = [OPEN, fist, wrap, SPREAD].map((pose) => handGeometry(rig, pose).applyMatrix4(toGrip));
   const mesh = morphHand(geos[0], geos.slice(1), mat, false);
   const pos = gl.base.clone().applyMatrix4(toGrip), up = gl.axis.clone().transformDirection(toGrip);
-  mesh.userData = { wrist: HAND_WRIST.clone().applyMatrix4(toGrip), glass: { pos, quat: new THREE.Quaternion().setFromUnitVectors(UP, up) } };
+  mesh.userData = { wrist: HAND_WRIST.clone().applyMatrix4(toGrip), fore: V(0, -1, 0).transformDirection(toGrip), glass: { pos, quat: new THREE.Quaternion().setFromUnitVectors(UP, up) } };
   return mesh;
 }
 /** Sets a right hand's shape: how far it is closed on the revolver and on a glass, and opened wide. */
@@ -799,25 +799,43 @@ const REACH_MAX = L1 + L2 - 0.002, REACH_KNEE = REACH_MAX - 0.02;
 const reachLimit = (d) => (d <= REACH_KNEE ? d : REACH_KNEE + (REACH_MAX - REACH_KNEE) * (1 - Math.exp((REACH_KNEE - d) / (REACH_MAX - REACH_KNEE))));
 
 /** Two-bone IK from the shoulder to the wrist the hand pose implies, elbow bent toward `pole`. */
-function solveArm(arm, wrist, pole) {
+/** How far a wrist bends off the line of the forearm, at most. */
+const WRIST_MAX = 0.75;
+/**
+ * `fore` is the hand's own direction up its forearm, in the hand's frame. The elbow swings toward
+ * where the hand says the forearm should come from, so the wrist stays nearly straight, and what
+ * bend remains is capped at WRIST_MAX.
+ */
+function solveArm(arm, wrist, fore, pole) {
   const { pos, quat } = arm;
   _W.copy(wrist).applyQuaternion(quat).add(pos);
   _S.copy(arm.upper.position);
   _d.subVectors(_W, _S); const dist = Math.max(0.08, reachLimit(_d.length())); _d.normalize();
   _W.copy(_S).addScaledVector(_d, dist);
   const cosA = clamp((L1 * L1 + dist * dist - L2 * L2) / (2 * L1 * dist), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
+  // the elbow the hand would like: one forearm back from the wrist along the hand's own line
+  _x.copy(fore).applyQuaternion(quat).multiplyScalar(L2).add(_W).sub(_S);
+  _x.addScaledVector(_d, -_x.dot(_d));
   _n.copy(pole).addScaledVector(_d, -pole.dot(_d)).normalize();
+  if (_x.lengthSq() > 1e-8) _n.addScaledVector(_x.normalize(), 1.4).normalize();
   _E.copy(_S).addScaledVector(_d, cosA * L1).addScaledVector(_n, sinA * L1);
   boneQuat(_S, _E, _n, _q2); arm.upper.quaternion.copy(_q2);
   boneQuat(_E, _W, _n, _q3); arm.fore.quaternion.copy(_q2).invert().multiply(_q3);
-  arm.hand.quaternion.copy(_q3).invert().multiply(quat);
+  const hq = arm.hand.quaternion.copy(_q3).invert().multiply(quat);
+  _y.copy(fore).applyQuaternion(hq);
+  const bend = Math.acos(clamp(_y.y, -1, 1));
+  if (bend > WRIST_MAX) {
+    _z.set(-_y.z, 0, _y.x);
+    if (_z.lengthSq() < 1e-10) _z.set(1, 0, 0);
+    hq.premultiply(_q4.setFromAxisAngle(_z.normalize(), bend - WRIST_MAX));
+  }
   arm.hand.position.copy(wrist).applyQuaternion(arm.hand.quaternion).negate(); arm.hand.position.y -= L2;
 }
 
 /** Re-solve a character's right arm to a grip pose in upper-body space, over its own pose this frame. */
 export function poseRightHand(ch, pos, quat) {
   ch.arm.pos.copy(pos); ch.arm.quat.copy(quat);
-  solveArm(ch.arm, ch.arm.handMesh.userData.wrist, _pole.set(-1, -0.7, -0.1).normalize());
+  solveArm(ch.arm, ch.arm.handMesh.userData.wrist, ch.arm.handMesh.userData.fore, _pole.set(-1, -0.7, -0.1).normalize());
 }
 
 /**
@@ -860,7 +878,7 @@ function poseArms(ch, t) {
   }
   if (E.out > 0.001) { pos.lerp(LIMP.pos, E.out); quat.slerp(LIMP.quat, E.out); }
   // elbow out to the side and down; raised to the temple it swings out and a little forward
-  solveArm(arm, arm.handMesh.userData.wrist, _pole.set(-1, -0.75 + E.aim * 0.3, -0.25 + E.aim * 0.5).normalize());
+  solveArm(arm, arm.handMesh.userData.wrist, arm.handMesh.userData.fore, _pole.set(-1, -0.75 + E.aim * 0.3, -0.25 + E.aim * 0.5).normalize());
   // the hand opens wide as it goes to take hold of something, and closes round it as it arrives
   shapeHand(arm.handMesh, E.grip * (1 - E.glass), E.grip * E.glass, smoothstep(0, 0.5, E.reach) * (1 - E.grip) * live);
 
@@ -878,7 +896,7 @@ function poseArms(ch, t) {
     if (y < floor) la.pos.y += (floor - y) * E.hold;
   }
   if (E.out > 0.001) { la.pos.lerp(LEFT_LIMP.pos, E.out); la.quat.slerp(LEFT_LIMP.quat, E.out); }
-  solveArm(la, LEFT_WRIST, _pole.set(1, -0.75, -0.25).normalize());
+  solveArm(la, LEFT_WRIST, LEFT_FORE, _pole.set(1, -0.75, -0.25).normalize());
   la.handMesh.morphTargetInfluences[0] = E.hold;
   // movers parented to the hands read these world matrices for their velocity
   ch.handAnchor.updateWorldMatrix(true, false); ch.grip.updateWorldMatrix(true, false);
