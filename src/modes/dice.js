@@ -15,6 +15,7 @@ import { gatherToDeck, setDeckSize, MAX_CARDS } from '../render/cards.js';
 import * as DT from '../render/diceTable.js';
 import { BID_FACES, GLASSES } from '../model/dice.js';
 import { reduceDice, lastBid, totalDice, matches } from './dice-state.js';
+import { bindHand, releaseHand, setHandUp, handKey, stepHand, handUp, spaceHint } from './hand.js';
 
 const LINES = {
   brass: {
@@ -292,9 +293,9 @@ function syncControls(T) {
   $('#spot-btn').hidden = g.variant !== 'traditional';
   $('#spot-btn').disabled = !o.canSpotOn;
   const have = myCount(T, choice.face);
-  if (!b) ui.setHint(`Your opening bid. You hold <b>${have}</b> that count as ${FACES[choice.face]}.`);
+  if (!b) ui.setHint(`Your opening bid. You hold <b>${have}</b> that count as ${FACES[choice.face]}. ${spaceHint()}`);
   else if (o.mustChallenge) ui.setHint(`<b>${T.name(b.seat)}</b> bid ${bidText(b.quantity, b.face)}. Nothing tops it: call it.`);
-  else ui.setHint(`<b>${T.name(b.seat)}</b> bid ${bidText(b.quantity, b.face)}. Raise, or call. You hold <b>${have}</b> ${choice.face === 1 ? '' : `that count as ${FACES[choice.face]}`}.`);
+  else ui.setHint(`<b>${T.name(b.seat)}</b> bid ${bidText(b.quantity, b.face)}. Raise, or call. You hold <b>${have}</b> ${choice.face === 1 ? '' : `that count as ${FACES[choice.face]}`}. ${spaceHint()}`);
   myDice(T);
 }
 function hideControls() { $('#dice-actions').hidden = true; }
@@ -317,6 +318,8 @@ function submitCall(T, type) {
   if (T.send({ type })) { hideControls(); ui.setHint(''); }
 }
 
+/** P or a click on your cup: covers the dice you are looking at, else tips the cup or sets it down. */
+const togglePeek = () => (handUp() ? setHandUp(false) : setPeek(!peeking));
 function setPeek(on) {
   if (peeking === on) return;
   peeking = on;
@@ -580,6 +583,7 @@ function settle(T) {
 /* ---------- rebuild ---------- */
 function rebuild(T, { fresh }) {
   const g = T.game;
+  setHandUp(false); glancing.fill(false);
   beating = false; pendingTurn = null; held = null; peeking = false; myShake = null;
   hideControls();
   cupHands.clear();
@@ -608,6 +612,25 @@ function rebuild(T, { fresh }) {
   }
   if (g.round) bidChip(T);
   else { ui.setClaim(''); $('#me-dice').hidden = true; }
+}
+
+/* ---------- looking at your dice ---------- */
+const _look = new THREE.Vector3();
+const glancing = [false, false, false, false];
+/**
+ * Another person looking at their dice (their `look` hand is up, which main.js hands each character
+ * as target.inspect) tips their cup toward them. Only a cup resting over its dice is moved; the round's
+ * own flights (shake, reveal, the glass) own it otherwise.
+ */
+function glanceRemotes(T) {
+  const g = T.game;
+  for (let v = 1; v < 4; v++) {
+    const s = viewSeat(T, v), free = !!g?.round && !g.reveal && g.diceCounts[s] > 0 && !cupHands.has(v) && held?.v !== v;
+    const want = free && T.viewChars[v].target.inspect === 1;
+    if (want === glancing[v]) continue;
+    if (free) DT.cupTo(v, want ? 'glance' : 'rest', { dur: want ? 0.45 : 0.3 });
+    glancing[v] = want;
+  }
 }
 
 /* ---------- the mode ---------- */
@@ -639,8 +662,17 @@ export const diceMode = {
     const angles = [Math.atan2(rig.seat.z, rig.seat.x), ...[1, 2, 3].map((v) => { const p = T.viewChars[v].group.position; return Math.atan2(p.z, p.x); })];
     DT.layoutSeats(angles);
     DT.showDiceTable(true);
+    bindHand({
+      holding: () => diceMode.pointerEnabled() && T.game.diceCounts[T.me] > 0,
+      blocked: () => held?.v === 0,
+      // a call lifts every cup itself; don't set yours down a beat before it goes
+      onUp: (up) => { if (up || !T.game.reveal) setPeek(up); },
+      lockAt: () => [DT.cupWorld(0, _look), 0.8, 1.55],
+      labels: ['Look at your dice', 'Cover your dice'],
+    });
   },
   exit() {
+    releaseHand(); glancing.fill(false);
     beating = false; pendingTurn = null; held = null; peeking = false; myShake = null;
     hideControls(); cupHands.clear(); sips.clear();
     $('#me-dice').hidden = true; $('#table-icon').classList.remove('die');
@@ -696,10 +728,12 @@ export const diceMode = {
   pointerEnabled: () => !!bound?.game?.round && !!bound.game.alive[bound.me] && !held && !bound.game.reveal,
   pick: (raycaster) => (DT.rayHitsMyCup(raycaster) ? 'cup' : null),
   hover() {},
-  select(T) { setPeek(!peeking); },
+  select() { togglePeek(); },
+  handUp,
   keydown(T, e) {
+    if (handKey(e)) return true;
     if (!pendingTurn) {
-      if ((e.key === 'p' || e.key === 'P') && diceMode.pointerEnabled()) { setPeek(!peeking); return true; }
+      if ((e.key === 'p' || e.key === 'P') && diceMode.pointerEnabled()) { togglePeek(); return true; }
       return false;
     }
     const k = e.key;
@@ -709,7 +743,7 @@ export const diceMode = {
     if (k === 'Enter') { e.preventDefault(); submitBid(T); return true; }
     if (k === 'l' || k === 'L') { submitCall(T, 'challenge'); return true; }
     if (k === 's' || k === 'S') { submitCall(T, 'spotOn'); return true; }
-    if (k === 'p' || k === 'P') { setPeek(!peeking); return true; }
+    if (k === 'p' || k === 'P') { togglePeek(); return true; }
     return false;
   },
   frame(T, reservePx, dt = 1 / 60) {
@@ -727,5 +761,7 @@ export const diceMode = {
       DT.cupWorld(v, ch.reachTarget); ch.reachTarget.y += 0.118;
     }
     for (const [v, s] of sips) if (!poseSip(s, dt)) sips.delete(v);
+    stepHand(dt);
+    glanceRemotes(T);
   },
 };
