@@ -2,7 +2,8 @@
 // two browser pages, hosts on one and joins by code on the other, adds a bot, plays a whole game
 // with each page answering only its own prompts, and checks both saw the same public game.
 //   npm run build && node scripts/e2e-online.mjs [--port 8799] [--size 640x360] [--out artifacts]
-//   --presence-only stops after checking that the guest sees where the host looks and their cards held up.
+//   --presence-only stops after checking presence (the guest sees where the host looks and their cards
+//   held up) and chat (lobby and table, with game keys kept out of the chat input).
 // Exits 0 when the game finished and both pages agree; screenshots land in artifacts/online-*.png.
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
@@ -32,7 +33,8 @@ async function finish(code, why) {
   try { process.kill(-wrangler.pid, 'SIGTERM'); } catch { /* already gone */ }
   process.exit(code);
 }
-process.on('unhandledRejection', (e) => finish(1, `e2e-online failed: ${e?.stack || e}`));
+// a failed top-level await is an uncaught exception, not a rejection; either way wrangler must not outlive the run
+for (const ev of ['unhandledRejection', 'uncaughtException']) process.on(ev, (e) => finish(1, `e2e-online failed: ${e?.stack || e}`));
 
 for (let i = 0; ; i++) {
   try { if ((await fetch(BASE + '/')).ok) break; } catch { /* not up yet */ }
@@ -68,7 +70,7 @@ async function openPage(label) {
 }
 const shot = (page, name) => page.screenshot({ path: path.join(OUT, `online-${name}.png`) }).then(() => console.log(`  captured online-${name}.png`));
 const vis = (page, id) => page.evaluate((id) => { const el = document.getElementById(id); return !!el && !el.hidden && !el.classList.contains('fade'); }, id);
-const shown = (page, id) => page.waitForFunction((id) => { const el = document.getElementById(id); return !el.classList.contains('fade') && getComputedStyle(el).opacity === '1'; }, id);
+const shown = (page, id, timeout = 120000) => page.waitForFunction((id) => { const el = document.getElementById(id); return !el.classList.contains('fade') && getComputedStyle(el).opacity === '1'; }, id, { timeout });
 
 const host = await openPage('host'), guest = await openPage('guest');
 await host.goto(BASE + '/');
@@ -83,9 +85,10 @@ const code = await host.textContent('#lobby-code');
 assert.match(new URL(host.url()).search, new RegExp(`room=${code}`), 'the host URL carries the room');
 console.log(`  hosted table ${code}`);
 
-// a page loading beside a live table can starve on a software renderer
+// A page loading beside a live table starves on a software renderer: boot compiles every shader before
+// the sheet opens, which took about two minutes in testing.
 await guest.goto(`${BASE}/?room=${code}`, { timeout: 360000 });
-await shown(guest, 'enter');
+await shown(guest, 'enter', 360000);
 assert.equal(await guest.inputValue('#code-input'), code, 'the invite link fills the code');
 await guest.fill('#name-input', 'Bea');
 await guest.click('#enter-go');
@@ -96,6 +99,15 @@ await host.waitForFunction(() => document.querySelectorAll('#lobby-seats .seat:n
 await guest.waitForFunction(() => document.querySelectorAll('#lobby-seats .seat:not(.empty)').length === 3);
 assert.equal(await host.isDisabled('#lobby-start-btn'), true, 'start waits for the guest to be ready');
 await shot(host, '01-lobby-host');
+
+const SAID = 'Evening <b>all</b> & good luck';
+await guest.fill('#chat-input', SAID);
+await guest.press('#chat-input', 'Enter');
+await host.waitForFunction((t) => [...document.querySelectorAll('#lobby #chat-list li')].some((li) => li.textContent === `Bea ${t}`), SAID);
+await guest.waitForFunction((t) => document.querySelector('#chat-list li.me')?.textContent === `You ${t}`, SAID);
+assert.equal(await host.evaluate(() => document.querySelectorAll('#chat-list b:not(.who)').length), 0, 'chat text is never parsed as markup');
+console.log('  lobby chat: the host sees the guest\'s line, the guest sees it confirmed');
+await shot(host, '01b-lobby-chat');
 await guest.click('#ready-btn');
 await host.waitForFunction(() => !document.getElementById('lobby-start-btn').disabled);
 await shot(guest, '02-lobby-guest');
@@ -121,6 +133,33 @@ await shot(guest, '03-guest-sees-host-reading');
 await host.keyboard.press('Space');
 await guest.waitForFunction((s) => { const { D, T } = window.__lastcall; return D.looks[s]?.hand === 'down' && T.char(s).env.inspect < 0.1; }, hostSeat);
 assert.equal((await host.evaluate(() => window.__wire)).map((f) => JSON.parse(f)).some((m) => m.type === 'look' && m.seat === hostSeat), false, 'nobody is sent their own look');
+// Chat at the table: typing never reaches the game keys; the line is a speech bubble and a badge.
+const guestSeat = await guest.evaluate(() => window.__lastcall.D.me);
+const LINE = 'Nice hand 1 2 L P';
+const playLabel = await guest.textContent('#play-btn .lbl');
+const unread = (page) => page.evaluate(() => { const b = document.getElementById('chat-badge'); return b.hidden ? 0 : parseInt(b.textContent, 10); });
+const unreadBefore = await unread(host);
+await guest.keyboard.press('t');
+await guest.waitForFunction(() => document.activeElement?.id === 'chat-input' && !document.getElementById('chat').hidden);
+await guest.keyboard.type(LINE);
+assert.equal(await guest.inputValue('#chat-input'), LINE, 'every key landed in the chat input');
+assert.equal(await guest.evaluate(() => window.__lastcall.D.mode.handUp()), false, 'Space in the chat did not raise the cards');
+assert.equal(await guest.textContent('#play-btn .lbl'), playLabel, 'digits in the chat picked no card');
+await guest.keyboard.press('Enter');
+const bubbleOf = (seat) => host.waitForFunction(({ s, t }) => document.querySelectorAll('#tags .tag')[window.__lastcall.T.view(s) - 1]?.querySelector('.bubble.show')?.textContent === t, { s: seat, t: LINE }, { polling: 100 });
+await bubbleOf(guestSeat);
+for (let i = 0; (await unread(host)) !== unreadBefore + 1; i++) { assert.ok(i < 100, 'the unread badge counts the line'); await host.waitForTimeout(100); }
+console.log('  table chat: the host sees the guest\'s line as a bubble and an unread badge');
+await shot(host, '03b-chat-bubble');
+await host.keyboard.press('t');
+await host.waitForFunction((t) => !document.getElementById('chat').hidden && document.getElementById('chat-badge').hidden && [...document.querySelectorAll('#chat-list li')].at(-1)?.textContent === `Bea ${t}`, LINE);
+await host.waitForTimeout(400);
+await shot(host, '03c-chat-open');
+await host.keyboard.press('Escape');
+await host.waitForFunction(() => document.getElementById('chat').hidden);
+assert.equal(await vis(host, 'pause'), false, 'Escape in the chat closes the chat, not the table menu');
+await guest.keyboard.press('Escape');
+await guest.waitForFunction(() => document.getElementById('chat').hidden);
 if (args['presence-only']) {
   if (problems.length) await finish(1, 'PROBLEMS:\n' + problems.join('\n'));
   console.log('e2e-online: presence passed');
@@ -198,6 +237,8 @@ await host.click('#again-btn');
 await shown(host, 'lobby');
 assert.equal(await host.textContent('#lobby-start-btn'), 'Deal another game');
 await shot(host, '92-rematch-lobby');
+const lines = (page) => page.evaluate(() => [...document.querySelectorAll('#chat-list li:not(.sys)')].map((li) => li.textContent));
+assert.deepEqual(await lines(guest), await lines(host).then((l) => l.map((t) => t.replace(/^Bea /, 'You '))), 'the guest\'s rejoin added no chat line twice and lost none');
 
 if (problems.length) await finish(1, 'PROBLEMS:\n' + problems.join('\n'));
 console.log('e2e-online: passed');

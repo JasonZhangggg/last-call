@@ -29,6 +29,11 @@
 //                                                 'down' (the default). Clamped to LOOK_RANGE; at
 //                                                 most LOOK_RATE a second, extras are dropped.
 //                                                 Presence only: never stored.
+//   chat       { text }                           a line for the table, any phase. Whitespace runs
+//                                                 become one space and control characters are
+//                                                 dropped; 1..CHAT_MAX characters must remain. At
+//                                                 most CHAT_RATE a second (burst CHAT_BURST);
+//                                                 faster lines are refused with too-fast.
 //
 // Server to client
 //   welcome   { seat, roomCode, resumeToken }     you hold `seat`; keep the token to reclaim it
@@ -44,6 +49,11 @@
 //   error     { code, message }                   see ERR; codes in FATAL end the connection
 //   look      { seat, yaw, pitch, hand }          another seated person's `look`, relayed at once
 //                                                 while a game runs; not part of `state`
+//   chat      { seat, name, text, at }            a seated person's line, sent to every seated
+//                                                 person including its sender; at: server ms
+//   chatLog   { lines: [{ seat, name, text, at }] }  the last CHAT_HISTORY lines, oldest first,
+//                                                 sent right after welcome. Chat is never part of
+//                                                 the game: no engine sees or redacts it.
 //
 // Deck mode (options.mode 'deck', variant 'basic' | 'devil')
 //   round     { round, tableRank, starter, hand: Card[], handCounts }   your hand only
@@ -126,6 +136,7 @@ export const ERR = Object.freeze({
   notYourTurn: 'not-your-turn',
   illegal: 'illegal',
   badOption: 'bad-option',
+  tooFast: 'too-fast',
 });
 export const FATAL = new Set([ERR.notFound, ERR.roomFull, ERR.inProgress, ERR.replaced]);
 
@@ -139,6 +150,8 @@ export const SERVER_KEYS = Object.freeze({
   over: ['winner', 'seats'],
   error: ['code', 'message'],
   look: ['seat', 'yaw', 'pitch', 'hand'],
+  chat: ['seat', 'name', 'text', 'at'],
+  chatLog: ['lines'],
 });
 
 /** The span a seated head can turn (radians), the same as the camera rig's own limits. */
@@ -146,6 +159,10 @@ export const LOOK_RANGE = Object.freeze({ yaw: 1.25, up: 0.45, down: 1.1 });
 /** Sustained `look` messages a second per connection; a short burst of LOOK_BURST is let through. */
 export const LOOK_RATE = 15;
 export const LOOK_BURST = 3;
+export const CHAT_MAX = 200;
+export const CHAT_RATE = 1;
+export const CHAT_BURST = 4;
+export const CHAT_HISTORY = 30;
 
 export const normalizeRoomCode = (raw) => String(raw ?? '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, ROOM_CODE_LENGTH);
 
@@ -158,6 +175,17 @@ export function randomRoomCode(randomInt = cryptoInt) {
 export function cleanName(raw) {
   const s = String(raw ?? '').replace(/[\u0000-\u001f\u007f<>]/g, '').replace(/\s+/g, ' ').trim();
   return [...s].slice(0, NAME_MAX).join('');
+}
+
+// Format and invisible controls (bidi overrides, zero-width space, BOM) could reorder or hide a
+// line; ZWJ and ZWNJ stay, since emoji sequences and some scripts need them.
+const CHAT_STRIP = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u200b\u200e\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
+/** A chat line as the table shows it, or null when nothing, or too much, is left. */
+export function cleanChat(raw) {
+  if (typeof raw !== 'string') return null;
+  const s = raw.replace(CHAT_STRIP, '').replace(/\s+/g, ' ').trim();
+  const n = [...s].length;
+  return n >= 1 && n <= CHAT_MAX ? s : null;
 }
 
 function cryptoInt(n) {
@@ -200,6 +228,7 @@ const CLIENT = {
   raise: (m) => Array.isArray(m.cards) && m.cards.length >= 1 && m.cards.length <= 11 && m.cards.every(Number.isInteger),
   pass: () => true,
   leave: () => true,
+  chat: (m) => cleanChat(m.text) != null,
   look: (m) => Number.isFinite(m.yaw) && Number.isFinite(m.pitch) && (m.hand === undefined || m.hand === 'up' || m.hand === 'down'),
 };
 
@@ -224,5 +253,5 @@ export function parseClientMessage(raw) {
   const check = Object.hasOwn(CLIENT, m.type) ? CLIENT[m.type] : null;
   if (!check) return { error: `unknown message type ${String(m.type).slice(0, 32)}` };
   if (!check(m)) return { error: `malformed ${m.type}` };
-  return { msg: m };
+  return { msg: m.type === 'chat' ? { type: 'chat', text: cleanChat(m.text) } : m };
 }

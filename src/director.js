@@ -258,6 +258,13 @@ export function setLook({ seat, yaw, pitch, hand }) {
   if (seat !== D.me) D.looks[seat] = { yaw, pitch, hand, at: performance.now() };
 }
 
+/** Another person's chat line, said by their character. Not a game event: it skips the queue. */
+export function sayChat(seat, text) {
+  if (!D.mode || seat === D.me) return;
+  const chars = [...text], line = chars.length > 120 ? `${chars.slice(0, 119).join('')}…` : text;
+  ui.say(view(seat), line, 2600 + 40 * line.length);
+}
+
 async function playOver(msg) {
   clearPrompt();
   D.result = msg; D.phase = 'finished';

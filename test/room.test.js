@@ -497,3 +497,56 @@ test('look: relayed at once to the other people only, clamped, rate-limited, and
   b.send({ type: 'look', yaw: 0.1, pitch: 0 });
   assert.equal(looks(c).length, c0 + 1, 'each connection has its own budget');
 });
+
+test('chat: cleaned at the boundary, sent to everyone seated with the sender, rate-limited, and replayed on join', () => {
+  const { t, people: [a, b] } = seatTable({ humans: 2, opts: [{ idle: true }, { idle: true }] });
+  const chats = (p) => p.log.filter((m) => m.type === 'chat');
+
+  a.send({ type: 'chat', text: '  evening,\n\tall ‮of you\u0007  ' });
+  const line = { type: 'chat', seat: a.seat, name: 'P0', text: 'evening, all of you', at: t.clock.now() };
+  assert.deepEqual(chats(a), [line], 'the sender sees its own line confirmed');
+  assert.deepEqual(chats(b), [line], 'in the lobby');
+  assert.equal(t.room.toJSON().chat.length, 1, 'saved with the room, so a sleeping lobby keeps it');
+
+  for (const text of ['', '   ', '\u0000\u001f​', 'x'.repeat(201), 42, null, ['hi']]) {
+    a.send({ type: 'chat', text });
+    assert.equal(a.last('error').code, ERR.badMessage, `refused: ${JSON.stringify(text)}`);
+  }
+  a.send({ type: 'chat' });
+  assert.equal(a.last('error').code, ERR.badMessage, 'refused: no text');
+  assert.equal([...parseClientMessage({ type: 'chat', text: '\u{1F37A}'.repeat(200) }).msg.text].length, 200, '200 characters, counted as characters');
+  assert.equal(parseClientMessage({ type: 'chat', text: '<b>&amp;</b>' }).msg.text, '<b>&amp;</b>', 'markup is text: the client never renders it');
+  assert.equal(chats(b).length, 1, 'nothing refused was relayed');
+
+  const outsider = new Player(t, 'Nobody');
+  outsider.send({ type: 'chat', text: 'hello?' });
+  assert.equal(outsider.last('error').code, ERR.notSeated, 'only seated people chat');
+
+  t.clock.advance(10_000);
+  const n0 = chats(b).length;
+  for (let i = 0; i < 6; i++) a.send({ type: 'chat', text: `line ${i}` });
+  assert.equal(chats(b).length - n0, 4, 'a burst of four gets through');
+  assert.equal(a.last('error').code, ERR.tooFast, 'then one a second');
+  b.send({ type: 'chat', text: 'my own budget' });
+  assert.equal(chats(a).at(-1).text, 'my own budget', 'each connection has its own budget');
+  t.clock.advance(1000);
+  a.send({ type: 'chat', text: 'after a second' });
+  assert.equal(chats(b).at(-1).text, 'after a second');
+
+  a.send({ type: 'start' });
+  t.clock.advance(1);
+  assert.equal(t.room.phase, 'playing');
+  t.clock.advance(1000);
+  b.send({ type: 'chat', text: 'mid-game' });
+  assert.equal(chats(a).at(-1).text, 'mid-game', 'during a game too');
+
+  for (let i = 0; i < 40; i++) { t.clock.advance(1000); a.send({ type: 'chat', text: `filler ${i}` }); }
+  b.disconnect();
+  const back = new Player(t, 'P1');
+  back.hello({ resumeToken: b.token });
+  const log = back.last('chatLog');
+  assert.equal(log.lines.length, 30, 'the last 30 lines');
+  assert.equal(log.lines.at(-1).text, 'filler 39', 'oldest first, newest last');
+  assert.deepEqual(Object.keys(log.lines[0]).sort(), ['at', 'name', 'seat', 'text']);
+  assert.deepEqual(back.log.map((m) => m.type).slice(0, 4), ['welcome', 'lobby', 'state', 'chatLog'], 'right after welcome, lobby and state');
+});
