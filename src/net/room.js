@@ -11,7 +11,7 @@
 // has elapsed, move the game on) or 'auto' (a bot, a timeout, or a forced call acts for the
 // prompted seat). The timer is serialized, so a restored Room carries on where it stopped.
 import { ENGINES } from './engines.js';
-import { DEFAULT_OPTIONS, ERR, FATAL, GAME_ACTIONS, LOOK_BURST, LOOK_RANGE, LOOK_RATE, MAX_SEATS, TURN_SECONDS, cleanName, cryptoRng, parseClientMessage, randomToken } from './protocol.js';
+import { CHAT_BURST, CHAT_HISTORY, CHAT_RATE, DEFAULT_OPTIONS, ERR, FATAL, GAME_ACTIONS, LOOK_BURST, LOOK_RANGE, LOOK_RATE, MAX_SEATS, TURN_SECONDS, cleanName, cryptoRng, parseClientMessage, randomToken } from './protocol.js';
 
 export const START_DELAY_MS = 500;
 export const ROULETTE_SECONDS = 20;
@@ -27,6 +27,17 @@ class Refusal extends Error {
 }
 const refuse = (code, message) => { throw new Refusal(code, message); };
 
+/** One connection's token bucket: true, and a token spent, when it may send one more now. */
+function spend(budgets, id, now, rate, burst) {
+  const b = budgets.get(id) || { tokens: burst, at: now };
+  b.tokens = Math.min(burst, b.tokens + ((now - b.at) * rate) / 1000);
+  b.at = now;
+  budgets.set(id, b);
+  if (b.tokens < 1) return false;
+  b.tokens -= 1;
+  return true;
+}
+
 export class Room {
   constructor(deps, saved = null) {
     this.send = deps.send;
@@ -38,18 +49,20 @@ export class Room {
     this.engines = deps.engines || ENGINES;
     this.timerHandle = null;
     this.lookBudget = new Map(); // clientId -> { tokens, at }: presence, never saved
+    this.chatBudget = new Map();
     const s = saved || {
       code: deps.code ?? null, phase: 'lobby', options: { ...DEFAULT_OPTIONS },
       seats: Array.from({ length: MAX_SEATS }, () => EMPTY), host: null,
-      game: null, memory: [], prompt: null, timer: null, pausedAt: null, result: null,
+      game: null, memory: [], prompt: null, timer: null, pausedAt: null, result: null, chat: [],
     };
     Object.assign(this, s);
+    this.chat ??= [];
     this.runClock();
   }
 
   toJSON() {
-    const { code, phase, options, seats, host, game, memory, prompt, timer, pausedAt, result } = this;
-    return structuredClone({ code, phase, options, seats, host, game, memory, prompt, timer, pausedAt, result });
+    const { code, phase, options, seats, host, game, memory, prompt, timer, pausedAt, result, chat } = this;
+    return structuredClone({ code, phase, options, seats, host, game, memory, prompt, timer, pausedAt, result, chat });
   }
 
   get engine() { return this.engines[this.options.mode]; }
@@ -73,6 +86,7 @@ export class Room {
 
   disconnect(clientId) {
     this.lookBudget.delete(clientId);
+    this.chatBudget.delete(clientId);
     const s = this.seatOf(clientId);
     if (s == null) return;
     this.seats[s] = { ...this.seats[s], connected: false };
@@ -84,12 +98,7 @@ export class Room {
   look(clientId, { yaw, pitch, hand }) {
     const seat = this.seatOf(clientId);
     if (seat == null || this.phase !== 'playing') return;
-    const now = this.clock.now(), b = this.lookBudget.get(clientId) || { tokens: LOOK_BURST, at: now };
-    b.tokens = Math.min(LOOK_BURST, b.tokens + ((now - b.at) * LOOK_RATE) / 1000);
-    b.at = now;
-    this.lookBudget.set(clientId, b);
-    if (b.tokens < 1) return;
-    b.tokens -= 1;
+    if (!spend(this.lookBudget, clientId, this.clock.now(), LOOK_RATE, LOOK_BURST)) return;
     const r = LOOK_RANGE, round = (v) => Math.round(v * 1000) / 1000;
     const m = { type: 'look', seat, yaw: round(Math.max(-r.yaw, Math.min(r.yaw, yaw))), pitch: round(Math.max(-r.down, Math.min(r.up, pitch))), hand: hand === 'up' ? 'up' : 'down' };
     this.seats.forEach((x, s) => { if (s !== seat && x.kind === 'human' && x.connected) this.send(x.clientId, m); });
@@ -124,7 +133,17 @@ export class Room {
       case 'removeBot': return this.removeBot(msg.seat);
       case 'start': return this.start();
       case 'leave': return this.leave(seat, clientId);
+      case 'chat': return this.postChat(seat, clientId, msg.text);
     }
+  }
+
+  /** A seated person's line goes to everyone seated, the sender too, and into the short history. */
+  postChat(seat, clientId, text) {
+    if (!spend(this.chatBudget, clientId, this.clock.now(), CHAT_RATE, CHAT_BURST)) refuse(ERR.tooFast, 'Easy there: one line a second.');
+    const line = { seat, name: this.seats[seat].name, text, at: this.clock.now() };
+    this.chat.push(line);
+    if (this.chat.length > CHAT_HISTORY) this.chat.splice(0, this.chat.length - CHAT_HISTORY);
+    this.broadcastAll(() => ({ type: 'chat', ...line }));
   }
 
   hello(clientId, { name, resumeToken }) {
@@ -160,6 +179,7 @@ export class Room {
     this.send(x.clientId, { type: 'welcome', seat: s, roomCode: this.code, resumeToken: x.resumeToken });
     this.send(x.clientId, this.lobbyMessage());
     this.send(x.clientId, this.stateMessage(s));
+    this.send(x.clientId, { type: 'chatLog', lines: this.chat.map((l) => ({ ...l })) });
   }
 
   leave(s, clientId) {
