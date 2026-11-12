@@ -6,11 +6,11 @@ import { $, pick, clamp, settings } from '../util.js';
 import { smoothDamp } from '../render/motion.js';
 import { audio } from '../audio.js';
 import * as ui from '../ui.js';
-import { react, tell, poseRightHand } from '../render/characters.js';
+import { react, tell, poseRightHand, glassGrip } from '../render/characters.js';
 import { rig, focusOn, centerLook } from '../render/camera.js';
 import { camera } from '../render/core.js';
 import { gun } from '../render/gun.js';
-import { arm, armReach, armHide } from '../render/playerArm.js';
+import { arm, armReach, armHide, shoulderWorld } from '../render/playerArm.js';
 import { gatherToDeck, setDeckSize, MAX_CARDS } from '../render/cards.js';
 import * as DT from '../render/diceTable.js';
 import { BID_FACES, GLASSES } from '../model/dice.js';
@@ -76,51 +76,61 @@ const dieURL = (face) => `data:image/svg+xml,${encodeURIComponent(dieSVG(face).r
 
 /* ---------- the arms ---------- */
 const Y = new THREE.Vector3(0, 1, 0);
-// a glass in a fist: its axis along the hand's (raked) grip, its base low in the fist so the
-// upper half stands clear of the fingers (a fist is taller than a shot glass)
-const GRIP_UP = new THREE.Vector3(0, 0.932, -0.364);
-const CH_GLASS = { pos: new THREE.Vector3(0, -0.046, -0.056).addScaledVector(GRIP_UP, 0.004), quat: new THREE.Quaternion().setFromUnitVectors(Y, GRIP_UP) };
-const ARM_UP = new THREE.Vector3(0, Math.cos(0.38), -Math.sin(0.38));
-const ARM_GLASS = { pos: ARM_UP.clone().multiplyScalar(0.014), quat: new THREE.Quaternion().setFromUnitVectors(Y, ARM_UP) };
-// your held hand turns a little outward, so the glass shows beside the knuckles rather than behind them
-const HOLD_TURN = new THREE.Quaternion().setFromAxisAngle(Y, -0.6);
-// your arm's poses in camera space: glass held up in front of you, and tipped to your lips
-const HOLD = { pos: new THREE.Vector3(0.1, -0.065, -0.34), quat: new THREE.Quaternion() };
-const LIPS = { pos: new THREE.Vector3(0.035, -0.075, -0.15), quat: new THREE.Quaternion() };
+// a held glass sits where the hand's own pose puts it (ch.glassAt, arm.glassAt: in the grip frame)
+const GLASS_H = 0.056;
+// your arm's poses in camera space (set on entering): the glass held up before you, its base at
+// HOLD_GLASS, the palm turned in and a little away so the glass shows inside the knuckles; and
+// tipped back to your lips, the rim at LIPS_RIM
+const HOLD = { pos: new THREE.Vector3(), quat: new THREE.Quaternion() };
+const LIPS = { pos: new THREE.Vector3(), quat: new THREE.Quaternion() };
+const HOLD_GLASS = new THREE.Vector3(0.075, -0.1, -0.34), HOLD_FROM = new THREE.Vector3(0.075 + 1, -0.1, -0.34 + 0.45);
+const LIPS_RIM = new THREE.Vector3(0.01, -0.065, -0.1);
 const MOUTH = new THREE.Vector3(0, -0.07, 0.12);
 const LOOK_UP = new THREE.Vector3(0, 2.6, -0.2);
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
 const _y = new THREE.Vector3(), _z = new THREE.Vector3();
 const _gp = new THREE.Vector3(), _gq = new THREE.Quaternion(), AX = new THREE.Vector3(1, 0, 0);
+const _w0 = new THREE.Vector3(), _w1 = new THREE.Vector3(), _q0 = new THREE.Quaternion(), _c = new THREE.Vector3();
 const ROW_AT = new THREE.Vector3(0, 0.02, 0.1);
 const DIM = new THREE.Color(0.42, 0.4, 0.38), LIT = new THREE.Color(1.25, 1.12, 0.9), WHITE = new THREE.Color(1, 1, 1);
 
 /**
  * A character's drink, layered over their own pose each frame: `w` blends the right hand from
  * wherever it is to a glass held before the mouth, `tilt` raises it to the lips and tips the head back.
+ * The tilt turns the hand at the wrist: the wrist rises toward the chin first and the glass tips
+ * over it after, so the forearm only carries the wrist and never swings round the glass.
  */
 const sips = new Map(); // view -> { ch, w, wT, tilt, tiltT }
 function sipFor(ch, v) { let s = sips.get(v); if (!s) sips.set(v, s = { ch, w: 0, wT: 0, tilt: 0, tiltT: 0 }); s.ch = ch; return s; }
 const SIP_YAW = new THREE.Quaternion().setFromAxisAngle(Y, Math.PI - 0.35);
+const ease = (a, b, v) => { const u = clamp((v - a) / (b - a), 0, 1); return u * u * (3 - 2 * u); };
+/** The grip pose (upper-body space) holding the glass before the mouth `_a`, tipped by `tilt` (0..1). */
+function sipGrip(ch, tilt, pos, quat) {
+  _q.setFromAxisAngle(AX, -(0.2 + 1.25 * tilt));
+  _y.copy(Y).applyQuaternion(_q);
+  // rim just under the lip when drinking, a hand's width lower and forward while holding
+  pos.copy(_a).add(_z.set(-0.01, -0.1 + 0.09 * tilt, 0.12 - 0.1 * tilt)).addScaledVector(_y, -GLASS_H);
+  quat.copy(_q).multiply(SIP_YAW).multiply(_q2.copy(ch.glassAt.quat).invert());
+  return pos.sub(_z.copy(ch.glassAt.pos).applyQuaternion(quat));
+}
 function poseSip(s, dt) {
   // critically damped, so the head tips back and the glass rises without a jolt at the start
   s.w = smoothDamp(s.w, s.wT, s, 'wv', 0.32, dt);
   s.tilt = smoothDamp(s.tilt, s.tiltT, s, 'tv', 0.34, dt);
   if (s.w < 0.002 && s.wT === 0) { s.w = s.wv = 0; return false; }
-  const ch = s.ch, tilt = s.tilt;
+  const ch = s.ch, tilt = s.tilt, wrist = ch.arm.handMesh.userData.wrist;
   ch.head.rotation.x -= 0.55 * tilt;
   ch.neck.rotation.y *= 1 - 0.7 * s.w;
   ch.head.updateWorldMatrix(true, false);
   ch.upper.worldToLocal(ch.head.localToWorld(_a.copy(MOUTH)));
-  const th = 0.2 + 1.25 * tilt;
-  _q.setFromAxisAngle(AX, -th);
-  _y.copy(Y).applyQuaternion(_q);
-  // rim just under the lip when drinking, a hand's width lower and forward while holding
-  _b.copy(_a).add(_z.set(-0.01, -0.1 + 0.09 * tilt, 0.12 - 0.1 * tilt)).addScaledVector(_y, -0.056);
-  _q.multiply(SIP_YAW).multiply(_q2.copy(CH_GLASS.quat).invert());
-  _b.sub(_z.copy(CH_GLASS.pos).applyQuaternion(_q));
-  _gp.copy(ch.arm.pos).lerp(_b, s.w);
-  _gq.copy(ch.arm.quat).slerp(_q, s.w);
+  // the wrist where it is holding and drinking, then the hand turned about it
+  sipGrip(ch, 0, _gp, _q0); _w0.copy(wrist).applyQuaternion(_q0).add(_gp);
+  sipGrip(ch, 1, _gp, _gq); _w1.copy(wrist).applyQuaternion(_gq).add(_gp);
+  _w0.lerp(_w1, ease(0, 0.75, tilt));
+  _gq.copy(_q0.slerp(_gq, ease(0.2, 1, tilt)));
+  _gp.copy(wrist).applyQuaternion(_gq).negate().add(_w0);
+  _gp.lerpVectors(ch.arm.pos, _gp, s.w);
+  _gq.slerpQuaternions(ch.arm.quat, _gq, s.w);
   poseRightHand(ch, _gp, _gq);
   return true;
 }
@@ -446,9 +456,11 @@ async function pickUpGlass(T, seat, i = nextGlass(T, seat)) {
   if (human) {
     focusOn(null); centerLook(0.5); rig.zoomTarget = 1.04; setPeek(false);
     rig.leanTarget = 0.5;
-    armReach(_a.copy(_b).setY(0.07));
+    // the open hand comes round the glass where it stands and closes on it
+    arm.grasp = 'glass';
+    armReach(glassGrip(arm.glassAt, _b, shoulderWorld(_c), _a, _q), _q);
     await T.landed(arm.mover);
-    DT.takeGlass(v, i, arm.grip, ARM_GLASS.pos, ARM_GLASS.quat, 0.2);
+    DT.takeGlass(v, i, arm.grip, arm.glassAt.pos, arm.glassAt.quat, 0.12);
     audio.glassPick?.(0);
     rig.leanTarget = 0;
     // kept inside a narrow (portrait) view, like the raised revolver
@@ -457,9 +469,10 @@ async function pickUpGlass(T, seat, i = nextGlass(T, seat)) {
     await T.landed(arm.mover);
   } else {
     T.setWatch(null); T.focusSeat(seat, 0.8); rig.zoomTarget = 1.25;
-    ch.reachTarget.copy(_b).setY(0.06); react(ch, 'reach');
-    await T.step(600);
-    DT.takeGlass(v, i, ch.grip, CH_GLASS.pos, CH_GLASS.quat, 0.4);
+    ch.grasp = 'glass';
+    glassGrip(ch.glassAt, _b, ch.arm.upper.getWorldPosition(_c), ch.reachTarget, ch.reachQuat); react(ch, 'reach');
+    await reached(T, ch);
+    DT.takeGlass(v, i, ch.grip, ch.glassAt.pos, ch.glassAt.quat, 0.12);
     audio.glassPick?.(T.pan(seat));
     const s = sipFor(ch, v); s.wT = 1; s.tiltT = 0;
     react(ch, 'reach', false); react(ch, 'tremble');
@@ -530,7 +543,7 @@ async function drink(T, msg) {
     audio.setTension(0);
     await T.step(400);
     DT.dropHeld(v, i, 'gone'); held = null;
-    armHide(); rig.rollTarget = 0;
+    armHide(); arm.grasp = 'gun'; rig.rollTarget = 0;
     DT.setDice(0, 0, null);
     myDice(T);
     await T.step(1300);
@@ -548,29 +561,33 @@ async function drink(T, msg) {
   if (witnesses.length) { const w = pick(witnesses); setTimeout(() => say(T, w, voice(T, w, 'others')), 1500); }
   audio.glassDown?.(T.pan(seat), 0.5);
   rig.zoomTarget = 1.12; T.focusSeat(seat, 0.45);
-  await T.landed(DT.table.heldMover); DT.dropHeld(v, i, 'spilled');
+  await T.landed(DT.table.heldMover); DT.dropHeld(v, i, 'spilled'); ch.grasp = 'gun';
   await T.step(1600);
   held = null;
   settle(T);
   await T.step(400);
 }
 
-/** The empty glass goes back into its slot, upturned. */
+/** Waits for a character's hand to arrive where it reached (a hand that never gets there stops waiting). */
+async function reached(T, ch) { for (let t = 0; t < 1200 && ch.env.reach < 0.95; t += 30) await T.step(30); }
+
+/** The hand carries the empty glass back over its slot and turns it down into it. */
 async function putBackGlass(T, seat, i) {
-  const v = T.view(seat), ch = T.char(seat);
-  DT.glassWorld(v, i, _b);
-  if (T.isMe(seat)) {
-    armReach(_a.copy(_b).setY(0.11));
-    DT.returnGlass(v, i, 0.5);
+  const v = T.view(seat), ch = T.char(seat), human = T.isMe(seat);
+  DT.glassWorld(v, i, _b).y += 0.03;
+  if (human) {
+    armReach(glassGrip(arm.glassAt, _b, shoulderWorld(_c), _a, _q), _q);
+    await T.landed(arm.mover);
   } else {
-    const s = sipFor(ch, v); s.wT = 0;
-    ch.reachTarget.copy(_b).setY(0.1); react(ch, 'reach');
-    DT.returnGlass(v, i, 0.55);
+    sipFor(ch, v).wT = 0;
+    glassGrip(ch.glassAt, _b, ch.arm.upper.getWorldPosition(_c), ch.reachTarget, ch.reachQuat); react(ch, 'reach');
+    await reached(T, ch);
   }
+  DT.returnGlass(v, i, 0.3);
   await T.landed(DT.table.heldMover);
   audio.glassDown?.(T.pan(seat));
   DT.dropHeld(v, i, 'empty'); held = null;
-  if (T.isMe(seat)) armHide(); else react(ch, 'reach', false);
+  if (human) { armHide(); arm.grasp = 'gun'; } else { react(ch, 'reach', false); ch.grasp = 'gun'; }
 }
 
 function settle(T) {
@@ -589,7 +606,8 @@ function rebuild(T, { fresh }) {
   cupHands.clear();
   for (const s of sips.values()) { s.w = s.wT = s.tilt = s.tiltT = s.wv = s.tv = 0; }
   DT.dropHeld(null);
-  armHide();
+  armHide(); arm.grasp = 'gun';
+  for (let v = 1; v < 4; v++) T.viewChars[v].grasp = 'gun';
   audio.setTension(0); ui.setTense(false);
   rig.leanTarget = 0; rig.zoomTarget = 1; rig.rollTarget = 0; focusOn(null);
   for (let s = 0; s < 4; s++) if (!T.isMe(s)) react(T.char(s), 'out', !g.alive[s]);
@@ -653,8 +671,10 @@ export const diceMode = {
   newRecap: () => ({ caught: 0, held: 0, survived: 0 }),
   enter(T) {
     held = null; peeking = false;
-    HOLD.quat.copy(HOLD_TURN).multiply(arm.aimQuat);
+    glassGrip(arm.glassAt, HOLD_GLASS, HOLD_FROM, HOLD.pos, HOLD.quat);
     LIPS.quat.setFromAxisAngle(AX, 1.05).multiply(HOLD.quat);
+    _y.copy(Y).applyAxisAngle(AX, 1.05);
+    LIPS.pos.copy(LIPS_RIM).addScaledVector(_y, -GLASS_H).sub(_a.copy(arm.glassAt.pos).applyQuaternion(LIPS.quat));
     if (!bound) { bound = T; bindControls(); }
     document.body.classList.add('mode-dice');
     gun.obj.visible = false;
@@ -678,7 +698,8 @@ export const diceMode = {
     $('#me-dice').hidden = true; $('#table-icon').classList.remove('die');
     document.body.classList.remove('mode-dice');
     DT.dropHeld(null); DT.showDiceTable(false);
-    armHide();
+    armHide(); arm.grasp = 'gun';
+    if (bound) for (let v = 1; v < 4; v++) bound.viewChars[v].grasp = 'gun';
     gun.obj.visible = true;
     setDeckSize(MAX_CARDS); gatherToDeck();
   },
