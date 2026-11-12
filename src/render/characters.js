@@ -839,12 +839,14 @@ export function poseRightHand(ch, pos, quat) {
 }
 
 /**
- * The grip-frame pose (world) of a hand holding a glass that stands upright at `base`, the palm
- * toward it as seen from `from` (a shoulder), so the fingers close round its far side.
+ * The grip-frame pose (world) of a hand holding a glass that stands upright at `base`, reached
+ * from `from` (a shoulder). Given `fore` (the hand's own line up its forearm, userData.fore), the
+ * forearm comes straight from the shoulder, thumb up, the fingers round the glass's far side.
+ * Without it the palm faces the glass as seen from `from`.
  */
-export function glassGrip(glassAt, base, from, pos, quat) {
-  _d.subVectors(base, from).setY(0).normalize();
-  _q.copy(glassAt.quat).invert(); _a.set(1, 0, 0).applyQuaternion(_q);
+export function glassGrip(glassAt, base, from, pos, quat, fore) {
+  _d.subVectors(fore ? from : base, fore ? base : from).setY(0).normalize();
+  _q.copy(glassAt.quat).invert(); (fore ? _a.copy(fore) : _a.set(1, 0, 0)).applyQuaternion(_q);
   quat.setFromAxisAngle(UP, Math.atan2(_d.x, _d.z) - Math.atan2(_a.x, _a.z)).multiply(_q);
   return pos.copy(glassAt.pos).applyQuaternion(quat).negate().add(base);
 }

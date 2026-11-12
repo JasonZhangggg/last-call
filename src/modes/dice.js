@@ -485,7 +485,7 @@ async function pickUpGlass(T, seat, i = nextGlass(T, seat)) {
     rig.leanTarget = 0.5;
     // the open hand comes round the glass where it stands and closes on it
     arm.grasp = 'glass';
-    armReach(glassGrip(arm.glassAt, _b, shoulderWorld(_c), _a, _q), _q);
+    armReach(glassGrip(arm.glassAt, _b, shoulderWorld(_c), _a, _q, arm.hand.userData.fore), _q);
     await T.landed(arm.mover);
     DT.takeGlass(v, i, arm.grip, arm.glassAt.pos, arm.glassAt.quat, 0.12);
     audio.glassPick?.(0);
@@ -497,7 +497,7 @@ async function pickUpGlass(T, seat, i = nextGlass(T, seat)) {
   } else {
     T.setWatch(null); T.focusSeat(seat, 0.8); rig.zoomTarget = 1.25;
     ch.grasp = 'glass';
-    glassGrip(ch.glassAt, _b, ch.arm.upper.getWorldPosition(_c), ch.reachTarget, ch.reachQuat); react(ch, 'reach');
+    glassGrip(ch.glassAt, _b, ch.arm.upper.getWorldPosition(_c), ch.reachTarget, ch.reachQuat, ch.arm.handMesh.userData.fore); react(ch, 'reach');
     await reached(T, ch);
     DT.takeGlass(v, i, ch.grip, ch.glassAt.pos, ch.glassAt.quat, 0.12);
     audio.glassPick?.(T.pan(seat));
@@ -603,11 +603,11 @@ async function putBackGlass(T, seat, i) {
   const v = T.view(seat), ch = T.char(seat), human = T.isMe(seat);
   DT.glassWorld(v, i, _b).y += 0.03;
   if (human) {
-    armReach(glassGrip(arm.glassAt, _b, shoulderWorld(_c), _a, _q), _q);
+    armReach(glassGrip(arm.glassAt, _b, shoulderWorld(_c), _a, _q, arm.hand.userData.fore), _q);
     await T.landed(arm.mover);
   } else {
     sipFor(ch, v).wT = 0;
-    glassGrip(ch.glassAt, _b, ch.arm.upper.getWorldPosition(_c), ch.reachTarget, ch.reachQuat); react(ch, 'reach');
+    glassGrip(ch.glassAt, _b, ch.arm.upper.getWorldPosition(_c), ch.reachTarget, ch.reachQuat, ch.arm.handMesh.userData.fore); react(ch, 'reach');
     await reached(T, ch);
   }
   DT.returnGlass(v, i, 0.3);

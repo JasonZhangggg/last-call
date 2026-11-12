@@ -17,7 +17,7 @@ const HIDE_POS = new THREE.Vector3(0.38, -0.66, -0.16);
 const SHOULDER = new THREE.Vector3(0.3, -0.6, 0.14);
 // the hand meets the revolver as it lies, this far above it, and lifts it as the fingers close
 const LIFT = 0.006;
-const WRIST_MAX = 0.6;
+const SWAY = 0.45;
 
 const _v = new THREE.Vector3(), _d = new THREE.Vector3(), _f = new THREE.Vector3(), _ax = new THREE.Vector3(), _q = new THREE.Quaternion(), _o = new THREE.Object3D();
 export const arm = { root: null, grip: null, hand: null, fore: null, mover: null, aimQuat: new THREE.Quaternion(), hidden: true, grasp: 'gun', glassAt: null, closed: 1, open: 0, glassy: 0, cv: {} };
@@ -87,10 +87,11 @@ export function updatePlayerArm(dt) {
   root.updateMatrixWorld();
   camera.worldToLocal(root.localToWorld(_v.copy(arm.hand.userData.wrist)));
   fore.position.copy(_v);
-  // toward the shoulder, but never more than a natural wrist bend off the hand's own line
+  // along the hand's own line, so the wrist stays straight, but never swung more than SWAY off the
+  // line to the shoulder: the arm always comes from below and to the right
   _d.subVectors(SHOULDER, _v).normalize();
   _f.copy(arm.hand.userData.fore).transformDirection(root.matrixWorld).transformDirection(camera.matrixWorldInverse);
-  const bend = _f.angleTo(_d);
-  if (bend > WRIST_MAX) _d.applyAxisAngle(_ax.crossVectors(_d, _f).normalize(), bend - WRIST_MAX);
+  const off = _f.angleTo(_d);
+  if (off > 1e-4) _d.applyAxisAngle(_ax.crossVectors(_d, _f).normalize(), Math.min(off, SWAY));
   fore.quaternion.setFromUnitVectors(UP, _d);
 }
