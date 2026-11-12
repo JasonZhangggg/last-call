@@ -268,8 +268,6 @@ function gripSDF(p) {
   const frame = Math.max(Math.abs(p.x) - 0.016, Math.abs(p.y - 0.004) - 0.025, Math.abs(p.z + 0.008) - 0.04);
   return Math.min(grip, frame);
 }
-// the trigger blade
-const triggerSDF = (p) => Math.max(Math.abs(p.x) - 0.003, Math.abs(p.z + 0.001) - 0.003, Math.abs(p.y + 0.034) - 0.0095);
 /** Hand frame to gun model space, for a hand of this size. */
 function gripFrame(rig) {
   const z = V(1, 0, 0), fwd = V(0, -GRIP_UP.z, GRIP_UP.y);
@@ -277,7 +275,7 @@ function gripFrame(rig) {
   const x = GRIP_UP.clone().multiplyScalar(Math.cos(0.05)).addScaledVector(fwd, -Math.sin(0.05)), y = z.clone().cross(x);
   const m = new THREE.Matrix4().makeBasis(x, y, z);
   // the palm's skin on the grip's right panel, the fingers' middle at the grip's middle height
-  const at = V(-(GRIP_HALF + rig.front + 0.001), -0.06, frontZ(-0.06) - 0.024).addScaledVector(y, -0.04 * rig.sy).addScaledVector(x, 0.004);
+  const at = V(-(GRIP_HALF + rig.front + 0.001), -0.06, frontZ(-0.06) - 0.004).addScaledVector(y, -0.04 * rig.sy).addScaledVector(x, 0.004);
   return m.setPosition(at);
 }
 const _hp = new THREE.Vector3();
@@ -308,9 +306,9 @@ function glassSDF({ base, axis }) {
  */
 export function rightHand(opts, mat) {
   const rig = handRig(opts), M = gripFrame(rig);
-  // closed on the revolver: three fingers round the grip, the index on the trigger, the thumb behind the hammer
+  // closed on the revolver: three fingers round the grip, the index hooked into the guard, the thumb behind the hammer
   const grip = inFrame(M, gripSDF), fist = { fingers: wrapFingers(rig, grip, [0.1, 0.15, 0.75]), thumb: null };
-  fist.fingers[0] = wrapFingers(rig, inFrame(M, triggerSDF), [0.3, 0.6, 0.1], [0])[0];
+  fist.fingers[0] = [0.3, 1.05, 0.65];
   fist.thumb = wrapThumb(rig, grip, [0.4, 0.9, 0.1, 0, 0]);
   // round a glass
   const gl = glassInHand(rig), gsdf = glassSDF(gl);
