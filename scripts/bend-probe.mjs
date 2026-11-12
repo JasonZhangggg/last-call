@@ -14,7 +14,7 @@ await page.route('**/*', (route) => {
   return u.startsWith('file:') ? route.continue() : route.abort();
 });
 await page.goto('file://' + path.join(ROOT, file) + hash);
-await page.waitForFunction(() => window.__lastcall?.D?.characters?.length, null, { timeout: 600000 });
+await page.waitForFunction(() => Object.keys(window.__lastcall?.D?.characters ?? {}).length, null, { timeout: 600000 });
 const FORE = process.env.FORE ? JSON.parse(process.env.FORE) : null;
 const res = await page.evaluate(([secs, FORE]) => new Promise((done) => {
   const L = window.__lastcall, V = L.camera.position.constructor, Q = L.camera.quaternion.constructor;
@@ -28,7 +28,7 @@ const res = await page.evaluate(([secs, FORE]) => new Promise((done) => {
   };
   const t0 = performance.now();
   const tick = () => {
-    for (const ch of L.D.characters) {
+    for (const ch of Object.values(L.D.characters)) {
       if (!ch?.arm || !ch.group.visible) continue;
       add('right', bend(ch.arm.fore, ch.arm.hand, rf));
       add('left', bend(ch.leftArm.fore, ch.leftArm.hand, new V(0, -1, 0)));
