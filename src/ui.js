@@ -43,6 +43,9 @@ function measure() {
 }
 
 /* ---------- overlays ---------- */
+// Someone typing a chat line keeps the keyboard: a sheet or the trigger turning up doesn't take it,
+// so the Enter meant to send the line can't press a button instead.
+const typing = () => document.activeElement?.id === 'chat-input';
 const stack = [];
 const openers = new Map();
 const focusables = (root) => [...root.querySelectorAll('button:not([disabled]), input, [tabindex]:not([tabindex="-1"])')].filter((e) => e.offsetParent !== null);
@@ -51,7 +54,7 @@ export function openOverlay(id) {
   if (!stack.includes(id)) { stack.push(id); openers.set(id, document.activeElement); }
   void el.offsetWidth; // commit the unhidden, faded state so removing .fade transitions
   el.classList.remove('fade'); syncCovered();
-  (el.querySelector('.btn.primary:not([hidden]):not(:disabled)') || el.querySelector('button:not([hidden])'))?.focus({ preventScroll: true });
+  if (!typing()) (el.querySelector('.btn.primary:not([hidden]):not(:disabled)') || el.querySelector('button:not([hidden])'))?.focus({ preventScroll: true });
 }
 export function closeOverlay(id) {
   const el = $(`#${id}`); el.classList.add('fade');
@@ -255,7 +258,7 @@ export function awaitTrigger(hintHtml, holdMs = 750, label = 'Hold to pull the t
     cancelActiveTrigger = () => finish(false);
     btn.addEventListener('pointerdown', down); addEventListener('pointerup', up); addEventListener('pointercancel', up); btn.addEventListener('pointerleave', up);
     addEventListener('keydown', key); addEventListener('keyup', key);
-    btn.focus({ preventScroll: true });
+    if (!typing()) btn.focus({ preventScroll: true });
   });
 }
 

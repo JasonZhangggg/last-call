@@ -18,6 +18,7 @@ import { MODES, isPlayable } from './modes/index.js';
 import { CATALOG, modeLabel, variantLabel, variantNote } from './modes/catalog.js';
 import { ENGINES } from './net/engines.js';
 import { ROOM_CODE_RE, normalizeRoomCode } from './net/protocol.js';
+import { initChat, chatKey, chatMessage, syncChat, resetChat } from './chat.js';
 
 const clock = new THREE.Clock(false);
 const raycaster = new THREE.Raycaster();
@@ -156,6 +157,7 @@ function tryPick() {
 
 addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;
+  if (chatKey(e)) return;
   if (e.key === 'Escape') { e.preventDefault(); return togglePause(); }
   if (e.key === 'm' || e.key === 'M') return $('#sound-btn').click();
   if (settings.paused || ui.topOverlay()) return;
@@ -192,6 +194,7 @@ function setRoomInUrl(code) {
 
 function toTitle(message) {
   closeTable();
+  resetChat();
   settings.paused = false;
   setRoomInUrl(null);
   ui.setNet(null);
@@ -245,7 +248,8 @@ const CLOSED = {
 };
 
 S.hooks = {
-  onLobby() { if (ui.isOpen('lobby')) drawLobby(); },
+  onLobby() { syncChat(); if (ui.isOpen('lobby')) drawLobby(); },
+  onChat: chatMessage,
   onRefused(msg) { if (!D.prompt) ui.toast(msg.message, 'small'); },
   onStatus(status, detail) {
     if (status === 'reconnecting') ui.setNet('Reconnecting to the table…');
@@ -289,6 +293,7 @@ $('#menu-btn').addEventListener('click', () => toTitle());
 $('#watch-btn').addEventListener('click', () => { ui.closeOverlay('out'); ui.setBlackout(false); });
 $('#out-leave-btn').addEventListener('click', () => toTitle());
 ui.initSolo({ modes: MODE_LIST(), ...LABELS }, startSolo);
+initChat();
 ui.initEnter();
 ui.initLobby({
   addBot: () => send({ type: 'addBot' }),

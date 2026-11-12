@@ -56,7 +56,7 @@ export class Room {
       game: null, memory: [], prompt: null, timer: null, pausedAt: null, result: null, chat: [],
     };
     Object.assign(this, s);
-    this.chat ??= [];
+    this.chat ??= []; // rooms saved before chat existed
     this.runClock();
   }
 
