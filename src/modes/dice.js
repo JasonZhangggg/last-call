@@ -7,7 +7,7 @@ import { smoothDamp } from '../render/motion.js';
 import { audio } from '../audio.js';
 import * as ui from '../ui.js';
 import { react, tell, poseRightHand } from '../render/characters.js';
-import { rig, focusOn, centerLook } from '../render/camera.js';
+import { rig, focusOn, centerLook, lockLook } from '../render/camera.js';
 import { camera } from '../render/core.js';
 import { gun } from '../render/gun.js';
 import { arm, armReach, armHide } from '../render/playerArm.js';
@@ -93,7 +93,9 @@ const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _q = new THREE.Quatern
 const _y = new THREE.Vector3(), _z = new THREE.Vector3();
 const _gp = new THREE.Vector3(), _gq = new THREE.Quaternion(), AX = new THREE.Vector3(1, 0, 0);
 const ROW_AT = new THREE.Vector3(0, 0.02, 0.1);
-const DIM = new THREE.Color(0.42, 0.4, 0.38), LIT = new THREE.Color(1.25, 1.12, 0.9), WHITE = new THREE.Color(1, 1, 1);
+const _row = new THREE.Vector3();
+// counted dice sit in the lamp's hot spot and are seen up close: toned down so the pips stay crisp
+const DIM = new THREE.Color(0.42, 0.4, 0.38), LIT = new THREE.Color(0.92, 0.85, 0.72), WHITE = new THREE.Color(1, 1, 1);
 
 /**
  * A character's drink, layered over their own pose each frame: `w` blends the right hand from
@@ -139,6 +141,30 @@ const armQ = new THREE.Quaternion();
 const cupTop = (kind, out) => { DT.cupPose(0, kind, out, _q); return out.setY(out.y + DT.CUP_TOP + 0.016); };
 const cupHands = new Set(); // views whose right hand rides their cup
 const viewSeat = (T, v) => T.seatAt(v);
+
+/* ---------- framing the count ---------- */
+// a tall phone view shows the counted dice in short rows, so they can be zoomed in on
+const rowLength = () => (camera.aspect < 0.8 ? 5 : 10);
+let framing = false; // the head held on the count line
+/**
+ * Leans in and holds the head on the line of `n` counted dice, zoomed until the line spans most
+ * of the view. The camera's springs carry the move, and unframeCount() eases back out.
+ */
+function frameCount(n) {
+  const { halfWidth, halfDepth } = DT.rowFrame(n, rowLength(), _row);
+  const d = rig.seat.distanceTo(_row) - 0.1, t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const down = rig.seat.y / d, pad = DT.DIE * DT.ROW_SCALE;
+  const zoom = Math.min(0.78 * d * t * camera.aspect / (halfWidth + pad), 0.5 * d * t / (halfDepth * down + pad));
+  framing = true;
+  rig.zoomTarget = 1; rig.leanTarget = 0.4; centerLook(0.5);
+  lockLook(true, _row, 1, clamp(zoom, 1.3, 3.2));
+}
+function unframeCount() {
+  if (!framing) return;
+  framing = false;
+  rig.leanTarget = 0;
+  lockLook(false);
+}
 
 /* ---------- HUD ---------- */
 function bidChip(T) {
@@ -384,14 +410,15 @@ async function challenge(T, msg) {
       if (matches(d, face)) hits.push([v, i, d]); else DT.dieGlow(v, i, 0, DIM);
     }
   }
-  const gap = Math.min(0.2, 1.9 / Math.max(1, hits.length));
+  const gap = Math.min(0.2, 1.9 / Math.max(1, hits.length)), per = rowLength();
+  if (hits.length) frameCount(hits.length);
   ui.setClaim(`Counting ${FACES[face]}, ones wild: <b>0</b> of ${quantity}`, 'The count');
   hits.forEach(([v, i, d], k) => {
-    DT.rowPose(k, hits.length, d, _a, _q);
-    DT.dieTo(v, i, _a, _q, { dur: 0.5, arc: 0.12, delay: k * gap });
+    DT.rowPose(k, hits.length, d, _a, _q, per);
+    DT.dieTo(v, i, _a, _q, { dur: 0.5, arc: 0.12, delay: k * gap }, DT.ROW_SCALE);
     setTimeout(() => {
       if (token !== T.token()) return;
-      DT.dieGlow(v, i, 1, LIT);
+      DT.dieGlow(v, i, 0.6, LIT);
       audio.diceTick?.(k, Math.min(quantity, 20));
       ui.setClaim(`Counting ${FACES[face]}, ones wild: <b>${k + 1}</b> of ${quantity}`, 'The count');
     }, (k * gap + 0.45) * 1000 / Math.sqrt(settings.speed || 1));
@@ -415,7 +442,7 @@ async function challenge(T, msg) {
   audio.verdict(spot ? !callerRight : callerRight);
   await T.step(1500);
   if (!T.isMe(caller)) react(T.char(caller), 'lean', false);
-  T.setWatch(null); rig.zoomTarget = 1;
+  T.setWatch(null); rig.zoomTarget = 1; unframeCount();
 }
 
 /* ---------- the poison tray ---------- */
@@ -583,7 +610,7 @@ function settle(T) {
 /* ---------- rebuild ---------- */
 function rebuild(T, { fresh }) {
   const g = T.game;
-  setHandUp(false); glancing.fill(false);
+  setHandUp(false); unframeCount(); glancing.fill(false);
   beating = false; pendingTurn = null; held = null; peeking = false; myShake = null;
   hideControls();
   cupHands.clear();
@@ -608,7 +635,7 @@ function rebuild(T, { fresh }) {
     let k = 0;
     const hits = [];
     for (let v = 0; v < 4; v++) for (let i = 0; i < g.diceCounts[viewSeat(T, v)]; i++) if (matches(DT.dieFace(v, i), face)) hits.push([v, i]); else DT.dieGlow(v, i, 0, DIM);
-    for (const [v, i] of hits) { DT.rowPose(k++, hits.length, DT.dieFace(v, i), _a, _q); DT.dieTo(v, i, _a, _q, { dur: 0.01 }); DT.dieGlow(v, i, 1, LIT); }
+    for (const [v, i] of hits) { DT.rowPose(k++, hits.length, DT.dieFace(v, i), _a, _q, rowLength()); DT.dieTo(v, i, _a, _q, { dur: 0.01 }, DT.ROW_SCALE); DT.dieGlow(v, i, 0.6, LIT); }
   }
   if (g.round) bidChip(T);
   else { ui.setClaim(''); $('#me-dice').hidden = true; }
@@ -672,7 +699,7 @@ export const diceMode = {
     });
   },
   exit() {
-    releaseHand(); glancing.fill(false);
+    releaseHand(); unframeCount(); glancing.fill(false);
     beating = false; pendingTurn = null; held = null; peeking = false; myShake = null;
     hideControls(); cupHands.clear(); sips.clear();
     $('#me-dice').hidden = true; $('#table-icon').classList.remove('die');

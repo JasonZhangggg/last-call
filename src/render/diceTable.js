@@ -292,15 +292,26 @@ export function rerollFaces(v, faces) {
   table.dice[v].forEach((d, i) => { if (faces) d.face = faces[i] || d.face; d.yaw = Math.random() * 1.2 - 0.6; diePose(v, i, d.face, d.yaw, _p, _q2); d.mover.snap(table.group, _p, _q2, 1); });
 }
 
-/** The count line in front of you: slot k of n, the face tilted up to the camera. */
-export function rowPose(k, n, face, pos, quat) {
-  const perRow = Math.min(n, 10), row = Math.floor(k / 10), col = k % 10, inRow = row < Math.floor(n / 10) ? 10 : n - row * 10 || perRow;
-  pos.set((col - (inRow - 1) / 2) * DIE * 1.32, DIE / 2 + 0.002, 0.07 + row * DIE * 1.5);
-  quat.setFromAxisAngle(AX, 0.62).multiply(FACE_UP[face]);
-  pos.y += Math.sin(0.62) * DIE * 0.3;
+/** Counted dice sit this much larger than in play, so a zoomed view of the line reads at a glance. */
+export const ROW_SCALE = 1.5;
+// tipped far enough toward you that the lamp overhead glints off the face into the felt, not into your eye
+const ROW_DIE = DIE * ROW_SCALE, ROW_TILT = 0.9, ROW_GAP = ROW_DIE * 1.3, ROW_STEP = ROW_DIE * 2.6, ROW_Z = 0.07;
+const rowShape = (n, perRow) => { const per = Math.max(1, Math.min(n, perRow)); return [per, Math.ceil(n / per)]; };
+/** The count line in front of you: slot k of n in rows of `perRow`, each face tilted up to the camera. */
+export function rowPose(k, n, face, pos, quat, perRow = 10) {
+  const [per, rows] = rowShape(n, perRow), row = Math.floor(k / per), col = k % per;
+  const inRow = row < rows - 1 ? per : n - row * per;
+  pos.set((col - (inRow - 1) / 2) * ROW_GAP, ROW_DIE / 2 * (Math.cos(ROW_TILT) + Math.sin(ROW_TILT)) + 0.001, ROW_Z + row * ROW_STEP);
+  quat.setFromAxisAngle(AX, ROW_TILT).multiply(FACE_UP[face]);
   return pos;
 }
-export function dieTo(v, i, pos, quat, opts) { return table.dice[v][i].mover.go(table.group, pos, quat, 1, opts); }
+/** The middle of the count line and its half width, for framing it. */
+export function rowFrame(n, perRow, out) {
+  const [per, rows] = rowShape(Math.max(1, n), perRow);
+  out.set(0, ROW_DIE / 2, ROW_Z + (rows - 1) * ROW_STEP / 2);
+  return { halfWidth: (per - 1) * ROW_GAP / 2 + ROW_DIE / 2, halfDepth: (rows - 1) * ROW_STEP / 2 + ROW_DIE / 2 };
+}
+export function dieTo(v, i, pos, quat, opts, scale = 1) { return table.dice[v][i].mover.go(table.group, pos, quat, scale, opts); }
 export function dieGlow(v, i, glow, tint) { const d = table.dice[v][i]; d.glowTarget = glow; if (tint) d.tintTarget.copy(tint); }
 export const dieFace = (v, i) => table.dice[v][i].face;
 
@@ -402,13 +413,13 @@ export function updateDiceTable(dt, t) {
     table.dice[v].forEach((d, i) => {
       d.mover.update(dt);
       const idx = v * PER_SEAT + i;
-      _m.compose(d.obj.position, d.obj.quaternion, d.shown ? ONE : ZERO_SCALE);
+      _m.compose(d.obj.position, d.obj.quaternion, d.shown ? d.obj.scale : ZERO_SCALE);
       M.dice.setMatrixAt(idx, _m);
       d.tint.lerp(d.tintTarget, k);
       M.dice.setColorAt(idx, d.tint);
       d.glow += (d.glowTarget - d.glow) * k;
-      const gs = d.shown && d.glow > 0.01 ? DIE * 3.4 * d.glow : 0;
-      _m.compose(_s.set(d.obj.position.x, Math.max(0.003, d.obj.position.y - DIE / 2 + 0.002), d.obj.position.z), _w.identity(), _p.set(gs, gs, gs));
+      const ds = d.obj.scale.x, gs = d.shown && d.glow > 0.01 ? DIE * 3.4 * ds * d.glow : 0;
+      _m.compose(_s.set(d.obj.position.x, Math.max(0.003, d.obj.position.y - DIE * ds / 2 + 0.002), d.obj.position.z), _w.identity(), _p.set(gs, gs, gs));
       M.halo.setMatrixAt(idx, _m);
     });
   }
