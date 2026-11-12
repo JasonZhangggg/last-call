@@ -461,6 +461,8 @@ body.mode-auction #rules .panel:not(.auction-rules), body:not(.mode-auction) #ru
 
 /* ---------- dice table ---------- */
 body.mode-dice #controls { width: min(calc(100vw - 32px), 800px); }
+/* the dice row is wide enough to reach the corner, so the look button moves up under the menu */
+@media (min-width: 721px) and (max-width: 1360px) { body.mode-dice #cards-btn { bottom: auto; top: calc(var(--hud-top) + 52px); } }
 #dice-actions { align-items: center; gap: 10px 12px; }
 .bid-pick { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 228, 176, 0.05); }
 .qty { display: flex; align-items: center; gap: 2px; }
