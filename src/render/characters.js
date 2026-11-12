@@ -63,49 +63,175 @@ function sweep(points, radius, seg = 24, radial = 8) {
 }
 
 /*
- * Hands are one mesh each with a morph target between two finger poses, so a hand can relax or
- * close smoothly in one draw call. Both poses are built from the same parts list (same segment
- * counts), which keeps their topology identical.
+ * Hands. Every hand is one mesh with morph targets between finger poses, so it relaxes, opens or
+ * closes round something smoothly in one draw call. A pose only bends joints, so every pose of a
+ * hand has the same topology and any two blend.
+ *
+ * The hand frame (a right hand; mirror in x for the left): palm centre at the origin, palm facing
+ * +z, fingers along +y, thumb on +x, the wrist joint at HAND_WRIST. Sizes scale with `palm` (the
+ * half extents the designs give) and `r` (a finger's radius at its knuckle).
  */
-const MIRROR_X = new THREE.Matrix4().makeScale(-1, 1, 1);
-function morphHand(base, target, mat, mirror) {
-  if (mirror) { base.applyMatrix4(MIRROR_X); target.applyMatrix4(MIRROR_X); flipWinding(base); }
-  if (base.attributes.position.count !== target.attributes.position.count) throw new Error('hand poses differ in topology');
-  base.morphAttributes.position = [target.attributes.position];
-  base.morphAttributes.normal = [target.attributes.normal];
+const HAND_WRIST = V(0, -0.068, -0.004);
+// per finger, index to little: knuckle (x, y), phalanx lengths, splay and thickness
+const FINGERS = [
+  { at: [0.025, 0.04], len: [0.033, 0.021, 0.017], splay: 0.07, r: 1 },
+  { at: [0.0085, 0.043], len: [0.036, 0.023, 0.018], splay: 0.0, r: 1.03 },
+  { at: [-0.0085, 0.041], len: [0.034, 0.022, 0.017], splay: -0.06, r: 0.97 },
+  { at: [-0.0245, 0.035], len: [0.027, 0.017, 0.015], splay: -0.14, r: 0.85 },
+];
+// the thumb: its base joint deep in the heel of the palm, then metacarpal, proximal and end
+const THUMB = { at: [0.017, -0.03], len: [0.036, 0.027, 0.023] };
+// radius at the knuckle, the two joints and the tip, as a share of the knuckle's
+const TAPER = [1, 0.9, 0.82, 0.7], THUMB_TAPER = [1.18, 1.08, 0.98, 0.84];
+const JOINT_MAX = [1.55, 1.8, 1.25];
+
+function handRig({ palm = [0.042, 0.046, 0.02], r = 0.0085 } = {}) {
+  const sx = palm[0] / 0.042, sy = palm[1] / 0.046, sz = palm[2] / 0.02;
+  return {
+    sx, sy, sz, r,
+    fingers: FINGERS.map((f) => ({ k: V(f.at[0] * sx, f.at[1] * sy, -0.001), len: f.len.map((l) => l * sy), splay: f.splay, r: r * f.r })),
+    thumb: { k: V(THUMB.at[0] * sx, THUMB.at[1] * sy, 0.002 * sz), len: THUMB.len.map((l) => l * sy), r },
+    // how far the palm's skin stands in front of its centre where something is held
+    front: 0.0105 * sz,
+  };
+}
+
+/** A finger's joints (knuckle, two joints, tip) for bends [knuckle, middle, end], each adding to the last. */
+function fingerJoints(f, bend, J) {
+  // a curling finger draws in toward the middle of the hand
+  const sp = f.splay * (1 - 0.5 * Math.min(1, bend[0])), s = Math.sin(sp), c = Math.cos(sp);
+  J[0].copy(f.k); let a = 0;
+  for (let j = 0; j < 3; j++) { a += bend[j]; J[j + 1].copy(J[j]).addScaledVector(_d.set(s * Math.cos(a), c * Math.cos(a), Math.sin(a)), f.len[j]); }
+  return J;
+}
+/**
+ * The thumb's joints for [spread, lift, roll, bend1, bend2]: its metacarpal leans `spread` from the
+ * fingers toward +x and `lift` out of the palm's plane. Its pad faces the fingers, turned `roll`
+ * toward the palm's side, and the two bends curl it toward the pad.
+ */
+const _tm = new THREE.Vector3(), _tn = new THREE.Vector3(), _tc = new THREE.Vector3();
+function thumbJoints(t, [spread, lift, roll, b1, b2], J) {
+  _tm.set(Math.sin(spread) * Math.cos(lift), Math.cos(spread) * Math.cos(lift), Math.sin(lift));
+  _tn.set(0, 1, 0).addScaledVector(_tm, -_tm.y).normalize();
+  _tc.crossVectors(_tm, _tn); _tn.multiplyScalar(Math.cos(roll)).addScaledVector(_tc, Math.sin(roll));
+  J[0].copy(t.k); J[1].copy(J[0]).addScaledVector(_tm, t.len[0]);
+  J[2].copy(J[1]).addScaledVector(_d.copy(_tm).multiplyScalar(Math.cos(b1)).addScaledVector(_tn, Math.sin(b1)), t.len[1]);
+  J[3].copy(J[2]).addScaledVector(_d.copy(_tm).multiplyScalar(Math.cos(b1 + b2)).addScaledVector(_tn, Math.sin(b1 + b2)), t.len[2]);
+  return J;
+}
+
+/*
+ * Closing a hand round a thing: each joint in turn, knuckle first, bends until the finger beyond it
+ * would touch the thing's surface (a signed distance in the hand frame), so a finger closes as a
+ * whole until it meets the thing and then wraps it joint by joint.
+ */
+const _sp = new THREE.Vector3();
+function touches(J, from, rad, sdfs) {
+  for (let j = from; j < 3; j++) for (let k = 1; k <= 4; k++) {
+    const t = k / 4; _sp.lerpVectors(J[j], J[j + 1], t);
+    if (sdfs[j](_sp) < rad[j] + (rad[j + 1] - rad[j]) * t) return true;
+  }
+  return false;
+}
+function closeChain(joints, bend, idx, rad, sdfs, max) {
+  const J = [V(0, 0, 0), V(0, 0, 0), V(0, 0, 0), V(0, 0, 0)], b = bend.slice();
+  for (let k = 0; k < idx.length; k++) {
+    const i = idx[k], seg = 3 - idx.length + k;
+    // a bone that starts inside the thing straightens back out of it first
+    joints(b, J);
+    while (b[i] > -0.5 && touches(J, seg, rad, sdfs)) { b[i] -= 0.02; joints(b, J); }
+    while (b[i] < max[k]) {
+      b[i] += 0.02; joints(b, J);
+      if (touches(J, seg, rad, sdfs)) { b[i] -= 0.02; break; }
+    }
+  }
+  return b;
+}
+/** Finger bends that wrap `sdf`, each from `from`. The palm is in the way of the outer two bones. */
+function wrapFingers(rig, sdf, from = [0.05, 0.1, 0.05], only = [0, 1, 2, 3]) {
+  const palm = (p) => Math.max(Math.abs(p.x) - 0.036 * rig.sx, Math.abs(p.y) - 0.042 * rig.sy, p.z - rig.front) + 0.003;
+  const both = (p) => Math.min(sdf(p), palm(p));
+  return rig.fingers.map((f, i) => (only.includes(i)
+    ? closeChain((b, J) => fingerJoints(f, b, J), from, [0, 1, 2], TAPER.map((k) => k * f.r), [sdf, both, both], JOINT_MAX)
+    : null));
+}
+const wrapThumb = (rig, sdf, base) => closeChain((b, J) => thumbJoints(rig.thumb, b, J), base, [3, 4], THUMB_TAPER.map((k) => k * rig.r), [sdf, sdf, sdf], [1.2, 1.3]);
+
+/** A tube through `pts` whose radius runs through `radii` (one per point), a little fuller at the joints. */
+function digit(pts, radii, parts) {
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
+  const total = cum[cum.length - 1];
+  const radius = (t) => {
+    const s = t * total; let i = 1;
+    while (i < cum.length - 1 && cum[i] < s) i++;
+    const u = (s - cum[i - 1]) / (cum[i] - cum[i - 1] || 1);
+    let r = radii[i - 1] + (radii[i] - radii[i - 1]) * u;
+    for (let k = 2; k < cum.length - 1; k++) r += radii[k] * 0.07 * Math.exp(-(((s - cum[k]) / (radii[k] * 0.9)) ** 2));
+    return r;
+  };
+  parts.push(sweep(pts, radius, 18, 8), ball(pts[pts.length - 1], radii[radii.length - 1], 1, 8));
+}
+
+/** The palm: narrower at the heel, thinner toward the knuckles, cupped a little across its width. */
+function palmGeometry(rig, parts) {
+  const { sx, sy, sz } = rig, W = 0.038 * sx, H = 0.045 * sy, D = 0.0125 * sz;
+  const g = roundBox(2 * W, 2 * H, 2 * D, 0.4), P = g.attributes.position, N = g.attributes.normal;
+  for (let i = 0; i < P.count; i++) {
+    let x = P.getX(i), y = P.getY(i), z = P.getZ(i);
+    const u = (y / H + 1) / 2, e = x / W;
+    const wx = 0.82 + 0.18 * Math.min(1, u * 1.5), wz = (1.05 - 0.28 * u) * (z > 0 ? 0.88 : 1);
+    x *= wx; z *= wz;
+    z += 0.004 * sz * e * e;
+    y -= 0.006 * sy * Math.max(0, -e) * u;
+    P.setXYZ(i, x, y, z);
+    _a.set(N.getX(i) / wx, N.getY(i), N.getZ(i) / wz).normalize(); N.setXYZ(i, _a.x, _a.y, _a.z);
+  }
+  const blob = (p, rot, s) => place(new THREE.SphereGeometry(1, 12, 9), p, rot, s);
+  parts.push(g,
+    // the ball of the thumb and the heel under the little finger
+    blob([0.019 * sx, -0.018 * sy, 0.004 * sz], [0, 0, -0.45], [0.016 * sx, 0.027 * sy, 0.0105 * sz]),
+    blob([-0.022 * sx, -0.014 * sy, 0.002 * sz], [0, 0, 0.1], [0.012 * sx, 0.027 * sy, 0.0095 * sz]),
+    // the wrist runs on past the joint into the sleeve, so a bent wrist never shows a gap
+    place(new THREE.CylinderGeometry(0.024 * sx, 0.021 * sx, 0.072, 14), [0, -0.068, -0.004], [0, 0, 0], [1, 1, 0.72]),
+    blob([HAND_WRIST.x, HAND_WRIST.y, HAND_WRIST.z], [0, 0, 0], [0.021 * sx, 0.021 * sx, 0.016 * sx]));
+  // knuckles on the back of the hand
+  for (const f of rig.fingers) parts.push(blob([f.k.x, f.k.y - 0.004 * sy, -0.0045 * sz], [0, 0, 0], [f.r * 1.05, f.r * 1.2, f.r * 0.8]));
+}
+
+/** A hand in its own frame for a pose { fingers: four [knuckle, middle, end] bends, thumb: thumbJoints' five }. */
+function handGeometry(rig, pose) {
+  const parts = [], J = [V(0, 0, 0), V(0, 0, 0), V(0, 0, 0), V(0, 0, 0)];
+  palmGeometry(rig, parts);
+  rig.fingers.forEach((f, i) => {
+    fingerJoints(f, pose.fingers[i], J);
+    // each finger starts inside the palm, so it grows out of it rather than sitting on it
+    const root = J[0].clone().addScaledVector(_d.subVectors(J[1], J[0]).setZ(0).normalize(), -0.016 * rig.sy);
+    digit([root, ...J.map((p) => p.clone())], [1.04, ...TAPER].map((k) => k * f.r), parts);
+  });
+  thumbJoints(rig.thumb, pose.thumb, J);
+  digit(J.map((p) => p.clone()), THUMB_TAPER.map((k) => k * rig.r), parts);
+  return mergeGeometries(parts);
+}
+
+/** Bends of a loose finger set: each finger a little more curled than the one before it toward the little finger. */
+const loose = (b, step = 0.06) => [0, 1, 2, 3].map((i) => b.map((v, j) => v + i * step * (j === 0 ? 1 : 0.6)));
+// relaxed, as lying on the table; opened wide to take hold of something
+const OPEN = { fingers: loose([0.12, 0.2, 0.12]), thumb: [0.55, 0.35, 0.6, 0.25, 0.3] };
+const SPREAD = { fingers: [[0.02, 0.06, 0.03], [0, 0.05, 0.03], [0.02, 0.05, 0.03], [0.05, 0.06, 0.03]], thumb: [1.0, 0.55, 0.8, 0.02, 0.05] };
+
+function morphHand(base, targets, mat, mirror) {
+  const all = [base, ...targets];
+  if (mirror) { for (const g of all) g.applyMatrix4(MIRROR_X); flipWinding(base); }
+  for (const g of targets) if (g.attributes.position.count !== base.attributes.position.count) throw new Error('hand poses differ in topology');
+  base.morphAttributes.position = targets.map((g) => g.attributes.position);
+  base.morphAttributes.normal = targets.map((g) => g.attributes.normal);
   base.computeBoundingSphere();
   const m = new THREE.Mesh(base, mat); m.castShadow = m.receiveShadow = true;
   return m;
 }
+const MIRROR_X = new THREE.Matrix4().makeScale(-1, 1, 1);
 function flipWinding(g) { const ix = g.index.array; for (let i = 0; i < ix.length; i += 3) { const t = ix[i]; ix[i] = ix[i + 2]; ix[i + 2] = t; } }
-
-/**
- * A right hand in its own frame: palm facing +z, fingers along +y, thumb on +x. Fingers curl
- * toward +z by `base` at the knuckle plus `step` per joint; `thumb` picks the thumb's two joints.
- * Mirror in x for the left hand.
- */
-const OPEN_THUMB = [V(0.046, 0.004, 0.016), V(0.05, 0.026, 0.024)];
-function handGeometry({ palm = [0.042, 0.046, 0.02], r = 0.0085 } = {}, { base = 0.18, step = 0.32, thumb = [V(0.05, 0.008, 0.026), V(0.045, 0.03, 0.042)] } = {}) {
-  const parts = [ball(V(0, 0, 0), 1, [palm[0], palm[1], palm[2]], 16)];
-  const fingers = [[0.026, [0.03, 0.022, 0.018], 0.08], [0.009, [0.033, 0.024, 0.019], 0.02], [-0.009, [0.03, 0.022, 0.018], -0.05], [-0.026, [0.024, 0.018, 0.015], -0.12]];
-  fingers.forEach(([x, lens, splay], fi) => {
-    const p = V(x, palm[1] * 0.72, -0.002); let ang = base + fi * 0.06;
-    const rr = x < -0.02 ? r * 0.88 : r;
-    const knuckle = p.clone();
-    lens.forEach((len, i) => {
-      _d.set(Math.sin(splay) * Math.cos(ang), Math.cos(splay) * Math.cos(ang), Math.sin(ang));
-      const q = p.clone().addScaledVector(_d, len);
-      parts.push(tube(p, q, rr * (1 - i * 0.08), rr * (1 - (i + 1) * 0.08), 8), ball(q, rr * (1 - (i + 1) * 0.08), 1, 8));
-      p.copy(q); ang += step;
-    });
-    parts.push(ball(knuckle, rr * 1.02, 1, 8));
-  });
-  const t0 = V(0.03, -0.018, 0.006), [t1, t2] = thumb;
-  parts.push(ball(V(0.024, -0.012, 0.004), 1, [0.018, 0.024, 0.016], 10), tube(t0, t1, r * 1.25, r * 1.1, 8), ball(t1, r * 1.1, 1, 8), tube(t1, t2, r * 1.1, r * 0.95, 8), ball(t2, r * 0.95, 1, 8));
-  // the wrist runs on past the joint into the sleeve, so a bent wrist never shows a gap
-  parts.push(tube(V(0, -0.1, -0.005), V(0, -0.03, -0.002), palm[0] * 0.6, palm[0] * 0.78, 14));
-  return mergeGeometries(parts);
-}
 
 /** A torus around axis `dir` at p. */
 function ring(p, dir, R, r) {
@@ -114,56 +240,90 @@ function ring(p, dir, R, r) {
   return g;
 }
 
+/* ---------- the left hand: on the table, or round the base of a fan of cards ---------- */
+const LEFT_FAN = { fingers: loose([0.22, 0.42, 0.36], 0.07), thumb: [0.6, 0.55, 0.9, 0.25, 0.3] };
+/** A left hand (mirrored), morph influence 0 lying open and 1 holding a fan. */
+export const leftHand = (opts, mat) => { const rig = handRig(opts); return morphHand(handGeometry(rig, OPEN), [handGeometry(rig, LEFT_FAN)], mat, true); };
+const LEFT_WRIST = HAND_WRIST;
+
 /*
- * The right hand round the revolver's grip, authored in the gun's model space (see gun.js: +z
- * along the barrel, +y up, the plough-handle grip under the hammer) and moved into the grip frame
- * the revolver is parented by. Authored with the hand on +x and then mirrored, so it ends up on
- * the grip's right (-x, since +x is the shooter's left). Closed: the heel wraps the backstrap,
- * three fingers curl round the front strap onto the far panel, the index finger lies in the
- * trigger guard against the trigger, and the thumb crosses behind the hammer to the far side.
- * Open: the same fingers lie straight and loose along the near side, as on a table.
+ * The right hand works in the revolver's grip frame (see gun.js: +z along the barrel, +y up, the
+ * plough-handle grip under the hammer). Its palm lies on the grip's right panel (-x, since +x is
+ * the shooter's left), its thumb up the raked grip, fingers forward round the front strap.
+ * Morph targets: 0 closed on the revolver (three fingers round the grip, the index in the trigger
+ * guard on the trigger, the thumb across behind the hammer), 1 round a shot glass (fingers round
+ * the outside, the thumb opposite them, the rim clear above), 2 opened wide to take hold.
  */
-const GRIP_HALF = 0.013;
+const GRIP_HALF = 0.0135;
 // the grip's front and back straps at height y, from the outline in gun.js (bevel included)
-const frontZ = (y) => -0.0265 + (y + 0.03) * 0.3, backZ = (y) => -0.0715 + (y + 0.03) * 0.35, RAKE = 0.3;
-const FIST_WRIST = V(-0.01, -0.07, -0.12).sub(GUN_GRIP);
-function fistGeometry({ r = 0.0085, palm = [0.042, 0.046, 0.02] } = {}, open = false) {
-  const w = GRIP_HALF, wrist = V(-FIST_WRIST.x, FIST_WRIST.y, FIST_WRIST.z).add(GUN_GRIP);
-  // the back of the hand: a flattened rounded slab along the near panel, leaning with the grip
-  const palmAt = V(w + palm[2] * 0.7, -0.058, backZ(-0.058) + palm[0] * 0.42);
-  const parts = [
-    place(roundBox(palm[2] * 1.5, palm[1] * 1.75, palm[0] * 1.45, 0.42), [palmAt.x, palmAt.y, palmAt.z], [RAKE, 0, 0]),
-    ball(V(w * 0.3, -0.066, backZ(-0.066) - palm[2] * 0.5), 1, [palm[2] * 1.05, palm[1] * 0.62, palm[2] * 0.95], 12),
-  ];
-  [-0.039, -0.058, -0.077].forEach((y, i) => {
-    const z = frontZ(y), rr = r * (1 - i * 0.07);
-    const shut = [V(w + rr * 1.3, y + 0.002, z - 0.012), V(w + rr * 0.95, y, z + 0.003), V(w * 0.3, y - 0.002, z + rr), V(-w * 0.6, y - 0.003, z + rr * 0.7), V(-w - rr * 0.7, y - 0.004, z - 0.01)];
-    // open, the fingers still curl a little, each more than the one before it toward the little finger
-    const pts = open
-      ? [V(w + rr * 1.3, y + 0.002, z - 0.012), V(w + rr * 1.3, y, z + 0.004), V(w + rr * 1.15, y - 0.002, z + 0.02), V(w + rr * 0.6, y - 0.003, z + 0.034), V(w - rr * 0.2, y - 0.004, z + 0.045)].map((p, j) => p.lerp(shut[j], (0.1 + i * 0.07) * j / 4))
-      : shut;
-    parts.push(sweep(pts, rr, 16, 8), ball(pts[4], rr * 0.95, 1, 8), ball(pts[0], rr * 1.08, 1, 8));
-  });
-  // closed, the index finger runs along the frame, bends down into the guard and lies on the trigger
-  const index = open
-    ? [V(w + r * 1.3, -0.02, -0.044), V(w + r * 1.25, -0.022, -0.022), V(w + r * 1.0, -0.024, -0.002), V(w + r * 0.5, -0.026, 0.014)]
-    : [V(w + r * 1.3, -0.02, -0.044), V(w + r * 1.05, -0.023, -0.026), V(w * 0.45 + r * 0.6, -0.032, -0.008), V(0.001, -0.04, 0.007)];
-  parts.push(sweep(index, r * 0.92, 14, 8), ball(index[3], r * 0.85, 1, 8), ball(index[0], r * 1.02, 1, 8));
-  const thumb = open
-    ? [V(w + 0.013, -0.036, -0.09), V(w + 0.011, -0.018, -0.078), V(w + 0.01, -0.008, -0.062), V(w + 0.008, -0.005, -0.046), V(w + 0.006, -0.005, -0.034)]
-    : [V(w + 0.013, -0.036, -0.09), V(0.01, -0.012, -0.084), V(-0.012, -0.004, -0.07), V(-0.025, -0.006, -0.048), V(-0.027, -0.008, -0.032)];
-  parts.push(sweep(thumb, (t) => r * (1.4 - t * 0.45), 16, 8), ball(thumb[4], r * 0.95, 1, 8));
-  // the wrist ends in a ball, so the forearm can arrive from any side without a cut end showing
-  const back = wrist.clone().addScaledVector(_d.subVectors(wrist, palmAt).normalize(), 0.032);
-  parts.push(tube(back, wrist.clone().lerp(palmAt, 0.6), palm[0] * 0.6, palm[0] * 0.72, 14), ball(wrist, palm[0] * 0.64, 1, 14));
-  const g = mergeGeometries(parts);
-  return g.translate(-GUN_GRIP.x, -GUN_GRIP.y, -GUN_GRIP.z);
+const frontZ = (y) => -0.0265 + (y + 0.03) * 0.3, backZ = (y) => -0.0715 + (y + 0.03) * 0.35;
+const GRIP_UP = V(0, 1, 0.32).normalize();
+/** The grip as a signed distance in gun model space: a rounded slab between the straps, the frame above. */
+function gripSDF(p) {
+  const y = clamp(p.y, -0.1, -0.012), zc = (frontZ(y) + backZ(y)) / 2, hd = (frontZ(y) - backZ(y)) / 2, rc = 0.008;
+  const qx = Math.abs(p.x) - (GRIP_HALF - rc), qz = Math.abs(p.z - zc) - (hd - rc);
+  const slab = Math.hypot(Math.max(qx, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qz), 0) - rc;
+  const grip = Math.max(slab, -0.1 - p.y);
+  // the frame and cylinder above it
+  const frame = Math.max(Math.abs(p.x) - 0.016, Math.abs(p.y - 0.004) - 0.025, Math.abs(p.z + 0.008) - 0.04);
+  return Math.min(grip, frame);
+}
+/** Hand frame to gun model space, for a hand of this size. */
+function gripFrame(rig) {
+  const z = V(1, 0, 0), fwd = V(0, -GRIP_UP.z, GRIP_UP.y);
+  // the grip runs a little across the palm, from the heel under the little finger up to the index's root
+  const x = GRIP_UP.clone().multiplyScalar(Math.cos(0.05)).addScaledVector(fwd, -Math.sin(0.05)), y = z.clone().cross(x);
+  const m = new THREE.Matrix4().makeBasis(x, y, z);
+  // the palm's skin on the grip's right panel, the fingers' middle at the grip's middle height
+  const at = V(-(GRIP_HALF + rig.front + 0.001), -0.06, frontZ(-0.06) - 0.004).addScaledVector(y, -0.04 * rig.sy).addScaledVector(x, 0.004);
+  return m.setPosition(at);
+}
+const _hp = new THREE.Vector3();
+const inFrame = (m, sdf) => (p) => sdf(_hp.copy(p).applyMatrix4(m));
+
+// a shot glass (diceTable.js): radius at its base and rim, and height
+const GLASS = { r0: 0.0192, r1: 0.0218, h: 0.056 };
+/**
+ * Where a held glass stands in the hand frame: its axis along the thumb's side of the palm, the
+ * base level with the ring finger so the rim stands clear above the index finger and thumb.
+ */
+function glassInHand(rig) {
+  const axis = V(1, 0, 0), base = V(-0.012 * rig.sx, 0.028 * rig.sy, rig.front + GLASS.r1 + 0.001);
+  return { base, axis };
+}
+function glassSDF({ base, axis }) {
+  const v = new THREE.Vector3();
+  return (p) => {
+    v.subVectors(p, base); const h = v.dot(axis); v.addScaledVector(axis, -h);
+    const side = v.length() - (GLASS.r0 + (GLASS.r1 - GLASS.r0) * clamp(h / GLASS.h, 0, 1)), cap = Math.max(-h, h - GLASS.h);
+    return Math.hypot(Math.max(side, 0), Math.max(cap, 0)) + Math.min(Math.max(side, cap), 0);
+  };
 }
 
-/** A right hand for the revolver, in its grip frame: morph influence 0 is closed on it, 1 open. */
-export const revolverHand = (opts, mat) => morphHand(fistGeometry(opts, false), fistGeometry(opts, true), mat, true);
-/** Where that hand's wrist is, in the grip frame. */
-export const REVOLVER_WRIST = FIST_WRIST;
+/**
+ * The right hand for a character or the player. Returns the mesh; its userData has `wrist` (the
+ * wrist joint in the grip frame, for the arm) and `glass` (a held glass's pose in the grip frame).
+ */
+export function rightHand(opts, mat) {
+  const rig = handRig(opts), M = gripFrame(rig);
+  // closed on the revolver: three fingers round the grip, the index hooked into the guard, the thumb behind the hammer
+  const grip = inFrame(M, gripSDF), fist = { fingers: wrapFingers(rig, grip, [0.1, 0.15, 0.75]), thumb: null };
+  fist.fingers[0] = [0.3, 1.05, 0.65];
+  fist.thumb = wrapThumb(rig, grip, [0.4, 0.9, 0.1, 0, 0]);
+  // round a glass
+  const gl = glassInHand(rig), gsdf = glassSDF(gl);
+  const wrap = { fingers: wrapFingers(rig, gsdf, [0.2, 0.3, 0.1]), thumb: wrapThumb(rig, gsdf, [0.05, 1.0, 0, 0, 0]) };
+  const toGrip = new THREE.Matrix4().makeTranslation(-GUN_GRIP.x, -GUN_GRIP.y, -GUN_GRIP.z).multiply(M);
+  const geos = [OPEN, fist, wrap, SPREAD].map((pose) => handGeometry(rig, pose).applyMatrix4(toGrip));
+  const mesh = morphHand(geos[0], geos.slice(1), mat, false);
+  const pos = gl.base.clone().applyMatrix4(toGrip), up = gl.axis.clone().transformDirection(toGrip);
+  mesh.userData = { wrist: HAND_WRIST.clone().applyMatrix4(toGrip), glass: { pos, quat: new THREE.Quaternion().setFromUnitVectors(UP, up) } };
+  return mesh;
+}
+/** Sets a right hand's shape: how far it is closed on the revolver and on a glass, and opened wide. */
+export function shapeHand(mesh, fist, glass, spread) {
+  const w = mesh.morphTargetInfluences; w[0] = fist; w[1] = glass; w[2] = spread;
+}
 
 /* ---------- detail textures shared by every character ---------- */
 let TEX = null;
@@ -461,10 +621,6 @@ const FAN_AT = V(0.07, 0.155, 0.37), LEFT_GRIP = { p: V(-0.035, -0.064, -0.021),
 // Reading the hand (inspect): the fan's base raised toward the chin and the cards turned up to the eyes.
 const FAN_UP = V(0.05, 0.3, 0.27), FAN_UP_TURN = quatE(-0.3, 0, 0);
 const SHOULDER = 0.215, L1 = 0.27, L2 = 0.26;
-const LEFT_WRIST = V(0, -0.068, -0.004);
-// Left-hand finger poses: lying loose on the table, and wrapped round the base of a fan.
-const LEFT_OPEN = { base: 0.12, step: 0.24, thumb: OPEN_THUMB };
-const LEFT_FAN = { base: 0.2, step: 0.38, thumb: [V(0.05, 0.012, 0.03), V(0.04, 0.034, 0.05)] };
 
 /** Frame from where its +y and +z should point (z is made orthogonal to y). */
 function frame(y, z, out = new THREE.Quaternion()) {
@@ -505,7 +661,8 @@ function buildArm(upper, at, design, handMesh) {
  *   aim      right hand raised beside the head, the muzzle at the right temple
  *   out      eliminated: lights out, eyes shut, slumped, arms limp, drained of colour
  *   inspect  the held fan raised close to the face to read it (only while it holds cards)
- * Two more follow the props: hold (cards in the left hand) and grip (right hand closed).
+ * Three more follow the props: hold (cards in the left hand), grip (right hand closed) and glass
+ * (the right hand shaped for a glass rather than the revolver: ch.grasp is 'glass' or 'gun').
  */
 export function buildCharacter(designKey, angle) {
   const design = DESIGNS[designKey]();
@@ -529,8 +686,7 @@ export function buildCharacter(designKey, angle) {
 
   // Left arm: rests on the table edge, rises to hold the fan while it has cards. handAnchor hangs
   // off the hand at the fan's pivot; in the holding pose its frame is the upper body's own.
-  const left = buildArm(upper, V(SHOULDER, 0.245, -0.01), design,
-    morphHand(handGeometry(design.handOpts, LEFT_OPEN), handGeometry(design.handOpts, LEFT_FAN), handMat, true));
+  const left = buildArm(upper, V(SHOULDER, 0.245, -0.01), design, leftHand(design.handOpts, handMat));
   const fanPose = new THREE.Matrix4().compose(FAN_AT, FAN_FRAME, V(1, 1, 1)).multiply(new THREE.Matrix4().compose(LEFT_GRIP.p, quatE(0, 0, LEFT_GRIP.roll), V(1, 1, 1)));
   const fan = { pos: V(0, 0, 0), quat: new THREE.Quaternion() };
   fanPose.decompose(fan.pos, fan.quat, _a);
@@ -540,7 +696,7 @@ export function buildCharacter(designKey, angle) {
   new THREE.Matrix4().copy(fanPose).invert().multiply(new THREE.Matrix4().makeTranslation(FAN_AT.x, FAN_AT.y, FAN_AT.z)).decompose(handAnchor.position, handAnchor.quaternion, handAnchor.scale);
 
   // Right arm: shoulder, upper arm, forearm and the revolver hand, posed every frame by two-bone IK.
-  const right = buildArm(upper, V(-SHOULDER, 0.245, -0.01), design, revolverHand(design.handOpts, handMat));
+  const right = buildArm(upper, V(-SHOULDER, 0.245, -0.01), design, rightHand(design.handOpts, handMat));
   const grip = new THREE.Object3D(); right.hand.add(grip);
 
   // Aim in head space: barrel level and pointing into the temple, the muzzle 3 cm off it.
@@ -555,6 +711,7 @@ export function buildCharacter(designKey, angle) {
   return {
     group, waist, upper, neck, head, eyes: face.eyes, handAnchor, leftHand: left.hand,
     arm: right, leftArm: left, fan, fanUp, aimLocal, grip, reachTarget: new THREE.Vector3(), reachQuat: new THREE.Quaternion(),
+    grasp: 'gun', glassAt: right.handMesh.userData.glass,
     lids: face.lids, lidOpen: face.lidOpen, lidClosed: face.lidClosed,
     parts, design, tints, tintAt: 0,
     glow: glowMats.map((m) => ({ m, base: m.emissiveIntensity })),
@@ -563,7 +720,7 @@ export function buildCharacter(designKey, angle) {
     yaw: 0, pitch: 0, lv: {}, phase: Math.random() * 6, breath: 0, blinkAt: rand(1, 4), blinkT: 1, flicker: 0,
     glanceAt: rand(1, 3), glanceYaw: 0, glancePitch: 0,
     flinchT: Infinity, flinchFrom: 0,
-    env: { lean: 0, tremble: 0, flinch: 0, relief: 0, out: 0, aim: 0, reach: 0, hold: 0, grip: 0, inspect: 0 },
+    env: { lean: 0, tremble: 0, flinch: 0, relief: 0, out: 0, aim: 0, reach: 0, hold: 0, grip: 0, glass: 0, inspect: 0 },
     target: { lean: 0, tremble: 0, relief: 0, out: 0, aim: 0, reach: 0, inspect: 0 },
     vel: {},
   };
@@ -660,7 +817,18 @@ function solveArm(arm, wrist, pole) {
 /** Re-solve a character's right arm to a grip pose in upper-body space, over its own pose this frame. */
 export function poseRightHand(ch, pos, quat) {
   ch.arm.pos.copy(pos); ch.arm.quat.copy(quat);
-  solveArm(ch.arm, FIST_WRIST, _pole.set(-1, -0.7, -0.1).normalize());
+  solveArm(ch.arm, ch.arm.handMesh.userData.wrist, _pole.set(-1, -0.7, -0.1).normalize());
+}
+
+/**
+ * The grip-frame pose (world) of a hand holding a glass that stands upright at `base`, the palm
+ * toward it as seen from `from` (a shoulder), so the fingers close round its far side.
+ */
+export function glassGrip(glassAt, base, from, pos, quat) {
+  _d.subVectors(base, from).setY(0).normalize();
+  _q.copy(glassAt.quat).invert(); _a.set(1, 0, 0).applyQuaternion(_q);
+  quat.setFromAxisAngle(UP, Math.atan2(_d.x, _d.z) - Math.atan2(_a.x, _a.z)).multiply(_q);
+  return pos.copy(glassAt.pos).applyQuaternion(quat).negate().add(base);
 }
 
 function poseArms(ch, t) {
@@ -692,8 +860,9 @@ function poseArms(ch, t) {
   }
   if (E.out > 0.001) { pos.lerp(LIMP.pos, E.out); quat.slerp(LIMP.quat, E.out); }
   // elbow out to the side and down; raised to the temple it swings out and a little forward
-  solveArm(arm, FIST_WRIST, _pole.set(-1, -0.75 + E.aim * 0.3, -0.25 + E.aim * 0.5).normalize());
-  arm.handMesh.morphTargetInfluences[0] = 1 - E.grip;
+  solveArm(arm, arm.handMesh.userData.wrist, _pole.set(-1, -0.75 + E.aim * 0.3, -0.25 + E.aim * 0.5).normalize());
+  // the hand opens wide as it goes to take hold of something, and closes round it as it arrives
+  shapeHand(arm.handMesh, E.grip * (1 - E.glass), E.grip * E.glass, smoothstep(0, 0.5, E.reach) * (1 - E.grip) * live);
 
   const la = ch.leftArm;
   fromSeat(ch, LEFT_REST, la.pos, la.quat);
@@ -716,7 +885,7 @@ function poseArms(ch, t) {
 }
 
 // Smoothing time per envelope (s): about how long it takes to arrive, leaving and landing at rest.
-const SMOOTH = { lean: 0.3, tremble: 0.25, relief: 0.3, aim: 0.3, reach: 0.27, out: 0.55, hold: 0.3, grip: 0.09, inspect: 0.3 };
+const SMOOTH = { lean: 0.3, tremble: 0.25, relief: 0.3, aim: 0.3, reach: 0.27, out: 0.55, hold: 0.3, grip: 0.09, glass: 0.12, inspect: 0.3 };
 const LOOK_SMOOTH = 0.3;
 const bell = (k) => 4 * k * (1 - k);
 const smoothstep = (a, b, v) => { const u = clamp((v - a) / (b - a), 0, 1); return u * u * (3 - 2 * u); };
@@ -726,11 +895,13 @@ export function updateCharacter(ch, dt, t) {
   // The right hand closes as it arrives at the revolver and stays closed while it holds it. While
   // the revolver is still flying into the palm the hand waits where it reached, and only then
   // raises it; swinging the target round mid-flight can flip the flight's rotation path.
-  const held = ch.grip.children[0], settling = !!held && held.position.lengthSq() > 1e-10;
-  const grip = held || T.aim ? 1 : T.reach ? smoothstep(0.45, 0.9, E.reach) : 0;
+  const held = ch.grip.children[0], settling = !!held && ch.grasp === 'gun' && held.position.lengthSq() > 1e-10;
+  // a glass is taken as the hand arrives round it; the revolver's grip a little before
+  const glass = ch.grasp === 'glass' ? 1 : 0;
+  const grip = held || T.aim ? 1 : T.reach ? smoothstep(glass ? 0.75 : 0.45, glass ? 0.97 : 0.9, E.reach) : 0;
   const hold = ch.handAnchor.children.length > 0 && !T.out ? 1 : 0;
   for (const k in SMOOTH) {
-    const goal = k === 'grip' ? grip : k === 'hold' ? hold : k === 'reach' ? +(T.reach || settling) : k === 'aim' ? +(T.aim && !settling) : T[k];
+    const goal = k === 'grip' ? grip : k === 'glass' ? glass : k === 'hold' ? hold : k === 'reach' ? +(T.reach || settling) : k === 'aim' ? +(T.aim && !settling) : T[k];
     E[k] = clamp(smoothDamp(E[k], goal, vel, k, SMOOTH[k], dt), 0, 1);
   }
   ch.flinchT += dt;
