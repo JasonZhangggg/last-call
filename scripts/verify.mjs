@@ -94,6 +94,7 @@ if (args.mode === 'auction') {
       if (!s.cap) { await page.waitForTimeout(250); continue; }
       taken.add(s.cap);
       if (s.cap === 'my-turn') {
+        await page.click('#cards-btn');
         await page.click('#auction-min-btn');
         await page.waitForTimeout(900);
         await shot(SHOTS[s.cap]);

@@ -10,9 +10,10 @@ import { react, tell } from '../render/characters.js';
 import { rig, focusOn } from '../render/camera.js';
 import { gun } from '../render/gun.js';
 import { setDeckSize, gatherToDeck } from '../render/cards.js';
-import { table, MONEY, STATUS_BASE, showTable, setGilded, setGlow, setTint, setStatusFace, sendTo, flyTo, layoutHands, pickMoney, easelPoint, bidPoint } from '../render/auctionTable.js';
+import { table, MONEY, STATUS_BASE, showTable, setGilded, setGlow, setTint, setStatusFace, sendTo, flyTo, layoutHands, pickMoney, myHand, easelPoint, bidPoint } from '../render/auctionTable.js';
 import { statusName, statusCell, cellThumb, CELL } from '../render/auctionArt.js';
 import { reduceAuction, sum, highBid, bidOf, leader, gildedCount, isDisgrace, cheapestRaise } from './auction-state.js';
+import { bindHand, releaseHand, setHandUp, syncHandButton, handKey, stepHand, handUp, spaceHint } from './hand.js';
 
 const NM = MONEY.length;
 const LINES = {
@@ -178,8 +179,9 @@ function syncControls(T) {
   const yours = o.ownBid ? ` · yours ${o.ownBid}` : '';
   const pickTxt = add ? ` · picked <b>+${add}</b> = <b>${total}</b>` : '';
   if (!o.canRaise) ui.setHint(o.disgrace ? `You can't outbid the table. Pass and take ${card}.` : `You can't beat ${o.highBid}. Pass to take your money back.`);
-  else if (o.disgrace) ui.setHint(`Avoid ${card}: raise, or pass and take it. ${hi}${yours}${pickTxt}`);
-  else ui.setHint(`${hi}${yours}${pickTxt}`);
+  else if (o.disgrace) ui.setHint(`Avoid ${card}: raise, or pass and take it. ${hi}${yours}${pickTxt} ${spaceHint()}`);
+  else ui.setHint(`${hi}${yours}${pickTxt} ${spaceHint()}`);
+  syncHandButton();
 }
 function toggle(T, value) {
   if (!pending?.canRaise || !table.ui.enabled) return;
@@ -437,6 +439,7 @@ function rebuild(T, { fresh }) {
   pending = null;
   table.ui.enabled = false; table.ui.selected.clear(); table.ui.hover = null;
   $('#auction-actions').hidden = true; ui.setHint('');
+  setHandUp(false);
   setGlow(0);
   rig.zoomTarget = 1; rig.rollTarget = 0; focusOn(null);
   for (const b of table.bodies) setTint(b, 1);
@@ -466,6 +469,7 @@ export const auctionMode = {
     setDeckSize(0);
     showTable(true);
     document.body.classList.add('mode-auction');
+    bindHand({ holding: () => me != null && myHand(me).length > 0, nudge: () => !!pending?.canRaise, hover: true });
     if (!bound) {
       bound = T;
       $('#auction-bid-btn').addEventListener('click', () => submitBid(bound));
@@ -474,6 +478,7 @@ export const auctionMode = {
     }
   },
   exit() {
+    releaseHand();
     pending = null; entered = false;
     showTable(false);
     for (const b of table.bodies) { sendTo(b, 'off'); b.card = null; }
@@ -490,6 +495,7 @@ export const auctionMode = {
     pending = null;
     table.ui.enabled = false; table.ui.selected.clear();
     $('#auction-actions').hidden = true;
+    syncHandButton();
     ui.dismissCoach();
     for (let v = 1; v < 4; v++) if (T.game && !T.game.passed[T.seatAt(v)]) ui.setStatus(v, '');
   },
@@ -532,11 +538,13 @@ export const auctionMode = {
     };
   },
   /* input */
-  pointerEnabled: () => table.ui.enabled,
+  pointerEnabled: () => table.ui.enabled && handUp(),
+  handUp,
   pick: (raycaster, current) => (me == null ? null : pickMoney(raycaster, me, current)),
   hover(value) { table.ui.hover = value; },
   select: (T, value) => toggle(T, value),
   keydown(T, e) {
+    if (handKey(e)) return true;
     if (!pending) return false;
     const idx = e.key === '0' ? 9 : e.key === '-' ? 10 : e.key >= '1' && e.key <= '9' ? +e.key - 1 : -1;
     if (idx >= 0) { const v = T.game.hand[idx]; if (v != null) toggle(T, v); return true; }
@@ -546,8 +554,8 @@ export const auctionMode = {
     if (e.key === 'Backspace') { table.ui.selected.clear(); syncControls(T); return true; }
     return false;
   },
-  frame(T, reservePx) {
+  frame(T, reservePx, dt) {
     if (!T.game) return;
-    layoutHands(T, reservePx);
+    layoutHands(T, reservePx, stepHand(dt));
   },
 };

@@ -44,7 +44,6 @@ export const table = {
   mesh: null, easel: null, glow: null, plaque: null, plaqueTex: null, plaqueCanvas: null, gilded: -1,
   bodies: [], easelPose: { pos: new THREE.Vector3(), quat: new THREE.Quaternion() },
   ui: { selected: new Set(), hover: null, enabled: false },
-  peek: 1,
 };
 
 /* ---------- geometry ---------- */
@@ -262,21 +261,23 @@ export function myHand(seat) {
 
 /**
  * Your hand in camera space, sized to the viewport; on a narrow portrait screen it splits into two
- * rows so every note stays a comfortable tap target. Other seats hold theirs as a fan, face down.
+ * rows so every note stays a comfortable tap target. `up` (0..1) blends it from a low strip at the
+ * bottom edge, corner numbers showing, to held up large to read and pick from. Other seats hold
+ * theirs as a fan, face down.
  */
-export function layoutHands(T, reservePx) {
+export function layoutHands(T, reservePx, up) {
   const mine = myHand(T.me), n = mine.length, ui = table.ui;
   if (n) {
     const d = 0.5;
     const hh = d * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / camera.zoom, hw = hh * camera.aspect;
     const rows = n > 6 && camera.aspect < 0.9 ? 2 : 1;
     const perRow = Math.ceil(n / rows);
-    let s = ((rows === 2 ? 0.13 : 0.14) * 2 * hh) / CH, spacing = CW * s * 0.74;
+    const down = 1 - up;
+    let s = ((rows === 2 ? 0.13 : 0.14) + 0.08 * up) * 2 * hh / CH, spacing = CW * s * 0.74;
     const total = CW * s + spacing * (perRow - 1), maxW = hw * 2 * 0.92;
     if (total > maxW) { const f = maxW / total; s *= f; spacing *= f; }
     const px = (2 * hh) / innerHeight;
-    // between your turns the hand drops to a peek (corner numbers showing), leaving the table clear
-    const baseY = -hh + reservePx * px + (CH * s) / 2 - table.peek * CH * s * (rows === 2 ? 1.1 : 0.68) - reservePx * px * 0.55 * table.peek;
+    const baseY = -hh + reservePx * px + (CH * s) / 2 - down * CH * s * (rows === 2 ? 1.1 : 0.68) - reservePx * px * 0.55 * down;
     for (let i = 0; i < n; i++) {
       const b = mine[i], row = rows === 2 && i >= perRow ? 1 : 0, j = row ? i - perRow : i;
       const inRow = rows === 2 ? (row ? n - perRow : perRow) : n, t = j - (inRow - 1) / 2;
@@ -310,7 +311,6 @@ export function updateAuctionTable(dt) {
   const mesh = table.mesh;
   if (!mesh.visible) return;
   const k = 1 - Math.exp(-dt * 10);
-  table.peek += ((table.ui.enabled ? 0 : 1) - table.peek) * (1 - Math.exp(-dt * 7));
   for (const b of table.bodies) {
     b.mover.update(dt);
     if (b.hidden) { mesh.setMatrixAt(b.i, ZERO); continue; }

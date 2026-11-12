@@ -9,6 +9,7 @@ import { buildAuctionTable, updateAuctionTable } from './render/auctionTable.js'
 import { buildPlayerArm, updatePlayerArm, arm } from './render/playerArm.js';
 import { buildDiceTable, updateDiceTable, table as diceTable } from './render/diceTable.js';
 import { rig, updateCamera, fitToViewport, lookFromPointer, lookByDelta, centerLook } from './render/camera.js';
+import { handPointer } from './modes/hand.js';
 import { dampVec3 } from './render/motion.js';
 import { audio } from './audio.js';
 import * as ui from './ui.js';
@@ -122,7 +123,7 @@ addEventListener('pointermove', (e) => {
   pointer.moved = true;
   if (e.pointerType === 'mouse') {
     pointer.touch = false;
-    if (onCanvas && !settings.paused && ui.topOverlay() == null) lookFromPointer(pointer.ndc.x, -pointer.ndc.y);
+    if (onCanvas && !settings.paused && ui.topOverlay() == null) { lookFromPointer(pointer.ndc.x, -pointer.ndc.y); handPointer(-pointer.ndc.y); }
   } else if (pointer.touchLook && pointer.touchLook.id === e.pointerId) {
     const tl = pointer.touchLook, dx = e.clientX - tl.x, dy = e.clientY - tl.y;
     if (Math.hypot(e.clientX - tl.x0, e.clientY - tl.y0) > 8) tl.dragging = true;
