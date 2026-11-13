@@ -331,7 +331,12 @@ function syncControls(T) {
   const have = myCount(T, choice.face);
   if (!b) ui.setHint(`Your opening bid. You hold <b>${have}</b> that count as ${FACES[choice.face]}. ${spaceHint()}`);
   else if (o.mustChallenge) ui.setHint(`<b>${T.name(b.seat)}</b> bid ${bidText(b.quantity, b.face)}. Nothing tops it: call it.`);
-  else ui.setHint(`<b>${T.name(b.seat)}</b> bid ${bidText(b.quantity, b.face)}. Raise, or call. You hold <b>${have}</b> ${choice.face === 1 ? '' : `that count as ${FACES[choice.face]}`}. ${spaceHint()}`);
+  else {
+    // what you hold of the bid's face decides a call; the picker's face, if another, is your raise
+    const count = (f) => `<b>${myCount(T, f)}</b> ${f === 1 ? FACES[1] : `that count as ${FACES[f]}`}`;
+    const pick = choice.face === b.face ? '' : ` Your pick: ${count(choice.face)}.`;
+    ui.setHint(`<b>${T.name(b.seat)}</b> bid ${bidText(b.quantity, b.face)}. You hold ${count(b.face)}. Raise, or call.${pick} ${spaceHint()}`);
+  }
   myDice(T);
 }
 function hideControls() { $('#dice-actions').hidden = true; }

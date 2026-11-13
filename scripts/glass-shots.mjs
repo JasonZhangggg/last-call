@@ -24,7 +24,9 @@ await page.evaluate(() => {
     if (L.settings.paused) return;
     const mine = L.arm.root.visible && L.arm.grasp === 'glass';
     const ch = Object.values(L.D.characters).find((c) => c.group.visible && c.grasp === 'glass' && c.env.reach > 0.5);
-    const key = mine ? `me-${L.arm.mover.flying ? 'move' : 'still'}` : ch ? `ch-${ch.env.reach > 0.95 ? 'at' : 'going'}` : '';
+    const V = L.camera.position.constructor, h = new V(), d = new V();
+    const sip = ch && ch.arm.hand.getWorldPosition(h).y > ch.head.getWorldPosition(d).y - 0.3;
+    const key = mine ? `me-${L.arm.mover.flying ? 'move' : 'still'}` : ch ? `ch-${sip ? 'sip' : ch.env.reach > 0.95 ? 'at' : 'going'}` : '';
     if (key && key !== last) { L.settings.paused = true; window.__cap = `${String(++n).padStart(2, '0')}-${key}`; }
     last = key;
   }, 40);

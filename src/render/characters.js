@@ -800,7 +800,7 @@ const reachLimit = (d) => (d <= REACH_KNEE ? d : REACH_KNEE + (REACH_MAX - REACH
 
 /** Two-bone IK from the shoulder to the wrist the hand pose implies, elbow bent toward `pole`. */
 /** How far a wrist bends off the line of the forearm, at most. */
-const WRIST_MAX = 0.75;
+const WRIST_MAX = 0.75, ELBOW_SWAY = 0.6;
 /**
  * `fore` is the hand's own direction up its forearm, in the hand's frame. The elbow swings toward
  * where the hand says the forearm should come from, so the wrist stays nearly straight, and what
@@ -817,7 +817,13 @@ function solveArm(arm, wrist, fore, pole) {
   _x.copy(fore).applyQuaternion(quat).multiplyScalar(L2).add(_W).sub(_S);
   _x.addScaledVector(_d, -_x.dot(_d));
   _n.copy(pole).addScaledVector(_d, -pole.dot(_d)).normalize();
-  if (_x.lengthSq() > 1e-8) _n.addScaledVector(_x.normalize(), 1.4).normalize();
+  // swing the elbow round the shoulder-wrist line toward that, but only so far: past ELBOW_SWAY it
+  // would fold in through the chest or out behind the back
+  if (_x.lengthSq() > 1e-8) {
+    _x.normalize();
+    const swing = Math.atan2(_y.crossVectors(_n, _x).dot(_d), _n.dot(_x));
+    _n.applyAxisAngle(_d, clamp(swing, -ELBOW_SWAY, ELBOW_SWAY));
+  }
   _E.copy(_S).addScaledVector(_d, cosA * L1).addScaledVector(_n, sinA * L1);
   boneQuat(_S, _E, _n, _q2); arm.upper.quaternion.copy(_q2);
   boneQuat(_E, _W, _n, _q3); arm.fore.quaternion.copy(_q2).invert().multiply(_q3);
