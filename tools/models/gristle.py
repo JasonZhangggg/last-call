@@ -25,6 +25,10 @@ EYE = V(-0.06, 0.035, 0.132)
 BODY = Body('gristle', arm=dict(shoulder=0.06, elbow=0.05, wrist=0.04, gap=0.018), palm=(0.046, 0.05, 0.022), finger_r=0.0098,
             temple=V(-0.156, 0.065, 0.025), mouth=V(0, -0.058, 0.166), shoulder=0.222,
             bones=[('lid', 'head', H + EYE), ('jaw', 'head', H + V(0, -0.025, 0.005))])
+# his cuffs are deeper than Brass's: the forearms rest a little higher on the table
+for side in 'RL':
+    space, pos, quat, pole = BODY.REST[side]
+    BODY.REST[side] = (space, pos + V(0, 0.008, 0), quat, pole)
 REST, LIMP, REACH, AIM, FAN, sip = BODY.REST, BODY.LIMP, BODY.REACH, BODY.AIM, BODY.FAN, BODY.sip
 COLOURS = dict(coat=(0.13, 0.2, 0.33), facing=(0.56, 0.14, 0.13), skin=(0.84, 0.6, 0.48), beard=(0.66, 0.27, 0.11), leather=(0.08, 0.06, 0.05),
                linen=(0.93, 0.89, 0.83), felt=(0.07, 0.07, 0.09), eyeball=(0.1, 0.05, 0.03), eye=(1, 0.35, 0.14), brass=(0.85, 0.64, 0.27))

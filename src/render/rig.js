@@ -44,7 +44,7 @@ const L1 = 0.27, L2 = 0.26;
 export const TORSO = { y0: -0.22, y1: 0.2, rx: 0.243, rz: 0.194, ry: 0.17 };
 export const HEAD = { half: new THREE.Vector3(0.135, 0.12, 0.115), round: 0.02 };
 // What else differs between the rigged bodies, by node and material name; a design's `rig` overrides it.
-const FACE = { eye: 'lens', glow: ['tip'], lids: ['lid'], lidOpen: -0.25, lidClosed: Math.PI / 2 - 0.05, parts: ['needle'], torso: TORSO, head: HEAD };
+const FACE = { eye: 'lens', glow: ['tip'], lids: ['lid'], lidOpen: -0.25, lidClosed: Math.PI / 2 - 0.05, parts: ['needle'], torso: TORSO, head: HEAD, reachLift: 0.006 };
 // the shapes of the character being posed
 let TS = TORSO, HS = HEAD;
 const UPPER_R = 0.046, ELBOW_R = 0.056, FORE_R = 0.043, WRIST_R = 0.037, GLASS_R = 0.024, BARREL_R = 0.014, FINGER_FLOOR = 0.016;
@@ -172,7 +172,7 @@ export function buildRigged(key, design, group) {
   const rig = {
     root, mixer, idle, layer, shape, chest, head, hips: node('hips'), mouth: node('mouth'),
     targets: { restR: node('rest_r'), restL: node('rest_l'), aim: node('aim'), fan: node('fan_hold'), fanUp: node('fan_up') },
-    sip: { hold: 0, tip: 0, was: 0 }, fanFloor: 0, colliders: { TORSO: F.torso, HEAD: F.head },
+    sip: { hold: 0, tip: 0, was: 0 }, fanFloor: 0, colliders: { TORSO: F.torso, HEAD: F.head }, reachLift: F.reachLift,
   };
   rig.fanFloor = node('fan_hold').position.y - 0.01;
   rig.post = [node('spine'), node('neck'), head, right.upper, right.fore, right.wristBone, left.upper, left.fore, left.wristBone];
@@ -360,7 +360,7 @@ export function updateRig(ch, dt, t, tx, sway, drift) {
   pull(rig, R, rig.targets.restR, (1 - L.reach.w) * (1 - L.aim.w) * (1 - glassW) * (1 - L.slump.w));
   const reach = smoothstep(0.5, 0.97, E.reach) * live;
   if (reach > 0.001) {
-    _tp.copy(ch.reachTarget); _tp.y += 0.006; _tp.applyMatrix4(_inv);
+    _tp.copy(ch.reachTarget); _tp.y += rig.reachLift; _tp.applyMatrix4(_inv);
     _tq.setFromRotationMatrix(_inv).multiply(ch.reachQuat);
     R.pos.lerp(_tp, reach); R.quat.slerp(_tq, reach);
   }
