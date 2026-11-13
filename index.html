@@ -201,7 +201,7 @@ body:not(.in-game) .hud.game-only { opacity: 0; }
 .overlay.light { background: radial-gradient(ellipse at 50% 45%, rgba(10, 5, 2, 0.35), rgba(5, 2, 1, 0.82)); }
 .sheet { margin: auto; width: min(100%, 560px); display: grid; gap: 18px; text-align: center; transition: transform .6s var(--ease-out), opacity .5s; }
 .overlay.fade .sheet { transform: translateY(14px) scale(0.985); }
-.overlay.covered { background: transparent; }
+.overlay.covered { background: transparent; pointer-events: none; }
 .overlay.covered .sheet { opacity: 0; transform: scale(0.97); pointer-events: none; }
 .sheet h1 { font-family: var(--display); font-weight: 900; font-size: clamp(46px, 10vw, 104px); letter-spacing: 0.08em; line-height: 0.95; margin: 0; color: var(--ink); text-wrap: balance; }
 .sheet h1 .gild, #end-title { background: linear-gradient(180deg, #fff6df 0%, #f3d79a 45%, #d8a446 72%, #9a6a26 100%); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 4px 24px rgba(216, 164, 70, 0.28)) drop-shadow(0 2px 2px rgba(0, 0, 0, 0.8)); }

@@ -69,10 +69,15 @@ export function closeOverlay(id) {
   }
 }
 export const topOverlay = () => stack[stack.length - 1] || null;
-// Sheets under the top overlay step back so two panels never read through each other.
+// Sheets under the top overlay step back so two panels never read through each other, and stop
+// taking clicks; the last one opened sits above the rest whatever its place in the page.
 function syncCovered() {
   const top = topOverlay();
-  for (const o of document.querySelectorAll('.overlay')) o.classList.toggle('covered', top != null && o.id !== top && !o.classList.contains('fade'));
+  for (const o of document.querySelectorAll('.overlay')) {
+    o.classList.toggle('covered', top != null && o.id !== top && !o.classList.contains('fade'));
+    const i = stack.indexOf(o.id);
+    o.style.zIndex = i >= 0 ? String(10 + i) : '';
+  }
 }
 export const isOpen = (id) => stack.includes(id);
 
