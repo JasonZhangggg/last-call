@@ -151,7 +151,7 @@ if (args.mode === 'auction') {
       });
       if (p.end) break;
       await shootTable();
-      if (p.mark !== last) { last = p.mark; still = 0; } else if ((still += tableShot ? 1 : 0.05) > 30) throw new Error(`soak stalled at ${p.mark}`);
+      if (p.mark !== last) { last = p.mark; still = 0; } else if ((still += tableShot ? 1 : 0.05) > 30) throw new Error(`soak stalled at ${p.mark}\n${problems.join('\n')}`);
       await page.waitForTimeout(tableShot ? 10000 : 500);
     }
     const s = await state();

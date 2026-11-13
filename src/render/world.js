@@ -361,7 +361,7 @@ function buildTable() {
   // one by each seat, in view order (0 is yours)
   const mugAt = [[0.5, 0.62, 0.4], [-0.78, -0.05, 2.2], [0.3, -0.8, -1.2], [0.82, 0.25, -2.4]].map(([x, z, r]) => [[x, 0, z], [0, r, 0]]);
   world.mugs = [instanced(mug, mats.pewter, mugAt, { cast: true }), instanced(foam, new THREE.MeshStandardMaterial({ color: 0xe9dcc0, roughness: 0.9 }), mugAt)];
-  for (const im of world.mugs) im.userData.at = mugAt.map((_, i) => im.getMatrixAt(i, new THREE.Matrix4()));
+  for (const im of world.mugs) im.userData.at = mugAt.map((_, i) => { const m = new THREE.Matrix4(); im.getMatrixAt(i, m); return m; });
 }
 
 const NO_MUG = new THREE.Matrix4().makeScale(0, 0, 0);
