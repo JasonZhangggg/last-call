@@ -148,7 +148,8 @@ function buildRoom() {
   // A raised panel: bevelled slab, instanced around the room.
   const slab = new THREE.CylinderGeometry(0.62, 0.7071, 0.035, 4, 1); slab.rotateY(Math.PI / 4); slab.rotateX(Math.PI / 2);
   worldUV(slab, 1.6);
-  instanced(slab, panelWood, panels, { receive: true });
+  // a copy of the panel wood: one material on instanced and plain meshes rebuilds its program state each frame
+  instanced(slab, panelWood.clone(), panels, { receive: true });
   wood.build(scene, { receive: true });
   const paper = new THREE.MeshStandardMaterial({ map: canvasTex(damaskCanvas(256), { repeat: [1, 1] }), roughness: 0.85 });
   paper.map.wrapS = paper.map.wrapT = THREE.RepeatWrapping;

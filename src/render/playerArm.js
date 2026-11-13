@@ -36,7 +36,8 @@ export function buildPlayerArm() {
   // forearm along +y from the wrist; the group is pointed at the shoulder every frame
   const fore = new THREE.Group(); camera.add(fore);
   const along = (mesh, from, len) => { mesh.position.y = from + len / 2; fore.add(mesh); return mesh; };
-  along(new THREE.Mesh(new THREE.CapsuleGeometry(0.029, 0.2, 4, 12), skin), -0.005, 0.24);
+  // its own copy of the skin: sharing one with the morphed hand rebuilds its program state each frame
+  along(new THREE.Mesh(new THREE.CapsuleGeometry(0.029, 0.2, 4, 12), skin.clone()), -0.005, 0.24);
   along(new THREE.Mesh(new THREE.CylinderGeometry(0.041, 0.043, 0.035, 18), linen), 0.15, 0.035);
   along(new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.06, 1, 18), cloth), 0.18, 1);
   for (const m of [arm.hand, ...fore.children]) m.castShadow = true;
