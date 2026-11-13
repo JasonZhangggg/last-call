@@ -22,7 +22,7 @@ class FakeClock {
 
 // Plays a whole game with one person who acts only on its own prompts, and checks after every
 // message that the client mirror equals the server's snapshot for that seat.
-function playMirrored(variant, seed) {
+function playMirrored(variant, seed, players = 4) {
   const clock = new FakeClock(), rng = mulberry32(seed);
   const inbox = [];
   const room = new Room({ code: 'TEST', clock, rng, randomToken: (() => { let n = 0; return () => `t${++n}`; })(), send: (id, m) => inbox.push(structuredClone(m)) });
@@ -56,8 +56,8 @@ function playMirrored(variant, seed) {
     }
   };
   room.receive('c', { type: 'hello', name: 'Ann' });
-  room.receive('c', { type: 'setOptions', options: { variant } });
-  for (const p of ['brass', 'noctua', 'gristle']) room.receive('c', { type: 'addBot', persona: p });
+  room.receive('c', { type: 'setOptions', options: { variant, players } });
+  for (const p of ['brass', 'noctua', 'gristle'].slice(0, players - 1)) room.receive('c', { type: 'addBot', persona: p });
   room.receive('c', { type: 'start' });
   drain();
   for (let i = 0; i < 100_000 && !over; i++) { if (!clock.next()) break; drain(); }
@@ -74,4 +74,11 @@ test('the deck mirror tracks the server snapshot through whole games', () => {
     volleys += devil.volleys;
   }
   assert.ok(volleys > 0, 'a Devil volley was mirrored');
+});
+
+test('the deck mirror tracks two- and three-player tables, their empty seats sitting out', () => {
+  for (let seed = 1; seed <= 6; seed++) for (const players of [2, 3]) {
+    assert.ok(playMirrored('basic', seed, players).checked > 5);
+    assert.ok(playMirrored('devil', seed, players).checked > 5);
+  }
 });

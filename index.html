@@ -154,6 +154,7 @@ body:not(.in-game) .hud.game-only { opacity: 0; }
 .tag.gun .nm::before { background: var(--blood-hi); box-shadow: 0 0 8px var(--blood); }
 .tag.gun .meta { border-color: var(--blood); box-shadow: 0 0 0 1px rgba(196, 64, 44, 0.4), 0 0 20px rgba(196, 64, 44, 0.4); }
 .tag.out { opacity: 0.4; }
+.tag.empty { display: none; }
 .tag.out .nm { text-decoration: line-through; text-decoration-color: rgba(196, 64, 44, 0.8); text-decoration-thickness: 2px; }
 .tag .status { position: absolute; top: 100%; margin-top: 5px; font-size: 12.5px; font-style: italic; color: var(--ink); white-space: nowrap; letter-spacing: 0.03em; text-shadow: 0 1px 4px #000, 0 0 2px #000; }
 .dots::after { content: "..."; display: inline-block; overflow: hidden; vertical-align: bottom; width: 0; animation: dots 1.3s steps(4, end) infinite; }
@@ -338,6 +339,8 @@ input[type=range]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--
 .mini.x { color: var(--blood-hi); }
 .seg.locked button[aria-pressed=false] { opacity: 0.45; }
 .seg button:disabled { cursor: default; }
+.seg button:disabled[aria-pressed=false] { opacity: 0.4; }
+.seg button:disabled:hover { background: transparent; color: var(--ink-dim); }
 .seg.locked button:hover { background: transparent; color: var(--ink-dim); }
 .note { margin: 0; font-size: 14px; line-height: 1.4; color: var(--ink-dim); min-height: 1.4em; text-wrap: pretty; }
 .note.warn { color: var(--blood-hi); }
@@ -762,6 +765,7 @@ body.reduce-motion .recap div { animation: none; opacity: 1; }
     <div class="panel">
       <div class="field"><span id="lbl-solo-mode">Game</span><div class="seg" id="solo-mode-seg" role="group" aria-labelledby="lbl-solo-mode"></div></div>
       <div class="field"><span id="lbl-solo-variant">Rules</span><div class="seg" id="solo-variant-seg" role="group" aria-labelledby="lbl-solo-variant"></div></div>
+      <div class="field"><span id="lbl-solo-players">Players</span><div class="seg" id="solo-players-seg" role="group" aria-labelledby="lbl-solo-players"></div></div>
       <p class="note" id="solo-note"></p>
     </div>
     <div class="menu">
@@ -803,6 +807,7 @@ body.reduce-motion .recap div { animation: none; opacity: 1; }
         <h3 class="panel-h">Table</h3>
         <div class="field"><span id="lbl-mode">Game</span><div class="seg" id="mode-seg" role="group" aria-labelledby="lbl-mode"></div></div>
         <div class="field"><span id="lbl-variant">Rules</span><div class="seg" id="variant-seg" role="group" aria-labelledby="lbl-variant"></div></div>
+        <div class="field"><span id="lbl-players">Players</span><div class="seg" id="players-seg" role="group" aria-labelledby="lbl-players"></div></div>
         <div class="field"><span id="lbl-timer">Turn timer</span><div class="seg" id="timer-seg" role="group" aria-labelledby="lbl-timer"></div></div>
         <p class="note" id="lobby-note"></p>
       </div>

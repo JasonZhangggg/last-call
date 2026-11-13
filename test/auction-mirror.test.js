@@ -22,7 +22,7 @@ class FakeClock {
 
 // Plays a whole game with one person who acts only on its own prompts, reading only the mirror,
 // and checks after every message that the mirror equals the server's snapshot for that seat.
-function playMirrored(seed) {
+function playMirrored(seed, players = 4) {
   const clock = new FakeClock(), rng = mulberry32(seed);
   const inbox = [];
   const room = new Room({ code: 'TEST', clock, rng, randomToken: (() => { let n = 0; return () => `t${++n}`; })(), send: (id, m) => inbox.push(structuredClone(m)) });
@@ -56,8 +56,8 @@ function playMirrored(seed) {
     }
   };
   room.receive('c', { type: 'hello', name: 'Ann' });
-  room.receive('c', { type: 'setOptions', options: { mode: 'auction', variant: 'classic' } });
-  for (const p of ['brass', 'noctua', 'gristle']) room.receive('c', { type: 'addBot', persona: p });
+  room.receive('c', { type: 'setOptions', options: { mode: 'auction', variant: 'classic', players } });
+  for (const p of ['brass', 'noctua', 'gristle'].slice(0, players - 1)) room.receive('c', { type: 'addBot', persona: p });
   room.receive('c', { type: 'start' });
   drain();
   for (let i = 0; i < 200_000 && !over; i++) { if (!clock.next()) break; drain(); }
@@ -76,6 +76,10 @@ test('the auction mirror tracks the server snapshot through whole games', () => 
   assert.equal(total.scoring, 40, 'every game was scored');
   assert.ok(total.mine > 200, `you bid often (${total.mine})`);
   assert.ok(total.spilled > 3, `Spilled Ale cost someone a curio (${total.spilled})`);
+});
+
+test('the auction mirror tracks a three-player table, its empty seat sitting out', () => {
+  for (let seed = 1; seed <= 15; seed++) assert.ok(playMirrored(seed, 3).checked > 20);
 });
 
 test('the cheapest raise is the smallest total that beats the high bid', () => {

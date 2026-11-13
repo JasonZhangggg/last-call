@@ -5,6 +5,7 @@ import { audio } from './audio.js';
 import { quality, setQualityMode } from './render/core.js';
 import { rig } from './render/camera.js';
 import { clearBlood } from './render/blood.js';
+import { MAX_SEATS, MIN_PLAYERS, seatPlan } from './net/protocol.js';
 
 
 const tags = [];
@@ -183,6 +184,8 @@ export function setSeatNames(names, connected) {
     tags[v].el.classList.toggle('away', !connected[v]);
   }
 }
+/** Hides the tag over a chair nobody sits in this game. */
+export function setSeatEmpty(v, empty) { tags[v]?.el?.classList.toggle('empty', empty); }
 export function resetSeats() { for (const t of tags) { t.lastPulls = -1; } }
 export function setStatus(seat, html) { if (tags[seat]?.status) tags[seat].status.innerHTML = html || ''; }
 export function say(seat, text, ms = 2400) {
@@ -351,7 +354,7 @@ export function setNet(text) {
 
 /* ---------- lobby ---------- */
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-const segButtons = (items, value) => items.map(({ v, label }) => `<button type="button" data-v="${esc(v)}" aria-pressed="${String(v) === String(value)}">${esc(label)}</button>`).join('');
+const segButtons = (items, value) => items.map(({ v, label, title }) => `<button type="button" data-v="${esc(v)}" aria-pressed="${String(v) === String(value)}"${title ? ` title="${esc(title)}"` : ''}>${esc(label)}</button>`).join('');
 /** A segmented control whose buttons change with the table; `onPick(value)` fires on a click. */
 function liveSeg(id, onPick) {
   $(`#${id}`).addEventListener('click', (e) => {
@@ -362,9 +365,14 @@ function liveSeg(id, onPick) {
 function fillSeg(id, items, value, disabled = false) {
   const el = $(`#${id}`), html = segButtons(items, value);
   if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
-  for (const b of el.querySelectorAll('button')) b.disabled = disabled;
+  el.querySelectorAll('button').forEach((b, i) => { b.disabled = disabled || !!items[i]?.off; });
   el.classList.toggle('locked', disabled);
 }
+/** The table sizes, 2 to 4: those below `least` greyed out, with `why` on hover. */
+const sizeItems = (least, why) => Array.from({ length: MAX_SEATS - MIN_PLAYERS + 1 }, (_, i) => {
+  const n = MIN_PLAYERS + i;
+  return { v: n, label: String(n), off: n < least, title: n < least ? why(n) : '' };
+});
 
 let lobbyActions = null;
 /** Binds the lobby's controls once. `actions` has addBot, removeBot(seat), setOptions(patch), ready(on), start, leave, copy. */
@@ -373,6 +381,7 @@ export function initLobby(actions) {
   liveSeg('mode-seg', (mode) => actions.setOptions({ mode }));
   liveSeg('variant-seg', (variant) => actions.setOptions({ variant }));
   liveSeg('timer-seg', (s) => actions.setOptions({ turnSeconds: +s }));
+  liveSeg('players-seg', (n) => actions.setOptions({ players: +n }));
   $('#lobby-seats').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     audio.uiClick();
@@ -398,9 +407,11 @@ export function renderLobby(L, me, { modes, label, variantLabel, note, connectin
     return;
   }
   const host = L.host === me, opt = L.options;
+  const taken = L.seats.map((x) => x.kind !== 'empty'), seated = taken.filter(Boolean).length;
+  const plan = new Set(seatPlan(taken, L.host, Math.max(opt.players ?? MAX_SEATS, seated)));
   const rows = L.seats.map((x, s) => {
     const you = s === me, isHost = s === L.host;
-    if (x.kind === 'empty') return `<li class="seat empty"><i class="dot"></i><span class="nm">Open seat</span><span class="st">Bot at the start</span>${host ? `<button class="mini" type="button" data-add="${s}">Add a bot</button>` : ''}</li>`;
+    if (x.kind === 'empty') return `<li class="seat empty"><i class="dot"></i><span class="nm">${plan.has(s) ? 'Open seat' : 'Empty chair'}</span><span class="st">${plan.has(s) ? 'Bot at the start' : 'Stays empty'}</span>${host ? `<button class="mini" type="button" data-add="${s}">Add a bot</button>` : ''}</li>`;
     const bot = x.kind === 'bot';
     const tags = [you && 'You', isHost && 'Host', bot && 'Bot'].filter(Boolean).join(' · ');
     const st = bot ? 'Ready' : !x.connected ? 'Away' : isHost ? 'Hosting' : x.ready ? 'Ready' : 'Not ready';
@@ -413,6 +424,9 @@ export function renderLobby(L, me, { modes, label, variantLabel, note, connectin
   const cur = modes.find((m) => m.mode === opt.mode);
   fillSeg('variant-seg', (cur?.variants || [opt.variant]).map((v) => ({ v, label: variantLabel(opt.mode, v) })), opt.variant, !host);
   fillSeg('timer-seg', [15, 30, 60, 90].map((v) => ({ v, label: `${v} s` })), opt.turnSeconds, !host);
+  const least = cur?.minPlayers ?? MIN_PLAYERS;
+  const sizes = sizeItems(Math.max(least, seated), (n) => (n < least ? `${label(opt.mode)} needs at least ${least} players` : `${seated} are already seated`));
+  fillSeg('players-seg', sizes, opt.players ?? MAX_SEATS, !host);
   const waiting = L.seats.filter((x, s) => x.kind === 'human' && x.connected && s !== L.host && !x.ready).map((x) => x.name);
   const playable = !!cur?.playable;
   let line = note(opt.mode, opt.variant);
@@ -433,21 +447,25 @@ export function renderLobby(L, me, { modes, label, variantLabel, note, connectin
 }
 
 /* ---------- solo picker ---------- */
-/** The solo sheet: mode and variant first, then Deal me in. `onStart({ mode, variant })`. */
+/** The solo sheet: mode, variant and table size, then Deal me in. `onStart({ mode, variant, players })`; session.js lifts players to the mode's minimum. */
 export function initSolo({ modes, label, variantLabel, note }, onStart) {
   const pick = store.get('solo', { mode: 'deck', variant: 'basic' });
+  if (![2, 3, 4].includes(pick.players)) pick.players = MAX_SEATS;
   const draw = () => {
     const cur = modes.find((m) => m.mode === pick.mode) || modes[0];
     if (!cur.variants.includes(pick.variant)) pick.variant = cur.variants[0];
     fillSeg('solo-mode-seg', modes.map((m) => ({ v: m.mode, label: label(m.mode) })), cur.mode);
     fillSeg('solo-variant-seg', cur.variants.map((v) => ({ v, label: variantLabel(cur.mode, v) })), pick.variant);
+    const least = cur.minPlayers ?? MIN_PLAYERS;
+    fillSeg('solo-players-seg', sizeItems(least, () => `${label(cur.mode)} needs at least ${least} players`), Math.max(pick.players, least));
     $('#solo-note').textContent = cur.playable ? note(cur.mode, pick.variant) : `${label(cur.mode)} is coming in the next update.`;
     $('#solo-note').classList.toggle('warn', !cur.playable);
     $('#solo-start-btn').disabled = !cur.playable;
   };
   liveSeg('solo-mode-seg', (mode) => { pick.mode = mode; store.set('solo', pick); draw(); });
   liveSeg('solo-variant-seg', (variant) => { pick.variant = variant; store.set('solo', pick); draw(); });
-  $('#solo-start-btn').addEventListener('click', () => onStart({ mode: pick.mode, variant: pick.variant }));
+  liveSeg('solo-players-seg', (n) => { pick.players = +n; store.set('solo', pick); draw(); });
+  $('#solo-start-btn').addEventListener('click', () => onStart({ mode: pick.mode, variant: pick.variant, players: pick.players }));
   draw();
 }
 

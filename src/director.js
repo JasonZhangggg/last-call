@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { wait, settings } from './util.js';
 import { audio } from './audio.js';
 import * as ui from './ui.js';
-import { headWorld, resetCharacter, SEAT_RADIUS } from './render/characters.js';
+import { headWorld, resetCharacter, setPresent, SEAT_RADIUS } from './render/characters.js';
 import { rig, focusOn } from './render/camera.js';
 import { MODES } from './modes/index.js';
 
@@ -52,6 +52,8 @@ export const T = {
   get rushing() { return D.queue.length > 2; },
   view, seatAt,
   isMe: (seat) => seat === D.me,
+  /** The seat sits this game out: an empty chair, with nothing on the table in front of it. */
+  absent: (seat) => !!D.shown?.absent?.[seat],
   name: (seat) => (seat === D.me ? 'You' : D.info[seat]?.name || `Seat ${seat + 1}`),
   char: (seat) => D.viewChars[view(seat)],
   design: (seat) => D.designOf[seat],
@@ -187,6 +189,7 @@ async function playState(msg) {
   if (D.mode !== mode || fresh || D.phase === 'idle') enterTable(mode);
   D.phase = msg.phase;
   D.shown = structuredClone(msg.game);
+  seatPresence();
   D.prompt = null; D.actor = null; D.watch = null;
   ui.setCountdown(null); ui.hideActions();
   D.out = D.me != null && mode.isOut?.(T, D.me) && !fresh;
@@ -226,6 +229,15 @@ function enterTable(mode) {
   mode.enter(T);
 }
 
+/** Empty chairs for the seats nobody plays this game; every other seat gets its character back. */
+function seatPresence() {
+  for (let v = 1; v < 4; v++) {
+    const empty = T.absent(seatAt(v));
+    setPresent(D.viewChars[v], !empty);
+    ui.setSeatEmpty(v, empty);
+  }
+}
+
 function seatCharacter(ch, angle) {
   ch.group.position.set(Math.cos(angle) * SEAT_RADIUS, 0, Math.sin(angle) * SEAT_RADIUS);
   ch.group.lookAt(0, 0, 0);
@@ -242,7 +254,8 @@ export function leaveTable() {
   focusOn(null); rig.zoomTarget = 1; rig.rollTarget = 0; rig.leanTarget = 0;
   if (D.mode) D.mode.exit(T);
   D.mode = null; D.phase = 'idle';
-  for (const ch of Object.values(D.characters)) resetCharacter(ch);
+  for (const ch of Object.values(D.characters)) { resetCharacter(ch); setPresent(ch, true); }
+  for (let v = 1; v < 4; v++) ui.setSeatEmpty(v, false);
   ui.setInGame(false);
 }
 
@@ -310,6 +323,7 @@ export function humanLookTarget(v, l, camera, out) {
   if (l.hand === 'up' && ch.handAnchor.children.length) return ch.handAnchor.getWorldPosition(out);
   let best = LOOK_SNAP, hit = 0;
   for (let u = 1; u < 4; u++) {
+    if (T.absent((s + u) % 4)) continue; // views from their chair: u is seat s + u
     _p.subVectors(headWorld(D.viewChars[u], _p), rig.seat);
     const yaw = Math.atan2(-_p.x, -_p.z), pitch = Math.atan2(_p.y, Math.hypot(_p.x, _p.z));
     const miss = Math.hypot(wrap(yaw - l.yaw), 2 * (pitch - l.pitch));

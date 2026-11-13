@@ -25,7 +25,7 @@ const ZERO_SCALE = new THREE.Vector3(0, 0, 0), ONE = new THREE.Vector3(1, 1, 1),
 export const table = {
   group: null, built: false,
   spots: [], // per view: { at, yaw, right, out, tray, trayQuat }
-  cups: [], dice: [], glasses: [],
+  cups: [], dice: [], glasses: [], empty: [false, false, false, false], // empty: a view whose seat sits the game out
   held: null, heldLiquid: null, heldMover: null,
   meshes: {},
 };
@@ -204,6 +204,19 @@ export function buildDiceTable() {
 }
 
 /** Per-view frames on the felt from each seat's angle around the table (radians, as cos/sin of x/z). */
+/** A seat nobody plays this game: no cup and no tray of glasses in front of its chair. */
+export function setSeatEmpty(v, empty) {
+  if (table.empty[v] === empty) return;
+  table.empty[v] = empty; table.cups[v].hidden = empty;
+  writeTray(v); writeGlasses(v);
+}
+function writeTray(v) {
+  const M = table.meshes, s = table.spots[v];
+  _m.compose(s.tray, s.quat, table.empty[v] ? ZERO_SCALE : ONE);
+  M.trayWood.setMatrixAt(v, _m); M.trayBrass.setMatrixAt(v, _m);
+  M.trayWood.instanceMatrix.needsUpdate = true; M.trayBrass.instanceMatrix.needsUpdate = true;
+}
+
 export function layoutSeats(angles) {
   table.spots = angles.map((a, v) => {
     const out = new THREE.Vector3(Math.cos(a), 0, Math.sin(a)), right = new THREE.Vector3(out.z, 0, -out.x);
@@ -216,8 +229,7 @@ export function layoutSeats(angles) {
   const M = table.meshes;
   for (let v = 0; v < 4; v++) {
     const s = table.spots[v];
-    _m.compose(s.tray, s.quat, ONE);
-    M.trayWood.setMatrixAt(v, _m); M.trayBrass.setMatrixAt(v, _m);
+    writeTray(v);
     table.glasses[v].forEach((gl, i) => {
       const lx = ((i % 3) - 1) * 0.056, lz = (Math.floor(i / 3) - 0.5) * 0.056;
       gl.pos.set(lx, 0.012, lz).applyQuaternion(s.quat).add(s.tray);
@@ -327,7 +339,7 @@ function writeGlasses(v) {
   const M = table.meshes, s = table.spots[v];
   table.glasses[v].forEach((gl, i) => {
     const idx = v * GLASSES + i;
-    if (gl.state === 'gone') { _m.compose(gl.pos, s.quat, ZERO_SCALE); M.glass.setMatrixAt(idx, _m); M.liquid.setMatrixAt(idx, _m); return; }
+    if (gl.state === 'gone' || table.empty[v]) { _m.compose(gl.pos, s.quat, ZERO_SCALE); M.glass.setMatrixAt(idx, _m); M.liquid.setMatrixAt(idx, _m); return; }
     if (gl.state === 'spilled') {
       spillPose(v, _s, _q); _m.compose(_s, _q, ONE); M.glass.setMatrixAt(idx, _m);
       _m.compose(gl.pos, s.quat, ZERO_SCALE); M.liquid.setMatrixAt(idx, _m);

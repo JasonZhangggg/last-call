@@ -714,7 +714,7 @@ export function buildCharacter(designKey, angle) {
   const glowMats = [...new Set([face.eyes[0].material, ...face.extraGlow])];
   const tints = [...design.tint, handMat, rightMat].map((m) => ({ m, base: m.color.clone(), sheen: m.sheenColor?.clone() }));
   return {
-    group, waist, upper, neck, head, eyes: face.eyes, handAnchor, leftHand: left.hand,
+    group, chair, waist, upper, neck, head, eyes: face.eyes, handAnchor, leftHand: left.hand,
     arm: right, leftArm: left, fan, fanUp, aimLocal, grip, reachTarget: new THREE.Vector3(), reachQuat: new THREE.Quaternion(),
     grasp: 'gun', glassAt: right.handMesh.userData.glass,
     lids: face.lids, lidOpen: face.lidOpen, lidClosed: face.lidClosed,
@@ -741,7 +741,7 @@ function riggedCharacter(designKey, design, group) {
   const body = buildRigged(designKey, design, group);
   const chair = new THREE.Mesh(chairGeometry(), mats.chair); chair.castShadow = true; chair.receiveShadow = true; group.add(chair);
   return {
-    group, ...body, design, reachTarget: new THREE.Vector3(), reachQuat: new THREE.Quaternion(), grasp: 'gun',
+    group, chair, ...body, design, reachTarget: new THREE.Vector3(), reachQuat: new THREE.Quaternion(), grasp: 'gun',
     tints: design.tint.map((m) => ({ m, base: m.color.clone(), sheen: m.sheenColor?.clone() })), tintAt: 0,
     glow: [body.eyeMat, ...body.extraGlow].map((m) => ({ m, base: m.emissiveIntensity })),
     ...freshState(),
@@ -751,6 +751,10 @@ function riggedCharacter(designKey, design, group) {
 export function react(ch, kind, on = true) {
   if (kind === 'flinch') { ch.flinchT = 0; ch.flinchFrom = ch.env.flinch; return; }
   ch.target[kind] = on ? 1 : 0;
+}
+/** Sits the character in its chair, or leaves the chair empty for a seat nobody plays this game. */
+export function setPresent(ch, on) {
+  for (const o of ch.group.children) if (o !== ch.chair) o.visible = on;
 }
 export function resetCharacter(ch) {
   for (const k of Object.keys(ch.target)) ch.target[k] = 0;
