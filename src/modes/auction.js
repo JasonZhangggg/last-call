@@ -8,6 +8,7 @@ import * as ui from '../ui.js';
 import { camera } from '../render/core.js';
 import { react, tell } from '../render/characters.js';
 import { rig, focusOn } from '../render/camera.js';
+import { smoothDamp } from '../render/motion.js';
 import { gun } from '../render/gun.js';
 import { setDeckSize, gatherToDeck } from '../render/cards.js';
 import { table, MONEY, STATUS_BASE, showTable, setGilded, setGlow, setTint, setStatusFace, sendTo, flyTo, layoutHands, pickMoney, myHand, easelPoint, bidPoint } from '../render/auctionTable.js';
@@ -56,7 +57,8 @@ const GLOW = { curio: 0xffc66a, favour: 0xffd27a, ale: 0xff5a3a, debt: 0xff5a3a,
 
 let me = null;
 let pending = null; // your turn's options while the controls are up
-let entered = false;
+let entered = false, actionsEl = null;
+const band = { k: 0, v: 0, px: 0 }; // how far your turn's controls fill the bottom band, eased
 const _o = new THREE.Object3D(), LOOK_DOWN = new THREE.Vector3(0, -0.32, 0.25);
 
 /* ---------- which body is which ---------- */
@@ -132,14 +134,22 @@ function wonSummary(g, s) {
   if (g.aleOwed[s]) h += '<span class="w bad" title="Spilled Ale: your next curio is discarded">ale</span>';
   return `<span class="won">${h}</span>`;
 }
+/** A seat's stake in the auction under way: "high 12 8+4", "bid 6", "passed" or "no bid". */
+function bidLine(g, s) {
+  if (g.passed[s]) return '<span class="passed">passed</span>';
+  const b = g.bids[s];
+  if (!b.length) return '<span class="nobid">no bid</span>';
+  const lead = leader(g) === s, notes = b.length > 1 ? `<span class="notes">${[...b].sort((x, y) => y - x).join('+')}</span>` : '';
+  return `<span class="bid${lead ? ' lead' : ''}">${lead ? 'high' : 'bid'} <b>${bidOf(g, s)}</b></span>${notes}`;
+}
 /** What each seat's tag (and your own card) says: its bid or purse, and what it has won. */
 function seatLine(T, s) {
-  const g = T.game, sc = g.scoring, bid = g.card && g.bids[s].length ? `<span class="bid">bid ${bidOf(g, s)}</span>` : '';
+  const g = T.game, sc = g.scoring;
   if (T.isMe(s)) {
-    const purse = sc ? sc.money[s] : sum(g.hand);
+    const purse = sc ? sc.money[s] : sum(g.hand), bid = g.card && g.bids[s].length ? `<span class="stake">${bidLine(g, s)}</span>` : '';
     return `<span class="auc me"><span>Purse <b>${purse}</b>${sc?.castOut[s] ? ' · <span class="passed">cast out</span>' : bid ? ` · ${bid}` : ''}</span>${wonSummary(g, s)}</span>`;
   }
-  const state = sc ? `purse <b>${sc.money[s]}</b>` : g.card && g.passed[s] ? '<span class="passed">passed</span>' : bid;
+  const state = sc ? `purse <b>${sc.money[s]}</b>` : g.card ? `<span class="stake">${bidLine(g, s)}</span>` : '';
   return `<span class="auc">${state}${wonSummary(g, s)}</span>`;
 }
 /** The seat tags and the high-bid line. */
@@ -177,11 +187,13 @@ function syncControls(T) {
   const card = `<b>${statusName(g.card)}</b>`;
   const lead = leader(g), hi = o.highBid ? `High bid <b>${o.highBid}</b> (${Name(T, lead)})` : 'No bids yet';
   const yours = o.ownBid ? ` · yours ${o.ownBid}` : '';
-  const pickTxt = add ? ` · picked <b>+${add}</b> = <b>${total}</b>` : '';
+  const pickTxt = add ? ` · picked <b>+${add}</b> = <b>${total}</b>` : o.highBid ? ` · need <b>+${o.highBid - o.ownBid + 1}</b>` : '';
   if (!o.canRaise) ui.setHint(o.disgrace ? `You can't outbid the table. Pass and take ${card}.` : `You can't beat ${o.highBid}. Pass to take your money back.`);
   else if (o.disgrace) ui.setHint(`Avoid ${card}: raise, or pass and take it. ${hi}${yours}${pickTxt} ${spaceHint()}`);
   else ui.setHint(`${hi}${yours}${pickTxt} ${spaceHint()}`);
   syncHandButton();
+  // the controls and the hint over them can wrap to two lines: the resting hand rests on their top
+  band.px = innerHeight - Math.min($('#hint').getBoundingClientRect().top, actionsEl.getBoundingClientRect().top) + 6;
 }
 function toggle(T, value) {
   if (!pending?.canRaise || !table.ui.enabled) return;
@@ -442,7 +454,7 @@ function rebuild(T, { fresh }) {
   setHandUp(false);
   setGlow(0);
   rig.zoomTarget = 1; rig.rollTarget = 0; focusOn(null);
-  for (const b of table.bodies) setTint(b, 1);
+  for (const b of table.bodies) if (b.place !== 'bid') setTint(b, 1);
   setGilded(gildedCount(g), false);
   for (let s = 0; s < 4; s++) if (!T.isMe(s)) react(T.char(s), 'out', !!g.scoring?.castOut[s]);
   // coming in, money is dealt off the top of the stack, not out of wherever it was parked
@@ -469,7 +481,9 @@ export const auctionMode = {
     setDeckSize(0);
     showTable(true);
     document.body.classList.add('mode-auction');
-    bindHand({ holding: () => me != null && myHand(me).length > 0, nudge: () => !!pending?.canRaise, hover: true });
+    actionsEl = $('#auction-actions');
+    // held up, the head stays tipped down so the felt and everyone's bids rise clear of your money
+    bindHand({ holding: () => me != null && myHand(me).length > 0, nudge: () => !!pending?.canRaise, hover: true, lockAt: () => [LOOK_DOWN, 0.5] });
     if (!bound) {
       bound = T;
       $('#auction-bid-btn').addEventListener('click', () => submitBid(bound));
@@ -556,6 +570,7 @@ export const auctionMode = {
   },
   frame(T, reservePx, dt) {
     if (!T.game) return;
-    layoutHands(T, reservePx, stepHand(dt));
+    band.k = smoothDamp(band.k, +!actionsEl.hidden, band, 'v', 0.2, dt);
+    layoutHands(T, reservePx, stepHand(dt), band.k, band.px);
   },
 };
