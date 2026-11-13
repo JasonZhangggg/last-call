@@ -47,7 +47,7 @@ export function outlook(view) {
     curios: sum(curios) * pPlain,
     meanCurio: curios.length ? sum(curios) / curios.length : 0,
     favours: unseen.filter((c) => c.kind === 'favour').length * pGilded,
-    seats: view.players.length,
+    seats: view.players.filter((p) => !p.absent).length,
   };
 }
 
@@ -84,7 +84,7 @@ const purse = (p) => PURSE - sum(p.spent);
 function budget(view, persona, rng) {
   const o = view.options, me = view.players[view.seat], look = outlook(view);
   const mine = sum(view.hand) + o.ownBid;
-  const others = view.players.filter((p) => p.seat !== view.seat).map(purse);
+  const others = view.players.filter((p) => p.seat !== view.seat && !p.absent).map(purse);
   const poorest = Math.min(...others);
   const tie = mine - poorest;
   // Rivals still have auctions to spend in, so early on the reserve sits well under the poorest;

@@ -7,7 +7,13 @@ The model code (`src/model/`) must implement exactly this, and the tests must pi
 
 ## Table
 
-- 2 to 4 seats. [ref] Bots fill empty seats and take over disconnected players. [ours]
+- 2 to 4 seats. [ref] The host picks the table size: 2, 3 or 4 players. At the start, bots fill open
+  seats up to that size. Any seat beyond it stays empty all game: it holds no cards, dice or money, is
+  skipped in turn order, and never wins or loses. Bots take over disconnected players. [ours]
+- The size is never below the number already seated. Someone joining a table at its size takes a bot's
+  seat, or grows the table when no bot sits there. [ours]
+- Two players sit across from each other. Three sit at the host's chair and the two diagonals, 120°
+  apart, when the seats taken allow it. [ours]
 - The host picks a **mode** and a **variant** in the lobby. [ref]
 - The turn timer is 30 s. When it expires, the bot policy acts for that seat. [ref?] [ours]
 - Turn order goes left around the table from the player's view (seat 0 → 1 → 2 → 3). [ours]
@@ -62,7 +68,7 @@ revolver's escalation so the risk feels identical across modes]
 ## Mode: The Gilded Bid (auction)
 
 An auction game for 3 to 5 seats. It follows the classic Knizia auction design, rebuilt with our own names,
-theme and art. Our table seats 4, so bots fill any seat below 3 humans. [ref: 3 to 5] [ours: 4 seats]
+theme and art. Our table seats 4, so the auction plays with 3 or 4. A table of 2 is refused. [ref: 3 to 5] [ours: 4 seats]
 
 **Money.** Every seat starts with the same 11 money cards, kept hidden: 1, 2, 3, 4, 6, 8, 10, 12, 15, 20
 and 25 (crowns). [ref? values] Money spent leaves the game for good. [ref]

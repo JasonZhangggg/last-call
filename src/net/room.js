@@ -11,7 +11,7 @@
 // has elapsed, move the game on) or 'auto' (a bot, a timeout, or a forced call acts for the
 // prompted seat). The timer is serialized, so a restored Room carries on where it stopped.
 import { ENGINES } from './engines.js';
-import { CHAT_BURST, CHAT_HISTORY, CHAT_RATE, DEFAULT_OPTIONS, ERR, FATAL, GAME_ACTIONS, LOOK_BURST, LOOK_RANGE, LOOK_RATE, MAX_SEATS, TURN_SECONDS, cleanName, cryptoRng, parseClientMessage, randomToken } from './protocol.js';
+import { CHAT_BURST, CHAT_HISTORY, CHAT_RATE, DEFAULT_OPTIONS, ERR, FATAL, GAME_ACTIONS, LOOK_BURST, LOOK_RANGE, LOOK_RATE, MAX_SEATS, MIN_PLAYERS, TURN_SECONDS, cleanName, cryptoRng, parseClientMessage, randomToken, seatPlan } from './protocol.js';
 
 export const START_DELAY_MS = 500;
 export const ROULETTE_SECONDS = 20;
@@ -57,6 +57,7 @@ export class Room {
     };
     Object.assign(this, s);
     this.chat ??= []; // rooms saved before chat existed
+    this.options = { ...DEFAULT_OPTIONS, ...this.options }; // and before the table size
     this.runClock();
   }
 
@@ -116,6 +117,14 @@ export class Room {
   isAbandoned() { return !this.seats.some((x) => x.kind === 'human' && !x.left); }
 
   controlled(s) { const x = this.seats[s]; return x.kind === 'human' && x.connected; }
+  taken() { return this.seats.map((x) => x.kind !== 'empty'); }
+  seated() { return this.taken().filter(Boolean).length; }
+  /** An open seat for one more player, where it best spreads the table; raises the table size to fit. */
+  openSeat() {
+    const n = this.seated() + 1;
+    if (n > this.options.players) this.options = { ...this.options, players: n };
+    return seatPlan(this.taken(), this.host, Math.max(n, this.options.players)).find((s) => this.seats[s].kind === 'empty');
+  }
 
   /* ---------- message handling ---------- */
 
@@ -151,7 +160,10 @@ export class Room {
     const back = resumeToken ? this.seats.findIndex((x) => x.kind === 'human' && !x.left && x.resumeToken === resumeToken) : -1;
     if (back >= 0) return this.reclaim(back, clientId);
     if (this.phase === 'playing') refuse(ERR.inProgress, 'That game has already started.');
-    let s = this.seats.findIndex((x) => x.kind === 'empty');
+    // a table already set for its size swaps a bot for the newcomer before it grows
+    const full = this.seated() >= this.options.players;
+    let s = full ? this.seats.findLastIndex((x) => x.kind === 'bot') : -1;
+    if (s < 0 && this.seated() < MAX_SEATS) s = this.openSeat();
     if (s < 0) s = this.seats.findLastIndex((x) => x.kind === 'bot');
     if (s < 0) refuse(ERR.roomFull, 'That table is full.');
     this.seats[s] = {
@@ -230,6 +242,14 @@ export class Room {
     if (patch.mode && patch.mode !== this.options.mode && !patch.variant) next.variant = engine.variants[0];
     if (!engine.variants.includes(next.variant)) refuse(ERR.badOption, `Unknown variant ${next.variant}.`);
     if (next.turnSeconds < TURN_SECONDS.min || next.turnSeconds > TURN_SECONDS.max) refuse(ERR.badOption, `Turn time must be ${TURN_SECONDS.min} to ${TURN_SECONDS.max} seconds.`);
+    const least = engine.minPlayers ?? MIN_PLAYERS;
+    if (patch.players !== undefined) {
+      if (next.players < MIN_PLAYERS || next.players > MAX_SEATS) refuse(ERR.badOption, `A table seats ${MIN_PLAYERS} to ${MAX_SEATS} players.`);
+      if (next.players < least) refuse(ERR.badOption, `This game needs at least ${least} players.`);
+      if (next.players < this.seated()) refuse(ERR.badOption, `${this.seated()} are already seated. Remove a bot first.`);
+    }
+    // a mode that needs more players than the table is set for takes the smallest table it can
+    next.players = Math.max(next.players, least);
     if (next.mode !== this.options.mode) { this.game = null; this.result = null; }
     this.options = next;
     this.broadcastLobby();
@@ -241,12 +261,11 @@ export class Room {
   }
 
   addBot(persona) {
-    const s = this.seats.findIndex((x) => x.kind === 'empty');
-    if (s < 0) refuse(ERR.roomFull, 'No empty seat.');
+    if (this.seated() >= MAX_SEATS) refuse(ERR.roomFull, 'No empty seat.');
     const free = this.freeBots();
     const bot = persona ? free.find((b) => b.persona === persona) : free[0];
     if (!bot) refuse(ERR.illegal, persona ? `${persona} is unavailable.` : 'No bots left.');
-    this.seats[s] = { kind: 'bot', name: bot.name, persona: bot.persona };
+    this.seats[this.openSeat()] = { kind: 'bot', name: bot.name, persona: bot.persona };
     this.broadcastLobby();
   }
 
@@ -260,14 +279,17 @@ export class Room {
   start() {
     const waiting = this.seats.filter((x, s) => x.kind === 'human' && x.connected && s !== this.host && !x.ready);
     if (waiting.length) refuse(ERR.notReady, `Waiting for ${waiting.map((x) => x.name).join(', ')}.`);
-    for (let s = 0; s < MAX_SEATS; s++) if (this.seats[s].kind === 'empty') {
-      const bot = this.freeBots()[0];
-      if (bot) this.seats[s] = { kind: 'bot', name: bot.name, persona: bot.persona };
-    }
-    if (this.seats.some((x) => x.kind === 'empty')) refuse(ERR.illegal, 'Not enough players to fill the table.');
+    const { players } = this.options;
+    const plan = seatPlan(this.taken(), this.host, players);
+    if (!plan) refuse(ERR.illegal, `${this.seated()} are seated at a table for ${players}. Pick a bigger table or remove a bot.`);
+    const fill = plan.filter((s) => this.seats[s].kind === 'empty');
+    if (fill.length > this.freeBots().length) refuse(ERR.illegal, 'Not enough bots to fill the table.');
+    for (const s of fill) { const bot = this.freeBots()[0]; this.seats[s] = { kind: 'bot', name: bot.name, persona: bot.persona }; }
+    const absent = [];
+    this.seats.forEach((x, s) => { if (x.kind === 'empty') absent.push(s); });
     this.phase = 'playing';
     this.result = null;
-    this.game = this.engine.newGame({ seats: MAX_SEATS, rng: this.rng, options: this.options });
+    this.game = this.engine.newGame({ seats: MAX_SEATS, rng: this.rng, options: this.options, absent });
     this.memory = this.seats.map(() => ({}));
     this.prompt = null;
     this.pausedAt = null;

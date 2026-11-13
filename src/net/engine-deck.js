@@ -3,8 +3,9 @@
 // see, and the rhythm of the table.
 //
 // Engine contract (a dice engine implements the same object):
-//   mode, variants, ranks, messageKeys: { type: [keys] }, bots: [{ persona, name }]
-//   newGame({ seats, rng, options }) -> state S (plain JSON, persisted by the Room)
+//   mode, variants, minPlayers, ranks, messageKeys: { type: [keys] }, bots: [{ persona, name }]
+//   newGame({ seats, rng, options, absent }) -> state S (plain JSON, persisted by the Room). The
+//     seats in `absent` stay empty all game: never dealt in, never prompted, never a loser.
 //   stage(S) -> { kind: 'deal' } | { kind: 'turn'|'roulette', seat, forced } | { kind: 'over', winner }
 //     'roulette' is the Room's penalty prompt, answered by the seat's 'pull' action. An event
 //     may leave several seats to pay in turn: stage() names the next one each time.
@@ -15,7 +16,7 @@
 //   botDecide(S, seat, persona | null, memory, rng) -> action
 //   observe(memory, event)
 //   redact(event, seat, S) -> the message that seat receives (the only path to the wire)
-//   snapshot(S, seat) -> per-seat rebuild payload for `state`
+//   snapshot(S, seat) -> per-seat rebuild payload for `state`, with absent: bool[] by seat
 //   results(S) -> [{ alive, pulls }]
 //   pace(event, rng) / thinkMs(stage, rng) -> pacing in ms
 import * as R from '../model/rules.js';
@@ -25,11 +26,13 @@ const DEAL_MS_PER_CARD = 65;
 
 const handCounts = (g) => g.players.map((p) => p.hand.length);
 const shown = (S, c) => ({ token: S.tokenOf[c.id], rank: c.rank });
+const absentSeats = (g) => g.players.map((p) => !!p.absent);
 const between = (rng, lo, hi) => lo + Math.round(rng() * (hi - lo));
 
 export const deckEngine = {
   mode: 'deck',
   variants: R.VARIANTS,
+  minPlayers: 2,
   ranks: R.RANKS,
   messageKeys: {
     round: ['round', 'tableRank', 'starter', 'hand', 'handCounts'],
@@ -43,8 +46,8 @@ export const deckEngine = {
     { persona: 'gristle', name: 'Captain Gristle' },
   ],
 
-  newGame({ seats, rng, options }) {
-    return { g: R.newGame({ seats, rng, variant: options?.variant ?? 'basic' }), tokenOf: {}, reveal: null };
+  newGame({ seats, rng, options, absent = [] }) {
+    return { g: R.newGame({ seats, rng, variant: options?.variant ?? 'basic', absent }), tokenOf: {}, reveal: null };
   },
 
   stage(S) {
@@ -118,7 +121,7 @@ export const deckEngine = {
   snapshot(S, seat) {
     const g = S.g;
     return {
-      variant: g.variant, round: g.round, tableRank: g.tableRank, starter: g.starter,
+      variant: g.variant, absent: absentSeats(g), round: g.round, tableRank: g.tableRank, starter: g.starter,
       hand: g.round ? g.players[seat].hand.map((c) => shown(S, c)) : [],
       handCounts: handCounts(g),
       plays: g.plays.map((p) => ({ seat: p.seat, claim: p.claim, tokens: p.cards.map((c) => S.tokenOf[c.id]) })),

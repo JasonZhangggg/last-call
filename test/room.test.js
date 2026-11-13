@@ -380,7 +380,7 @@ test('lobby: options, bots, joining full tables, and a rematch', () => {
   const a = new Player(t, '  Ann\u0007<b> the Bold and Beautiful  ');
   a.hello();
   assert.equal(a.last('lobby').seats[0].name, 'Annb the Bold an', 'names are cleaned and capped');
-  assert.deepEqual(a.last('lobby').options, { mode: 'deck', variant: 'basic', turnSeconds: 30, private: true });
+  assert.deepEqual(a.last('lobby').options, { mode: 'deck', variant: 'basic', turnSeconds: 30, private: true, players: 4 });
   a.send({ type: 'setOptions', options: { turnSeconds: 5 } });
   assert.equal(a.errors().at(-1).code, ERR.badOption);
   a.send({ type: 'setOptions', options: { mode: 'poker' } });

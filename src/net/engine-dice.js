@@ -5,12 +5,14 @@ import * as D from '../model/dice.js';
 import * as DAI from '../model/dice-ai.js';
 import { PERSONAS } from '../model/ai.js';
 
+const absentSeats = (g) => g.players.map((p) => !!p.absent);
 const between = (rng, lo, hi) => lo + Math.round(rng() * (hi - lo));
 const diceCounts = (g) => g.players.map((p) => p.dice.length);
 
 export const diceEngine = {
   mode: 'dice',
   variants: D.VARIANTS,
+  minPlayers: 2,
   ranks: [],
   messageKeys: {
     round: ['round', 'starter', 'dice', 'diceCounts'],
@@ -24,8 +26,8 @@ export const diceEngine = {
     { persona: 'gristle', name: 'Captain Gristle' },
   ],
 
-  newGame({ seats, rng, options }) {
-    return { g: D.newGame({ seats, rng, variant: options?.variant ?? 'basic' }), reveal: null };
+  newGame({ seats, rng, options, absent = [] }) {
+    return { g: D.newGame({ seats, rng, variant: options?.variant ?? 'basic', absent }), reveal: null };
   },
 
   stage(S) {
@@ -95,7 +97,7 @@ export const diceEngine = {
   snapshot(S, seat) {
     const g = S.g;
     return {
-      variant: g.variant, round: g.round, starter: g.starter,
+      variant: g.variant, absent: absentSeats(g), round: g.round, starter: g.starter,
       dice: g.players[seat].dice.slice(),
       diceCounts: diceCounts(g),
       bids: g.bids.map((b) => ({ seat: b.seat, quantity: b.quantity, face: b.face })),

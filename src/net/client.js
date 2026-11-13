@@ -11,13 +11,13 @@
 // The transport sends `hello` itself, and on reconnect sends it again with the resume token, so
 // the server answers with welcome + lobby + state; treat `state` as a full rebuild.
 import { Room } from './room.js';
-import { CLOSE_FATAL, FATAL, PING, PONG, normalizeRoomCode } from './protocol.js';
+import { CLOSE_FATAL, FATAL, MAX_SEATS, PING, PONG, normalizeRoomCode } from './protocol.js';
 
 const LOCAL_ID = 'local';
 const PING_MS = 25_000;
 const SILENCE_MS = 2 * PING_MS + 10_000;
 
-/** Single player: a Room in this tab, the person in seat 0, bots in seats 1 to 3. Call send({ type: 'start' }) to deal. */
+/** Single player: a Room in this tab, the person in seat 0, a bot in every other seat options.players uses. Call send({ type: 'start' }) to deal. */
 export function createLocalTransport({ name = 'You', bots = ['brass', 'noctua', 'gristle'], options = null, clock } = {}) {
   let room = null, handlers = null, closed = false;
   const deliver = (msg) => queueMicrotask(() => { if (!closed) handlers.onMessage?.(msg); });
@@ -29,7 +29,7 @@ export function createLocalTransport({ name = 'You', bots = ['brass', 'noctua', 
       h.onStatus?.('open');
       room.receive(LOCAL_ID, { type: 'hello', name });
       if (options) room.receive(LOCAL_ID, { type: 'setOptions', options });
-      for (const persona of bots) room.receive(LOCAL_ID, { type: 'addBot', persona });
+      for (const persona of bots.slice(0, (options?.players ?? MAX_SEATS) - 1)) room.receive(LOCAL_ID, { type: 'addBot', persona });
     },
     send(msg) {
       if (closed || !room) return false;

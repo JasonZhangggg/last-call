@@ -4,11 +4,12 @@
 // face-down deck never leaves. The Room's 'deal' stage is whatever the table does on its own:
 // turn the next card, settle a decided auction, or count the purses at the end.
 //
-// The Room always fills its four seats (bots take every empty one), which covers the auction's
-// minimum of three; the model refuses fewer.
+// The Room fills at least three of its four seats (minPlayers), the auction's minimum; the model
+// refuses fewer. An empty fourth seat holds no money and sits out every auction.
 import * as A from '../model/auction.js';
 import * as AAI from '../model/auction-ai.js';
 
+const absentSeats = (g) => g.players.map((p) => !!p.absent);
 const between = (rng, lo, hi) => lo + Math.round(rng() * (hi - lo));
 const handCounts = (g) => g.players.map((p) => p.hand.length);
 
@@ -21,6 +22,7 @@ const DEALER = {
 export const auctionEngine = {
   mode: 'auction',
   variants: A.VARIANTS,
+  minPlayers: A.MIN_SEATS,
   ranks: [],
   messageKeys: {
     reveal: ['auction', 'card', 'starter', 'final', 'deckCount'],
@@ -35,8 +37,8 @@ export const auctionEngine = {
     { persona: 'gristle', name: 'Captain Gristle' },
   ],
 
-  newGame({ seats, rng, options }) {
-    return { g: A.newGame({ seats, rng, variant: options?.variant ?? 'classic' }) };
+  newGame({ seats, rng, options, absent = [] }) {
+    return { g: A.newGame({ seats, rng, variant: options?.variant ?? 'classic', absent }) };
   },
 
   stage(S) {
@@ -77,7 +79,7 @@ export const auctionEngine = {
   snapshot(S, seat) {
     const g = S.g;
     return {
-      variant: g.variant, auction: g.auction, card: g.card, final: g.final, starter: g.starter,
+      variant: g.variant, absent: absentSeats(g), auction: g.auction, card: g.card, final: g.final, starter: g.starter,
       deckCount: g.deck.length, turned: g.turned,
       hand: g.players[seat].hand.slice(),
       handCounts: handCounts(g),

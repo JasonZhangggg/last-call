@@ -16,21 +16,21 @@ const oneAlive = (over) => {
 const SUITES = {
   deck: {
     results: ['alive', 'kind', 'name', 'pulls'],
-    snapshot: ['alive', 'hand', 'handCounts', 'plays', 'pulls', 'reveal', 'round', 'starter', 'tableRank', 'variant'],
+    snapshot: ['absent', 'alive', 'hand', 'handCounts', 'plays', 'pulls', 'reveal', 'round', 'starter', 'tableRank', 'variant'],
     options: ['canChallenge', 'canPlay', 'maxCards', 'mustChallenge'],
     rejoinAt: (m) => m.type === 'round' && m.round === 2,
     checkOver: oneAlive,
   },
   dice: {
     results: ['alive', 'drinks', 'kind', 'name'],
-    snapshot: ['alive', 'bids', 'dice', 'diceCounts', 'drinks', 'reveal', 'round', 'starter', 'variant'],
+    snapshot: ['absent', 'alive', 'bids', 'dice', 'diceCounts', 'drinks', 'reveal', 'round', 'starter', 'variant'],
     options: ['canBid', 'canChallenge', 'canSpotOn', 'maxQuantity', 'mustChallenge', 'raises'],
     rejoinAt: (m) => m.type === 'round' && m.round === 2,
     checkOver: oneAlive,
   },
   auction: {
     results: ['castOut', 'kind', 'money', 'name', 'place', 'status'],
-    snapshot: ['aleOwed', 'auction', 'bids', 'card', 'deckCount', 'final', 'hand', 'handCounts', 'passed', 'scoring', 'spent', 'spilled', 'starter', 'turned', 'variant', 'won'],
+    snapshot: ['absent', 'aleOwed', 'auction', 'bids', 'card', 'deckCount', 'final', 'hand', 'handCounts', 'passed', 'scoring', 'spent', 'spilled', 'starter', 'turned', 'variant', 'won'],
     options: ['canRaise', 'disgrace', 'highBid', 'ownBid'],
     rejoinAt: (m) => m.type === 'reveal' && m.auction === 3,
     checkOver(over) {
@@ -146,7 +146,7 @@ for (const { mode, variant } of MODES) {
     for (let humans = 1; humans <= 4; humans++) {
       for (let seed = 1; seed <= 8; seed++) {
         const { t, people, host } = seatTable({ seed: seed * 10 + humans, humans, mode, variant });
-        assert.deepEqual(host.last('lobby').options, { mode, variant, turnSeconds: 30, private: true });
+        assert.deepEqual(host.last('lobby').options, { mode, variant, turnSeconds: 30, private: true, players: 4 });
         host.send({ type: 'start' });
         t.clock.runUntil(finished(people));
         for (const p of people) {
@@ -409,7 +409,7 @@ test('auction: illegal and out-of-turn actions get an error and change nothing',
 
 test('lobby: the host picks a mode and a variant; a mode change resets the variant', () => {
   const { host } = seatTable({ seed: 3, humans: 1, mode: 'dice', variant: 'traditional' });
-  assert.deepEqual(host.last('lobby').options, { mode: 'dice', variant: 'traditional', turnSeconds: 30, private: true });
+  assert.deepEqual(host.last('lobby').options, { mode: 'dice', variant: 'traditional', turnSeconds: 30, private: true, players: 4 });
   host.send({ type: 'setOptions', options: { variant: 'devil' } });
   assert.equal(host.errors().at(-1).code, ERR.badOption, 'variants belong to their mode');
   host.send({ type: 'setOptions', options: { mode: 'deck' } });
@@ -432,4 +432,125 @@ for (const [mode, variant, event] of [['dice', 'traditional', 'drink'], ['auctio
   assert.ok(clock2.pending > 0, 'the saved timer is re-armed');
   t.clock.runUntil(finished(people));
   for (const p of people) { assert.ok(p.over); assert.deepEqual(p.errors(), []); }
+});
+
+/* ---------- smaller tables ---------- */
+
+/** A host sets the table size first, then the others sit down. */
+function smallTable({ seed = 1, humans = 1, mode, variant, players }) {
+  const { t, people, host } = seatTable({ seed, humans: 1, mode, variant });
+  host.send({ type: 'setOptions', options: { players } });
+  const rng = mulberry32(seed * 104729);
+  for (let i = 1; i < humans; i++) { const p = new Player(t, `P${i}`, { rng }); p.hello(); p.send({ type: 'setReady', ready: true }); people.push(p); }
+  return { t, people, host };
+}
+
+for (const { mode, variant } of MODES) {
+  const sizes = mode === 'auction' ? [3] : [2, 3];
+  test(`${mode} ${variant}: tables of ${sizes.join(' and ')} fill only to their size, and the empty seats sit the game out`, () => {
+    const suite = SUITES[mode];
+    for (const players of sizes) for (let humans = 1; humans <= players; humans++) for (let seed = 1; seed <= 4; seed++) {
+      const { t, people, host } = smallTable({ seed: seed * 10 + humans, humans, mode, variant, players });
+      assert.deepEqual(people.map((p) => p.errors()), people.map(() => []));
+      host.send({ type: 'start' });
+      const lobby = host.last('lobby');
+      assert.equal(lobby.seats.filter((x) => x.kind !== 'empty').length, players, 'bots fill up to the size and no further');
+      const absent = lobby.seats.map((x, s) => (x.kind === 'empty' ? s : null)).filter((s) => s != null);
+      assert.equal(absent.length, 4 - players);
+      assert.deepEqual(host.last('state').game.absent, [0, 1, 2, 3].map((s) => absent.includes(s)));
+      t.clock.runUntil(finished(people));
+      for (const p of people) {
+        assert.deepEqual(p.errors(), [], `seat ${p.seat} got no errors`);
+        assert.ok(p.over, 'everyone sees the end');
+        suite.checkOver(p.over);
+        assert.ok(!absent.includes(p.over.winner), 'an empty seat never wins');
+        for (const s of absent) {
+          assert.equal(p.over.seats[s].kind, 'empty');
+          assert.ok(!p.over.seats[s].castOut && p.over.seats[s].place == null && !p.over.seats[s].pulls && !p.over.seats[s].drinks, 'an empty seat never loses anything');
+        }
+        const prompted = new Set(p.log.filter((m) => m.type === 'turn' || m.type === 'roulette').map((m) => m.seat));
+        for (const s of absent) assert.ok(!prompted.has(s), `empty seat ${s} is never prompted`);
+      }
+      assert.equal(t.clock.pending, 0, 'no timers left behind');
+    }
+  });
+}
+
+test('table size: two players face each other, three sit 120 degrees apart', () => {
+  for (const [players, bots] of [[2, [2]], [3, [1, 3]], [4, [1, 2, 3]]]) {
+    const { host } = smallTable({ mode: 'deck', variant: 'basic', players });
+    host.send({ type: 'start' });
+    const seats = host.last('lobby').seats;
+    assert.deepEqual(seats.map((x, s) => (x.kind === 'bot' ? s : null)).filter((s) => s != null), bots);
+  }
+  // two people sat side by side: the bot takes the host's diagonal, and the host's opposite stays empty
+  const { host, people } = smallTable({ mode: 'dice', variant: 'basic', players: 4, humans: 2 });
+  host.send({ type: 'setOptions', options: { players: 3 } });
+  host.send({ type: 'start' });
+  assert.deepEqual(people.map((p) => p.seat), [0, 1]);
+  assert.deepEqual(host.last('lobby').seats.map((x) => x.kind), ['human', 'human', 'empty', 'bot']);
+});
+
+test('table size: checked at the boundary and by the mode, and never below who is seated', () => {
+  assert.ok(parseClientMessage({ type: 'setOptions', options: { players: 2 } }).msg);
+  assert.ok(parseClientMessage({ type: 'setOptions', options: { players: '2' } }).error);
+  assert.ok(parseClientMessage({ type: 'setOptions', options: { players: 2.5 } }).error);
+  const { host, t } = smallTable({ mode: 'deck', variant: 'basic', players: 4 });
+  const players = () => host.last('lobby').options.players;
+  for (const bad of [1, 5, 0, -2]) {
+    host.send({ type: 'setOptions', options: { players: bad } });
+    assert.equal(host.errors().at(-1).code, ERR.badOption, `${bad} players is refused`);
+  }
+  host.send({ type: 'setOptions', options: { players: 2 } });
+  assert.equal(players(), 2);
+  host.send({ type: 'setOptions', options: { mode: 'auction' } });
+  assert.equal(players(), 3, 'the auction takes the smallest table it can');
+  const before = host.errors().length;
+  host.send({ type: 'setOptions', options: { players: 2 } });
+  assert.equal(host.errors().length, before + 1);
+  assert.equal(host.errors().at(-1).code, ERR.badOption, 'the auction refuses a table of 2');
+  assert.match(host.errors().at(-1).message, /at least 3/);
+  assert.equal(players(), 3);
+  host.send({ type: 'setOptions', options: { mode: 'dice', players: 2 } });
+  assert.equal(players(), 2);
+  // a second person joins a table of two that a bot already fills: they take the bot's chair
+  host.send({ type: 'addBot' });
+  assert.deepEqual(host.last('lobby').seats.map((x) => x.kind), ['human', 'empty', 'bot', 'empty']);
+  const b = new Player(t, 'B'); b.hello();
+  assert.equal(b.seat, 2);
+  assert.equal(players(), 2);
+  // a third grows the table, and so does another bot
+  const c = new Player(t, 'C'); c.hello();
+  assert.equal(players(), 3);
+  host.send({ type: 'addBot' });
+  assert.equal(players(), 4);
+  host.send({ type: 'setOptions', options: { players: 3 } });
+  assert.equal(host.errors().at(-1).code, ERR.badOption);
+  assert.match(host.errors().at(-1).message, /4 are already seated/);
+  host.send({ type: 'removeBot', seat: host.last('lobby').seats.findIndex((x) => x.kind === 'bot') });
+  host.send({ type: 'setOptions', options: { players: 3 } });
+  assert.equal(players(), 3);
+});
+
+test('table size: the local transport seats only the bots a small table needs', async () => {
+  const { createLocalTransport } = await import('../src/net/client.js');
+  const clock = new FakeClock();
+  const log = [];
+  const t = createLocalTransport({ name: 'Solo', clock, options: { mode: 'dice', variant: 'basic', players: 2 } });
+  t.connect({
+    onMessage: (m) => {
+      log.push(m);
+      if (m.type === 'turn' && m.seat === 0 && m.options) t.send(m.options.canBid ? { type: 'bid', quantity: m.options.raises[0].minQuantity, face: m.options.raises[0].face } : { type: 'challenge' });
+      if (m.type === 'roulette' && m.seat === 0) t.send({ type: 'pull' });
+    },
+  });
+  const settle = () => new Promise((r) => setImmediate(r));
+  await settle();
+  assert.deepEqual(log.filter((m) => m.type === 'lobby').at(-1).seats.map((s) => s.persona), [null, null, 'brass', null]);
+  t.send({ type: 'start' });
+  for (let i = 0; i < 100_000 && !log.some((m) => m.type === 'over'); i++) { await settle(); if (!clock.next()) await settle(); }
+  const over = log.find((m) => m.type === 'over');
+  assert.ok(over && [0, 2].includes(over.winner));
+  assert.deepEqual(log.filter((m) => m.type === 'error'), []);
+  t.close();
 });

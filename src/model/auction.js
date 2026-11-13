@@ -42,23 +42,28 @@ export function statusDeck() {
  *   'over'     game.result holds the scores
  * A player's bid is the money in front of them this auction; spent money is gone for good.
  */
-export function newGame({ seats = 4, rng = Math.random, variant = 'classic' } = {}) {
+export function newGame({ seats = 4, rng = Math.random, variant = 'classic', absent = [] } = {}) {
   if (!VARIANTS.includes(variant)) throw new Error(`unknown variant ${variant}`);
-  if (!Number.isInteger(seats) || seats < MIN_SEATS || seats > MAX_SEATS) throw new Error(`the auction needs ${MIN_SEATS} to ${MAX_SEATS} seats`);
+  const present = [];
+  for (let s = 0; s < seats; s++) if (!absent.includes(s)) present.push(s);
+  if (!Number.isInteger(seats) || present.length < MIN_SEATS || present.length > MAX_SEATS) throw new Error(`the auction needs ${MIN_SEATS} to ${MAX_SEATS} players`);
+  const deck = shuffleInPlace(statusDeck(), rng);
   return {
     variant,
     phase: 'reveal',
-    deck: shuffleInPlace(statusDeck(), rng),
+    deck,
     turned: [],
     auction: 0,
     card: null,
     final: null,
-    starter: randInt(rng, 0, seats - 1),
+    starter: present[randInt(rng, 0, present.length - 1)],
     turn: null,
     taker: null,
-    players: Array.from({ length: seats }, (_, seat) => ({
-      seat, hand: MONEY.slice(), bid: [], passed: false, won: [], spent: [], spilled: [], aleOwed: false,
-    })),
+    // an empty seat holds no money and sits out every auction as if it had passed
+    players: Array.from({ length: seats }, (_, seat) => {
+      const out = absent.includes(seat);
+      return { seat, absent: out, hand: out ? [] : MONEY.slice(), bid: [], passed: out, won: [], spent: [], spilled: [], aleOwed: false };
+    }),
     result: null,
   };
 }
@@ -157,7 +162,7 @@ export function settle(game) {
     const b = p.bid;
     p.spent.push(...b);
     p.bid = [];
-    p.passed = false;
+    p.passed = !!p.absent;
     return b;
   });
   t.won.push(card);
@@ -196,8 +201,8 @@ const topCurio = ({ won }) => Math.max(0, ...won.filter((c) => c.kind === 'curio
 export function score(game) {
   expect(game, 'scoring');
   const cash = game.players.map(money);
-  const least = Math.min(...cash);
-  const castOut = cash.map((m) => m === least);
+  const least = Math.min(...game.players.filter((p) => !p.absent).map(money));
+  const castOut = game.players.map((p) => !p.absent && cash[p.seat] === least);
   const status = game.players.map(statusOf);
   const top = game.players.map(topCurio);
   const key = (s) => [status[s], cash[s], top[s]];
@@ -206,8 +211,8 @@ export function score(game) {
     for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return ka[i] > kb[i];
     return false;
   };
-  const contenders = game.players.map((p) => p.seat).filter((s) => !castOut[s]);
-  const place = game.players.map((p) => (castOut[p.seat] ? null : 1 + contenders.filter((o) => beats(o, p.seat)).length));
+  const contenders = game.players.filter((p) => !p.absent && !castOut[p.seat]).map((p) => p.seat);
+  const place = game.players.map((p) => (castOut[p.seat] || p.absent ? null : 1 + contenders.filter((o) => beats(o, p.seat)).length));
   const first = contenders.filter((s) => place[s] === 1);
   game.result = {
     remaining: game.players.map((p) => p.hand.slice()),
@@ -234,7 +239,7 @@ export function publicView(game, seat) {
     turned: game.turned.map((c) => ({ ...c })),
     hand: game.players[seat].hand.slice(),
     players: game.players.map((p) => ({
-      seat: p.seat, handCount: p.hand.length, bid: p.bid.slice(), passed: p.passed,
+      seat: p.seat, absent: !!p.absent, handCount: p.hand.length, bid: p.bid.slice(), passed: p.passed,
       won: p.won.map((c) => ({ ...c })), spent: p.spent.slice(), aleOwed: p.aleOwed,
     })),
     options: game.turn === seat ? turnOptions(game) : null,
