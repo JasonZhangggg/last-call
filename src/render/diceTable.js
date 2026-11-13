@@ -410,7 +410,9 @@ export function updateDiceTable(dt, t) {
     }
     _m.compose(_p, _q, c.hidden ? ZERO_SCALE : ONE);
     M.cup.setMatrixAt(v, _m); M.cupBrass.setMatrixAt(v, _m);
-    table.dice[v].forEach((d, i) => {
+    const dice = table.dice[v];
+    for (let i = 0; i < dice.length; i++) {
+      const d = dice[i];
       d.mover.update(dt);
       const idx = v * PER_SEAT + i;
       _m.compose(d.obj.position, d.obj.quaternion, d.shown ? d.obj.scale : ZERO_SCALE);
@@ -421,7 +423,7 @@ export function updateDiceTable(dt, t) {
       const ds = d.obj.scale.x, gs = d.shown && d.glow > 0.01 ? DIE * 3.4 * ds * d.glow : 0;
       _m.compose(_s.set(d.obj.position.x, Math.max(0.003, d.obj.position.y - DIE * ds / 2 + 0.002), d.obj.position.z), _w.identity(), _p.set(gs, gs, gs));
       M.halo.setMatrixAt(idx, _m);
-    });
+    }
   }
   M.cup.instanceMatrix.needsUpdate = true; M.cupBrass.instanceMatrix.needsUpdate = true;
   M.dice.instanceMatrix.needsUpdate = true; M.dice.instanceColor.needsUpdate = true; M.halo.instanceMatrix.needsUpdate = true;

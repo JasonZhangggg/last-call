@@ -30,16 +30,35 @@ export function smoothDamp(cur, target, state, key, smoothTime, dt) {
   state[key] = (vel - omega * temp) * exp;
   return target + (change + temp) * exp;
 }
-/** smoothDamp on each axis of a Vector3, in place. `vel` is a plain object holding x/y/z. */
+/**
+ * smoothDamp on each axis of a Vector3, in place. `vel` is a plain object holding x/y/z.
+ * Written out per axis rather than through smoothDamp: its `state[key]` store sees every caller's
+ * object and key, so V8 boxes each number stored there, and this runs for every moving thing on
+ * every step. The arithmetic is smoothDamp's, operation for operation.
+ */
 export function dampVec3(cur, target, vel, smoothTime, dt) {
-  cur.x = smoothDamp(cur.x, target.x, vel, 'x', smoothTime, dt);
-  cur.y = smoothDamp(cur.y, target.y, vel, 'y', smoothTime, dt);
-  cur.z = smoothDamp(cur.z, target.z, vel, 'z', smoothTime, dt);
+  const omega = 2 / Math.max(1e-4, smoothTime), x = omega * dt;
+  const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+  let change = cur.x - target.x, v = vel.x || 0, temp = (v + omega * change) * dt;
+  vel.x = (v - omega * temp) * exp; cur.x = target.x + (change + temp) * exp;
+  change = cur.y - target.y; v = vel.y || 0; temp = (v + omega * change) * dt;
+  vel.y = (v - omega * temp) * exp; cur.y = target.y + (change + temp) * exp;
+  change = cur.z - target.z; v = vel.z || 0; temp = (v + omega * change) * dt;
+  vel.z = (v - omega * temp) * exp; cur.z = target.z + (change + temp) * exp;
   return cur;
+}
+/** smoothDamp of a Mover's scale, with its state store named for the same reason. */
+function dampScale(cur, target, vel, smoothTime, dt) {
+  const omega = 2 / Math.max(1e-4, smoothTime), x = omega * dt;
+  const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+  const change = cur - target, v = vel.s || 0, temp = (v + omega * change) * dt;
+  vel.s = (v - omega * temp) * exp;
+  return target + (change + temp) * exp;
 }
 
 const _w = new THREE.Vector3(), _tw = new THREE.Vector3(), _pp = new THREE.Vector3(), _ps = new THREE.Vector3(), _s = new THREE.Vector3();
 const _pq = new THREE.Quaternion(), _tq = new THREE.Quaternion(), _q = new THREE.Quaternion(), _m = new THREE.Matrix4(), _r = new THREE.Vector3();
+const ZERO = new THREE.Vector3();
 
 /** Rotation vector (axis * angle) of a unit quaternion, shortest way round. */
 function logQuat(q, out) {
@@ -131,13 +150,13 @@ export class Mover {
     } else {
       const st = this.smooth, v = this.vel;
       dampVec3(o.position, this.pos, v, st, dt);
-      o.scale.setScalar(smoothDamp(o.scale.x, this.scale, v, 's', st, dt));
+      o.scale.setScalar(dampScale(o.scale.x, this.scale, v, st, dt));
       // rotation spring: damp the rotation vector from target to current toward zero
       logQuat(_q.copy(this.quat).invert().multiply(o.quaternion), _r);
       const rv = this.rvel;
       if (_r.lengthSq() > 1e-12 || rv.x || rv.y || rv.z) {
         const rs = this.rotSmooth;
-        _r.set(smoothDamp(_r.x, 0, rv, 'x', rs, dt), smoothDamp(_r.y, 0, rv, 'y', rs, dt), smoothDamp(_r.z, 0, rv, 'z', rs, dt));
+        dampVec3(_r, ZERO, rv, rs, dt);
         o.quaternion.copy(this.quat).multiply(expQuat(_r, _q));
       }
     }
