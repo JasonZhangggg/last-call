@@ -11,7 +11,7 @@ import { rigSip } from '../render/rig.js';
 import { rig, focusOn, centerLook, lockLook } from '../render/camera.js';
 import { camera } from '../render/core.js';
 import { gun } from '../render/gun.js';
-import { arm, armReach, armHide, shoulderWorld } from '../render/playerArm.js';
+import { arm, armReach, armHide, armSip, shoulderWorld } from '../render/playerArm.js';
 import { gatherToDeck, setDeckSize, MAX_CARDS } from '../render/cards.js';
 import * as DT from '../render/diceTable.js';
 import { BID_FACES, GLASSES } from '../model/dice.js';
@@ -80,11 +80,12 @@ const Y = new THREE.Vector3(0, 1, 0);
 // a held glass sits where the hand's own pose puts it (ch.glassAt, arm.glassAt: in the grip frame)
 const GLASS_H = 0.056;
 // your arm's poses in camera space (set on entering): the glass held up before you, its base at
-// HOLD_GLASS, the palm turned in and a little away so the glass shows inside the knuckles; and
-// tipped back to your lips, the rim at LIPS_RIM
+// HOLD_GLASS, the hand straight on from a forearm that comes up from HOLD_FROM, below and to the
+// right, and the glass tipped HOLD_TIP toward you so that forearm can rise; and tipped back to your
+// lips, the rim at LIPS_RIM
 const HOLD = { pos: new THREE.Vector3(), quat: new THREE.Quaternion() };
 const LIPS = { pos: new THREE.Vector3(), quat: new THREE.Quaternion() };
-const HOLD_GLASS = new THREE.Vector3(0.075, -0.1, -0.34), HOLD_FROM = new THREE.Vector3(0.075 + 1, -0.1, -0.34 + 0.45);
+const HOLD_GLASS = new THREE.Vector3(0.075, -0.1, -0.34), HOLD_FROM = new THREE.Vector3(0.35, -0.4, -0.1), HOLD_TIP = 0.45;
 const LIPS_RIM = new THREE.Vector3(0.01, -0.065, -0.1);
 const MOUTH = new THREE.Vector3(0, -0.07, 0.12);
 const LOOK_UP = new THREE.Vector3(0, 2.6, -0.2);
@@ -222,7 +223,7 @@ async function round(T, msg) {
   const mine = msg.diceCounts[T.me] > 0;
   await T.step(350);
   // your hand comes in over your cup as it lands
-  if (mine) { rig.leanTarget = 0.35; armReach(cupTop('rest', _b)); }
+  if (mine) { rig.leanTarget = 0.6; arm.grasp = 'cup'; armReach(cupTop('rest', _b)); }
   await T.step(450);
   const shakers = [];
   for (let v = 0; v < 4; v++) if (msg.diceCounts[viewSeat(T, v)]) shakers.push(v);
@@ -540,7 +541,7 @@ async function drink(T, msg) {
   beating = false;
   // to the lips, head back
   if (human) {
-    arm.mover.go(camera, LIPS.pos, LIPS.quat, 1, { dur: 0.55 });
+    armSip(LIPS, 0.8);
     focusOn(LOOK_UP, 0.42);
   } else {
     const s = sipFor(ch, v); s.tiltT = 1;
@@ -564,6 +565,7 @@ async function drink(T, msg) {
       ui.toast(`${T.name(seat)} survives`, 'gold');
     }
     ui.log(`<b>${human ? 'You' : T.name(seat)}</b> ${verb(T, seat, 'drain', 'drains')} a glass. Not the poisoned one.`);
+    if (human) armSip(null, 0.6);
     await T.step(700);
     await putBackGlass(T, seat, i);
     if (!human) react(ch, 'relief', false);
@@ -711,10 +713,12 @@ export const diceMode = {
   newRecap: () => ({ caught: 0, held: 0, survived: 0 }),
   enter(T) {
     held = null; peeking = false;
-    glassGrip(arm.glassAt, HOLD_GLASS, HOLD_FROM, HOLD.pos, HOLD.quat);
+    glassGrip(arm.glassAt, HOLD_GLASS, HOLD_FROM, HOLD.pos, HOLD.quat, arm.hand.userData.fore);
     LIPS.quat.setFromAxisAngle(AX, 1.05).multiply(HOLD.quat);
     _y.copy(Y).applyAxisAngle(AX, 1.05);
     LIPS.pos.copy(LIPS_RIM).addScaledVector(_y, -GLASS_H).sub(_a.copy(arm.glassAt.pos).applyQuaternion(LIPS.quat));
+    HOLD.quat.premultiply(_q.setFromAxisAngle(AX, HOLD_TIP));
+    HOLD.pos.copy(arm.glassAt.pos).applyQuaternion(HOLD.quat).negate().add(HOLD_GLASS);
     if (!bound) { bound = T; bindControls(); }
     document.body.classList.add('mode-dice');
     gun.obj.visible = false;

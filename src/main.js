@@ -8,7 +8,7 @@ import { buildCards, updateCards, warmCards, bodies, hands } from './render/card
 import { buildGun, updateGun, gun } from './render/gun.js';
 import { buildBlood, updateBlood, blood, spray } from './render/blood.js';
 import { buildAuctionTable, updateAuctionTable } from './render/auctionTable.js';
-import { buildPlayerArm, updatePlayerArm, arm } from './render/playerArm.js';
+import { buildPlayerArm, updatePlayerArm, loadPlayerArm, arm } from './render/playerArm.js';
 import { buildDiceTable, updateDiceTable, table as diceTable } from './render/diceTable.js';
 import { rig, updateCamera, fitToViewport, lookFromPointer, lookByDelta, centerLook } from './render/camera.js';
 import { handPointer } from './modes/hand.js';
@@ -348,7 +348,7 @@ function splitShadowDepthMaterials() {
 async function boot() {
   try { await Promise.race([Promise.all([document.fonts.load('700 25px Cinzel'), document.fonts.load('500 16px "Alegreya Sans"')]), new Promise((r) => setTimeout(r, 2500))]); } catch { /* fallback fonts */ }
   buildWorld();
-  await loadRigs();
+  await Promise.all([loadRigs(), loadPlayerArm()]);
   DESIGNS.forEach((design, i) => {
     const ch = D.characters[design] = buildCharacter(design, VIEWS[i + 1].angle);
     ch.tagAnchor = ch.head.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.27, 0));
