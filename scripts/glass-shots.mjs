@@ -45,7 +45,18 @@ for (let k = 0; k < N; k++) {
   const name = await page.waitForFunction(() => window.__cap, null, { polling: 250 }).then((h) => h.jsonValue());
   await page.waitForTimeout(2500);
   await page.screenshot({ path: path.join(OUT, `${name}.png`) });
-  console.log('captured', name);
+  // a character holding the glass: how far its wrist bends off the forearm, and the rim's distance from its mouth
+  const m = await page.evaluate(() => {
+    const L = window.__lastcall, held = L.diceTable.held, V = L.camera.position.constructor, Q = L.camera.quaternion.constructor;
+    const ch = held?.visible && Object.values(L.D.characters).find((c) => c.grip.children.includes(held));
+    if (!ch) return '';
+    const qf = new Q(), qh = new Q(), a = new V(), b = new V();
+    ch.arm.fore.getWorldQuaternion(qf); ch.arm.hand.getWorldQuaternion(qh);
+    const bend = a.set(0, 1, 0).applyQuaternion(qf).angleTo(b.copy(ch.arm.handMesh.userData.fore).applyQuaternion(qh)) * 180 / Math.PI;
+    const rim = held.localToWorld(new V(0, 0.056, 0)), mouth = ch.head.localToWorld(new V(0, -0.07, 0.12));
+    return ` wrist ${bend.toFixed(0)} deg, rim to mouth ${(rim.distanceTo(mouth) * 100).toFixed(1)} cm`;
+  });
+  console.log('captured', name + m);
   await page.evaluate(() => { window.__cap = null; window.__lastcall.settings.paused = false; });
 }
 await browser.close();

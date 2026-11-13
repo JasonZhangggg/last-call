@@ -6,7 +6,7 @@ import { $, pick, clamp, settings } from '../util.js';
 import { smoothDamp } from '../render/motion.js';
 import { audio } from '../audio.js';
 import * as ui from '../ui.js';
-import { react, tell, poseRightHand, glassGrip } from '../render/characters.js';
+import { react, tell, poseRightHand, glassGrip, straightGrip } from '../render/characters.js';
 import { rig, focusOn, centerLook, lockLook } from '../render/camera.js';
 import { camera } from '../render/core.js';
 import { gun } from '../render/gun.js';
@@ -90,7 +90,7 @@ const LOOK_UP = new THREE.Vector3(0, 2.6, -0.2);
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
 const _y = new THREE.Vector3(), _z = new THREE.Vector3();
 const _gp = new THREE.Vector3(), _gq = new THREE.Quaternion(), AX = new THREE.Vector3(1, 0, 0);
-const _w0 = new THREE.Vector3(), _w1 = new THREE.Vector3(), _q0 = new THREE.Quaternion(), _c = new THREE.Vector3();
+const _w0 = new THREE.Vector3(), _q0 = new THREE.Quaternion(), _c = new THREE.Vector3();
 const ROW_AT = new THREE.Vector3(0, 0.02, 0.1);
 const _row = new THREE.Vector3();
 // counted dice sit in the lamp's hot spot and are seen up close: toned down so the pips stay crisp
@@ -107,35 +107,32 @@ function sipFor(ch, v) { let s = sips.get(v); if (!s) sips.set(v, s = { ch, w: 0
 // the elbow at rest out to the side and down; drinking, it comes up and forward so the forearm rises
 // in front of the chest instead of crossing through it
 const ELBOW_REST = new THREE.Vector3(-1, -0.7, -0.1).normalize(), ELBOW_SIP = new THREE.Vector3(-0.55, -0.35, 0.75).normalize(), _pl = new THREE.Vector3();
-const SIP_YAW = new THREE.Quaternion().setFromAxisAngle(Y, Math.PI - 0.35);
 const ease = (a, b, v) => { const u = clamp((v - a) / (b - a), 0, 1); return u * u * (3 - 2 * u); };
-/** The grip pose (upper-body space) holding the glass before the mouth `_a`, tipped by `tilt` (0..1). */
-function sipGrip(ch, tilt, pos, quat) {
-  _q.setFromAxisAngle(AX, -(0.2 + 1.25 * tilt));
-  _y.copy(Y).applyQuaternion(_q);
-  // rim just under the lip when drinking, a hand's width lower and forward while holding
-  pos.copy(_a).add(_z.set(-0.01, -0.1 + 0.09 * tilt, 0.17 - 0.12 * tilt)).addScaledVector(_y, -GLASS_H);
-  quat.copy(_q).multiply(SIP_YAW).multiply(_q2.copy(ch.glassAt.quat).invert());
-  return pos.sub(_z.copy(ch.glassAt.pos).applyQuaternion(quat));
-}
+// the glass's rim (upper-body space, from the mouth) held before the chest and at the lip, and its
+// lean (base to rim) upright and tipped back toward the face, rim low, as it pours
+const RIM_HOLD = new THREE.Vector3(-0.01, -0.1, 0.18), RIM_LIP = new THREE.Vector3(0, -0.005, 0.025);
+const LEAN_HOLD = new THREE.Vector3(0, 1, 0), LEAN_POUR = new THREE.Vector3(0, -0.25, -1).normalize();
+// how far the wrist may bend off the forearm to stand the glass up
+const WRIST_GIVE = 0.25;
+const _rim = new THREE.Vector3(), _lean = new THREE.Vector3();
 function poseSip(s, dt) {
   // critically damped, so the head tips back and the glass rises without a jolt at the start
   s.w = smoothDamp(s.w, s.wT, s, 'wv', 0.32, dt);
   s.tilt = smoothDamp(s.tilt, s.tiltT, s, 'tv', 0.34, dt);
   if (s.w < 0.002 && s.wT === 0) { s.w = s.wv = 0; return false; }
-  const ch = s.ch, tilt = s.tilt, wrist = ch.arm.handMesh.userData.wrist;
+  const ch = s.ch, tilt = s.tilt;
   ch.head.rotation.x -= 0.55 * tilt;
   ch.neck.rotation.y *= 1 - 0.7 * s.w;
   ch.head.updateWorldMatrix(true, false);
   ch.upper.worldToLocal(ch.head.localToWorld(_a.copy(MOUTH)));
-  // the wrist where it is holding and drinking, then the hand turned about it
-  sipGrip(ch, 0, _gp, _q0); _w0.copy(wrist).applyQuaternion(_q0).add(_gp);
-  sipGrip(ch, 1, _gp, _gq); _w1.copy(wrist).applyQuaternion(_gq).add(_gp);
-  _w0.lerp(_w1, ease(0, 0.75, tilt));
-  _gq.copy(_q0.slerp(_gq, ease(0.2, 1, tilt)));
-  _gp.copy(wrist).applyQuaternion(_gq).negate().add(_w0);
-  _gp.lerpVectors(ch.arm.pos, _gp, s.w);
-  _gq.slerpQuaternions(ch.arm.quat, _gq, s.w);
+  // the arm swings up from an elbow out in front with the wrist straight, so the forearm rising is
+  // what tips the glass, its rim carried from before the chest to the lip
+  _w0.copy(ch.arm.pos); _q0.copy(ch.arm.quat);
+  _rim.lerpVectors(RIM_HOLD, RIM_LIP, ease(0, 0.8, tilt)).add(_a);
+  _lean.lerpVectors(LEAN_HOLD, LEAN_POUR, ease(0.15, 1, tilt)).normalize();
+  straightGrip(ch, _rim, _lean, ELBOW_SIP, WRIST_GIVE, _gp, _gq);
+  _gp.lerpVectors(_w0, _gp, s.w);
+  _gq.slerpQuaternions(_q0, _gq, s.w);
   poseRightHand(ch, _gp, _gq, _pl.lerpVectors(ELBOW_REST, ELBOW_SIP, s.w), 1 - s.w);
   return true;
 }

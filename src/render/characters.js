@@ -282,7 +282,7 @@ const _hp = new THREE.Vector3();
 const inFrame = (m, sdf) => (p) => sdf(_hp.copy(p).applyMatrix4(m));
 
 // a shot glass (diceTable.js): radius at its base and rim, and height
-const GLASS = { r0: 0.0192, r1: 0.0218, h: 0.056 };
+const GLASS = { r0: 0.0192, r1: 0.0218, h: 0.056 }, GLASS_H_HAND = GLASS.h;
 /**
  * Where a held glass stands in the hand frame: its axis along the thumb's side of the palm, the
  * base level with the ring finger so the rim stands clear above the index finger and thumb.
@@ -838,6 +838,41 @@ function solveArm(arm, wrist, fore, pole, sway = ELBOW_SWAY) {
 export function poseRightHand(ch, pos, quat, pole, free = 1) {
   ch.arm.pos.copy(pos); ch.arm.quat.copy(quat);
   solveArm(ch.arm, ch.arm.handMesh.userData.wrist, ch.arm.handMesh.userData.fore, pole ? _pole.copy(pole).normalize() : _pole.set(-1, -0.7, -0.1).normalize(), ELBOW_SWAY * free);
+}
+
+const _sw = new THREE.Vector3(), _sr = new THREE.Vector3(), _sg = new THREE.Vector3(), _su = new THREE.Vector3();
+const _sf = new THREE.Quaternion(), _sh = new THREE.Quaternion(), _st = new THREE.Quaternion(), _Y = new THREE.Vector3(0, 1, 0);
+/**
+ * A drinking hand's grip pose (upper-body space) with the wrist kept nearly straight: the arm is
+ * solved with its elbow toward `pole`, the hand runs on along the forearm, turned about it so the
+ * held glass leans toward `up` (base to rim), with at most `give` radians of wrist bend to get
+ * closer. The wrist is moved until the glass's rim is at `rim`. Poses ch.arm as a side effect.
+ */
+export function straightGrip(ch, rim, up, pole, give, pos, quat) {
+  const arm = ch.arm, wrist = arm.handMesh.userData.wrist, fore = arm.handMesh.userData.fore, gl = ch.glassAt;
+  _sw.copy(rim);
+  quat.copy(arm.quat);
+  for (let k = 0; k < 3; k++) {
+    arm.quat.copy(quat); arm.pos.copy(wrist).applyQuaternion(quat).negate().add(_sw);
+    solveArm(arm, wrist, null, _pole.copy(pole).normalize(), 0);
+    _sf.copy(arm.upper.quaternion).multiply(arm.fore.quaternion);
+    // straight: the hand's own forearm line along the forearm (+y in its frame)
+    _sh.setFromUnitVectors(fore, _Y);
+    // turned about the forearm so the glass leans toward `up`
+    _sg.set(0, 1, 0).applyQuaternion(gl.quat).applyQuaternion(_sh);
+    _su.copy(up).applyQuaternion(_st.copy(_sf).invert());
+    _sh.premultiply(_st.setFromAxisAngle(_Y, Math.atan2(_su.x, _su.z) - Math.atan2(_sg.x, _sg.z)));
+    // and a little wrist bend, no more than `give`, to stand it up further
+    _sg.set(0, 1, 0).applyQuaternion(gl.quat).applyQuaternion(_sh);
+    const miss = _sg.angleTo(_su);
+    if (miss > 1e-4) _sh.premultiply(_st.setFromAxisAngle(_sr.crossVectors(_sg, _su).normalize(), Math.min(miss, give)));
+    quat.copy(_sf).multiply(_sh);
+    // where the rim ended up, and the wrist moved by the miss
+    _sr.set(0, GLASS_H_HAND, 0).applyQuaternion(gl.quat).add(gl.pos).sub(wrist).applyQuaternion(quat).add(_sw);
+    _sw.add(_sg.subVectors(rim, _sr));
+  }
+  arm.quat.copy(quat);
+  return pos.copy(wrist).applyQuaternion(quat).negate().add(_sw);
 }
 
 /**
