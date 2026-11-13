@@ -1,7 +1,7 @@
-// Stages Brass through his poses on a virtual clock and photographs each one close up: at rest,
+// Stages a character (--who brass|noctua|gristle, default brass) through his poses on a virtual clock and photographs each one close up: at rest,
 // holding cards, reaching for the revolver, aiming it at his temple, and drinking (a still at the
 // lip and a filmstrip of the whole drink). The game is held on your first turn, so nothing else moves.
-//   node scripts/rig-shots.mjs [--out artifacts/rig/after] [--only cards|dice] [--zoom 1.9] [--page dist/index.html]
+//   node scripts/rig-shots.mjs [--who gristle] [--out artifacts/rig/after] [--only cards|dice] [--zoom 1.9] [--page dist/index.html]
 // Run it on the build before a change and after it (different --out) to compare.
 import { createRequire } from 'node:module';
 import { mkdirSync, existsSync, rmSync } from 'node:fs';
@@ -13,7 +13,7 @@ const HOST = 'http://last-call.local';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, arr) => (v.startsWith('--') ? [...a, [v.slice(2), arr[i + 1]?.startsWith('--') ? true : arr[i + 1] ?? true]] : a), []));
 const ROOT = path.resolve('.'), OUT = path.resolve(args.out || 'artifacts/rig'), PAGE = path.resolve(args.page || 'dist/index.html');
-const ZOOM = +(args.zoom || 2.5), FPS = 30;
+const ZOOM = +(args.zoom || 2.5), FPS = 30, WHO = args.who || 'brass';
 if (!existsSync(PAGE)) throw new Error(`${PAGE} is missing; run \`npm run build\` first`);
 mkdirSync(OUT, { recursive: true });
 
@@ -56,9 +56,9 @@ async function open(mode) {
   }, 1000 / FPS);
   await page.goto(HOST + PAGE);
   await page.waitForSelector('#title-menu:not([hidden])');
-  await page.evaluate(() => {
+  await page.evaluate((who) => {
     const L = window.__lastcall, S = window.__rs;
-    S.ch = L.D.characters.brass;
+    S.who = who; S.ch = L.D.characters[who];
     // a free camera, given in Brass's own space (he faces +z, his right hand is on -x), set after
     // the game has placed its own
     const V = L.camera.position.constructor, at = new V();
@@ -126,7 +126,7 @@ async function open(mode) {
       L.rig.focusTarget.copy(S.ch.tagAnchor); L.rig.focusTarget.y -= S.cam.down;
       L.rig.zoomTarget = S.cam.zoom; L.rig.leanTarget = 0; L.rig.lookYawTarget = L.rig.lookPitchTarget = 0;
     };
-  });
+  }, WHO);
   await page.click('#solo-btn');
   if (mode !== 'deck') await page.click(`#solo-mode-seg button[data-v="${mode}"]`);
   await page.click('#solo-start-btn');
@@ -154,7 +154,7 @@ async function open(mode) {
   const phase = (name) => page.evaluate((name) => { window.__rs.phase = name; }, name);
   const report = async () => {
     const { stats, census } = await page.evaluate(() => ({ stats: window.__rs.stats, census: window.__rs.census() }));
-    console.log(`  Brass: ${census.meshes} draw calls, ${census.tris} triangles`);
+    console.log(`  ${WHO}: ${census.meshes} draw calls, ${census.tris} triangles`);
     const mm = (x) => (x * 1000).toFixed(1);
     console.log('  vertices inside the torso capsule, most in any frame (deepest, mm); lowest arm vertex over the table top (mm)');
     for (const [k, s] of Object.entries(stats)) console.log(`  ${k.padEnd(6)} ${String(s.frames).padStart(4)} frames: forearm and hand ${s.foreInside} (${mm(s.foreDepth)}), held props ${s.propInside} (${mm(s.propDepth)}), upper arm past the shoulder ${s.upperInside} (${mm(s.upperDepth)}); lowest ${mm(s.tableMin)} ${s.lowest}`);
@@ -210,7 +210,7 @@ if (args.only !== 'cards') {
   await phase('drink');
   
   await page.evaluate(() => {
-    const L = window.__lastcall, S = window.__rs, seat = L.D.designOf.indexOf('brass');
+    const L = window.__lastcall, S = window.__rs, seat = L.D.designOf.indexOf(S.who);
     S.drinking = true;
     L.MODES.dice.on.drink(L.T, { seat, poisoned: false, drinks: 1 }).then(() => { S.drinking = false; });
   });
@@ -220,7 +220,7 @@ if (args.only !== 'cards') {
     const qf = new Q(), qh = new Q(), a = new V(), b = new V();
     ch.arm.fore.getWorldQuaternion(qf); ch.arm.hand.getWorldQuaternion(qh);
     const bend = a.set(0, 1, 0).applyQuaternion(qf).angleTo(b.copy(ch.arm.handMesh.userData.fore).applyQuaternion(qh)) * 180 / Math.PI;
-    const rim = held.localToWorld(new V(0, 0.056, 0)), mouth = ch.head.localToWorld(new V(0, -0.07, 0.12));
+    const rim = held.localToWorld(new V(0, 0.056, 0)), mouth = ch.rig ? ch.rig.mouth.getWorldPosition(new V()) : ch.head.localToWorld(new V(0, -0.07, 0.12));
     return { bend, gap: rim.distanceTo(mouth) * 100 };
   });
   const TMP = path.join(OUT, 'drink-frames'); rmSync(TMP, { recursive: true, force: true }); mkdirSync(TMP, { recursive: true });
