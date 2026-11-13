@@ -19,7 +19,7 @@ export function initUI() {
     const el = document.createElement('div'); el.className = 'tag'; el.style.opacity = '0';
     el.innerHTML = `<div class="bubble"></div><div class="nm"><span></span></div><div class="meta panel-chip"><span class="cnt"></span><span class="pips"></span></div><div class="status"></div>`;
     $('#tags').appendChild(el);
-    tags[seat] = { el, name: el.querySelector('.nm span'), bubble: el.querySelector('.bubble'), cnt: el.querySelector('.cnt'), pips: el.querySelector('.pips'), status: el.querySelector('.status'), timer: 0, lastPulls: 0, x: 0, y: 0, h: 44, bh: 0, below: false };
+    tags[seat] = { el, name: el.querySelector('.nm span'), bubble: el.querySelector('.bubble'), cnt: el.querySelector('.cnt'), pips: el.querySelector('.pips'), status: el.querySelector('.status'), timer: 0, lastPulls: 0, x: 0, y: 0, h: 44, bh: 0, below: false, px: NaN, py: NaN };
     ro.observe(el); ro.observe(tags[seat].bubble);
   }
   tags[0] = { pips: $('#me-pips'), lastPulls: 0 };
@@ -199,7 +199,9 @@ export function setBlackout(on) { $('#blackout').classList.toggle('on', on); if 
 /** Your own fatal shot: the edges of your sight go red as the dark comes in. */
 export function bloodshot() { if (settings.blood) $('#bloodshot').classList.add('on'); }
 export const setTense = (on) => document.body.classList.toggle('tense', on);
-export function setHint(html) { $('#hint').innerHTML = html || ''; }
+// rewriting the same markup would still rebuild the hint's nodes and its layout
+let hintHtml = '';
+export function setHint(html) { html = html || ''; if (html !== hintHtml) $('#hint').innerHTML = hintHtml = html; }
 
 /** Screen positions for the name tags, eased so they glide instead of jittering with the camera. */
 export function placeTag(seat, x, y, visible, dt) {
@@ -208,7 +210,9 @@ export function placeTag(seat, x, y, visible, dt) {
   if (hud.bottom) y = Math.max(y, hud.bottom + 8 + t.h);
   const k = t.placed ? 1 - Math.exp(-dt * 18) : 1;
   t.x += (x - t.x) * k; t.y += (y - t.y) * k; t.placed = true;
-  t.el.style.transform = `translate3d(${t.x.toFixed(1)}px, ${t.y.toFixed(1)}px, 0) translate(-50%, -100%)`;
+  // a still tag keeps its style untouched: no new string and no style invalidation every frame
+  const px = Math.round(t.x * 10), py = Math.round(t.y * 10);
+  if (px !== t.px || py !== t.py) { t.px = px; t.py = py; t.el.style.transform = `translate3d(${px / 10}px, ${py / 10}px, 0) translate(-50%, -100%)`; }
   const below = t.y - t.h - t.bh - 12 < hud.bottom + 4;
   if (below !== t.below) { t.below = below; t.el.classList.toggle('below', below); }
   const op = visible && document.body.classList.contains('in-game') ? '' : '0';

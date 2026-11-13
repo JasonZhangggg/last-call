@@ -173,6 +173,19 @@ function checkPostOutput() {
   if (postCheck.black >= 2) { quality.postAllowed = false; applyQuality(); console.warn('Post-processing produced black frames; rendering directly.'); }
 }
 
+/**
+ * Compiles every program the scene can use, for each object whether or not it is in view. A program
+ * drawn into the post chain's buffer differs from one drawn to the screen (no tone mapping, linear
+ * output), so both sets are built: the post chain's for normal play, the screen's for the low rungs.
+ */
+export function compileScene() {
+  const direct = renderer.compileAsync(scene, camera);
+  renderer.setRenderTarget(scenePass.target);
+  const post = renderer.compileAsync(scene, camera);
+  renderer.setRenderTarget(null);
+  return Promise.all([direct, post]);
+}
+
 export function render(dt, t) {
   if (postOn()) {
     grade.uniforms.uTime.value = t;

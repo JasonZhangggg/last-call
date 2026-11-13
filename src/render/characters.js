@@ -677,9 +677,9 @@ export function buildCharacter(designKey, angle) {
   const neck = new THREE.Group(); neck.position.y = 0.36; upper.add(neck);
   const head = new THREE.Group(); head.position.y = 0.14; neck.add(head);
 
-  // the morphed hands get their own copy of the hand material: three rebuilds a material's program
-  // state every time it alternates between morphed and plain meshes
-  const handMat = design.hand.clone();
+  // each morphed hand gets its own copy of the hand material: three rebuilds a material's program
+  // state every time it alternates between meshes with different morph targets (1 left, 3 right)
+  const handMat = design.hand.clone(), rightMat = design.hand.clone();
   const ku = new Kit(), kh = new Kit();
   const parts = design.torso(ku, upper) || {};
   if (parts.gem) upper.add(parts.gem);
@@ -698,7 +698,7 @@ export function buildCharacter(designKey, angle) {
   new THREE.Matrix4().copy(fanPose).invert().multiply(new THREE.Matrix4().makeTranslation(FAN_AT.x, FAN_AT.y, FAN_AT.z)).decompose(handAnchor.position, handAnchor.quaternion, handAnchor.scale);
 
   // Right arm: shoulder, upper arm, forearm and the revolver hand, posed every frame by two-bone IK.
-  const right = buildArm(upper, V(-SHOULDER, 0.245, -0.01), design, rightHand(design.handOpts, handMat));
+  const right = buildArm(upper, V(-SHOULDER, 0.245, -0.01), design, rightHand(design.handOpts, rightMat));
   const grip = new THREE.Object3D(); right.hand.add(grip);
 
   // Aim in head space: barrel level and pointing into the temple, the muzzle 3 cm off it.
@@ -709,7 +709,7 @@ export function buildCharacter(designKey, angle) {
   const chair = new THREE.Mesh(chairGeometry(), mats.chair); chair.castShadow = true; chair.receiveShadow = true; group.add(chair);
 
   const glowMats = [...new Set([face.eyes[0].material, ...face.extraGlow])];
-  const tints = [...design.tint, handMat].map((m) => ({ m, base: m.color.clone(), sheen: m.sheenColor?.clone() }));
+  const tints = [...design.tint, handMat, rightMat].map((m) => ({ m, base: m.color.clone(), sheen: m.sheenColor?.clone() }));
   return {
     group, waist, upper, neck, head, eyes: face.eyes, handAnchor, leftHand: left.hand,
     arm: right, leftArm: left, fan, fanUp, aimLocal, grip, reachTarget: new THREE.Vector3(), reachQuat: new THREE.Quaternion(),
