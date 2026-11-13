@@ -14,6 +14,7 @@ export const settings = {
   speed: 1,
   reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
   autoplay: location.hash.startsWith('#autoplay'),
+  blood: true,
   paused: false,
 };
 /** Game-paced delay. Honors the speed setting, the pause menu and the autoplay test mode. */

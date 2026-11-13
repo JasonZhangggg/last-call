@@ -4,6 +4,7 @@ import { RANK_STYLE, rankIcon, cardImage } from './render/textures.js';
 import { audio } from './audio.js';
 import { quality, setQualityMode } from './render/core.js';
 import { rig } from './render/camera.js';
+import { clearBlood } from './render/blood.js';
 
 
 const tags = [];
@@ -112,6 +113,8 @@ function bindSettings() {
     settings.reducedMotion = v === 'on'; store.set('reducedMotion', settings.reducedMotion);
     document.body.classList.toggle('reduce-motion', settings.reducedMotion);
   });
+  settings.blood = store.get('blood', true);
+  seg('blood-seg', settings.blood ? 'on' : 'off', (v) => { settings.blood = v === 'on'; store.set('blood', settings.blood); if (!settings.blood) clearBlood(); });
   const sb = $('#sound-btn');
   const syncSound = () => sb.setAttribute('aria-pressed', String(!audio.muted));
   syncSound();
@@ -192,7 +195,9 @@ export function log(html) {
 export const clearLog = () => { $('#log').innerHTML = ''; };
 /** Screen effects the director can call instead of reaching into the DOM. */
 export function flash() { const f = $('#flash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go'); }
-export const setBlackout = (on) => $('#blackout').classList.toggle('on', on);
+export function setBlackout(on) { $('#blackout').classList.toggle('on', on); if (!on) $('#bloodshot').classList.remove('on'); }
+/** Your own fatal shot: the edges of your sight go red as the dark comes in. */
+export function bloodshot() { if (settings.blood) $('#bloodshot').classList.add('on'); }
 export const setTense = (on) => document.body.classList.toggle('tense', on);
 export function setHint(html) { $('#hint').innerHTML = html || ''; }
 

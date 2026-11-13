@@ -87,7 +87,8 @@ const box = (w, h, d, p, r, s) => place(new THREE.BoxGeometry(w, h, d), p, r, s)
 const cyl = (rt, rb, h, seg, p, r, s) => place(new THREE.CylinderGeometry(rt, rb, h, seg), p, r, s);
 
 /* ---------- room dimensions ---------- */
-const FLOOR = -0.76, CEIL = 3.1, X0 = -4.6, X1 = 4.6, Z0 = -4.95, Z1 = 4.2, RAIL = 0.32;
+export const FLOOR = -0.76;
+const CEIL = 3.1, X0 = -4.6, X1 = 4.6, Z0 = -4.95, Z1 = 4.2, RAIL = 0.32;
 
 export function buildWorld() {
   const brass = brassCanvases(256);
