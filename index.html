@@ -289,6 +289,15 @@ input[type=range]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--
 @keyframes flash { 0% { opacity: 0.9; } 100% { opacity: 0; } }
 #blackout { position: fixed; inset: 0; z-index: 9; pointer-events: none; background: #000; opacity: 0; transition: opacity 1.8s ease-in; }
 #blackout.on { opacity: 1; }
+/* your own fatal shot: a dark red closing in from the edges, heavier on the left where it came out */
+#bloodshot { position: fixed; inset: 0; z-index: 8; pointer-events: none; opacity: 0;
+  background:
+    radial-gradient(circle at 6% 30%, rgba(118, 8, 6, 0.9) 0 2.4vmin, rgba(118, 8, 6, 0) 3.2vmin),
+    radial-gradient(circle at 11% 21%, rgba(118, 8, 6, 0.85) 0 1.1vmin, rgba(118, 8, 6, 0) 1.6vmin),
+    radial-gradient(circle at 3% 44%, rgba(118, 8, 6, 0.85) 0 1.6vmin, rgba(118, 8, 6, 0) 2.3vmin),
+    radial-gradient(circle at 14% 37%, rgba(118, 8, 6, 0.8) 0 0.6vmin, rgba(118, 8, 6, 0) 1vmin),
+    radial-gradient(ellipse 120% 100% at 60% 50%, rgba(90, 0, 0, 0) 40%, rgba(110, 6, 4, 0.5) 72%, rgba(50, 0, 0, 0.92) 100%); }
+#bloodshot.on { opacity: 1; transition: opacity 0.12s ease-out; }
 #fatal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; text-align: center; padding: 24px; background: var(--night); }
 
 /* ---------- table sheets: solo, join, lobby, out ---------- */
@@ -627,6 +636,7 @@ body.reduce-motion .recap div { animation: none; opacity: 1; }
 <button class="btn ghost" id="cards-btn" type="button" aria-pressed="false" hidden>Look at your cards<span class="k" aria-hidden="true">Space</span></button>
 
 <div id="flash"></div>
+<div id="bloodshot"></div>
 <div id="blackout"></div>
 
 <div class="overlay" id="title" role="dialog" aria-modal="true" aria-labelledby="title-h">
@@ -723,6 +733,7 @@ body.reduce-motion .recap div { animation: none; opacity: 1; }
       <div class="field"><span id="lbl-speed">Game pace</span><div class="seg" id="speed-seg" role="group" aria-labelledby="lbl-speed"><button type="button" data-v="0.75">Relaxed</button><button type="button" data-v="1">Normal</button><button type="button" data-v="1.5">Brisk</button></div></div>
       <div class="field"><span id="lbl-look">Look with mouse</span><div class="seg" id="look-seg" role="group" aria-labelledby="lbl-look"><button type="button" data-v="on">On</button><button type="button" data-v="off">Off</button></div></div>
       <div class="field"><span id="lbl-motion">Reduce motion</span><div class="seg" id="motion-seg" role="group" aria-labelledby="lbl-motion"><button type="button" data-v="off">Off</button><button type="button" data-v="on">On</button></div></div>
+      <div class="field"><span id="lbl-blood">Blood</span><div class="seg" id="blood-seg" role="group" aria-labelledby="lbl-blood"><button type="button" data-v="on">On</button><button type="button" data-v="off">Off</button></div></div>
     </div>
     <button class="btn primary" type="button" data-close>Done</button>
   </div>

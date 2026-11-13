@@ -5,6 +5,7 @@ import { buildWorld, updateWorld, setShadowSize } from './render/world.js';
 import { buildCharacter, updateCharacter, straightGrip, poseRightHand } from './render/characters.js';
 import { buildCards, updateCards, warmCards, bodies, hands } from './render/cards.js';
 import { buildGun, updateGun, gun } from './render/gun.js';
+import { buildBlood, updateBlood, blood, spray } from './render/blood.js';
 import { buildAuctionTable, updateAuctionTable } from './render/auctionTable.js';
 import { buildPlayerArm, updatePlayerArm, arm } from './render/playerArm.js';
 import { buildDiceTable, updateDiceTable, table as diceTable } from './render/diceTable.js';
@@ -48,6 +49,7 @@ function simulate(dt, t) {
   updateAuctionTable(dt);
   updatePlayerArm(dt);
   updateGun(dt);
+  updateBlood(dt);
   updateDiceTable(dt, t);
   camera.updateMatrixWorld();
   updateHover(dt);
@@ -354,6 +356,7 @@ async function boot() {
   buildCards();
   buildAuctionTable();
   buildGun();
+  buildBlood();
   buildPlayerArm();
   buildDiceTable();
   ui.initUI();
@@ -377,7 +380,7 @@ async function boot() {
   renderer.setAnimationLoop(frame);
   $('#loading').hidden = true; $('#title-menu').hidden = false;
   $('#solo-btn').focus({ preventScroll: true });
-  window.__lastcall = { D, S, quality, hooks, gun, arm, rig, camera, renderer, MODES, CATALOG, leaveTable, cards: { bodies, hands }, diceTable, T, settings, pose: { straightGrip, poseRightHand } };
+  window.__lastcall = { D, S, quality, hooks, gun, arm, rig, camera, renderer, MODES, CATALOG, leaveTable, cards: { bodies, hands }, diceTable, T, settings, pose: { straightGrip, poseRightHand }, blood, spray };
   const room = new URLSearchParams(location.search).get('room');
   const AUTO = { '#autoplay-devil': ['deck', 'devil'], '#autoplay-dice': ['dice', 'basic'], '#autoplay-dice-traditional': ['dice', 'traditional'], '#autoplay-auction': ['auction', 'classic'] };
   if (settings.autoplay) { const [mode, variant] = AUTO[location.hash] || ['deck', 'basic']; startSolo({ mode, variant }); }

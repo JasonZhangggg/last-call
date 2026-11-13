@@ -58,6 +58,31 @@ export function softDot(size = 64) {
   ctx.fillStyle = g; ctx.fillRect(0, 0, size, size); return c;
 }
 
+/**
+ * A blood splat on a transparent canvas: a ragged pool, a run of drops trailing off toward +u (the way
+ * it was travelling), and a few flecks. Dark at the rim, a little redder where it lies thick.
+ */
+export function splatCanvas(size = 128) {
+  const [c, ctx] = mk(size); const h = size / 2;
+  const blob = (x, y, r, seed, fill) => {
+    ctx.beginPath();
+    for (let i = 0; i <= 28; i++) {
+      const a = i / 28 * Math.PI * 2, k = 0.72 + 0.5 * fbm(Math.cos(a) * 1.3 + seed, Math.sin(a) * 1.3 + seed, 64, 64);
+      ctx[i ? 'lineTo' : 'moveTo'](x + Math.cos(a) * r * k, y + Math.sin(a) * r * k);
+    }
+    ctx.fillStyle = fill; ctx.fill();
+  };
+  const rim = 'rgb(62,5,4)', body = 'rgb(102,10,7)';
+  blob(h - size * 0.06, h, size * 0.27, 3, rim);
+  blob(h - size * 0.07, h + size * 0.01, size * 0.2, 3, body);
+  for (let i = 0; i < 5; i++) { const x = h + size * (0.16 + i * 0.065), r = size * (0.06 - i * 0.01); blob(x, h + (hash(i, 7) - 0.5) * size * 0.05, r, 10 + i, i < 2 ? body : rim); }
+  for (let i = 0; i < 9; i++) {
+    const a = hash(i, 21) * Math.PI * 2, d = size * (0.3 + hash(i, 22) * 0.14);
+    blob(h + Math.cos(a) * d, h + Math.sin(a) * d, size * (0.012 + hash(i, 23) * 0.02), 30 + i, rim);
+  }
+  return c;
+}
+
 /* ---------- surface detail ---------- */
 
 /** Fills a canvas from f(u, v) -> [r, g, b] (0..255), u and v in 0..1. */

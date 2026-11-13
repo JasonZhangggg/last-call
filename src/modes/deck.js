@@ -10,6 +10,7 @@ import { react, tell } from '../render/characters.js';
 import { rig, focusOn, centerLook } from '../render/camera.js';
 import { gun, gunHome, gunToCharacter, gunSlideTo, slideSpotFor, lieAt, gunToGrip, gunSetDown, gunDrop, spinDrum, cockHammer, fire } from '../render/gun.js';
 import { arm, armReach, armRaise, armHide } from '../render/playerArm.js';
+import { spray, clearBlood } from '../render/blood.js';
 import { RANK_STYLE } from '../render/textures.js';
 import { createDeck, HAND_SIZE, CHAMBERS } from '../model/rules.js';
 import { reduceDeck, pileCount, lastPlay } from './deck-state.js';
@@ -339,6 +340,7 @@ async function shot(T, msg) {
   } else {
     fire(true); audio.bang(); rig.shake = 1;
     ui.flash();
+    if (human) ui.bloodshot(); else spray(ch);
     ui.log(`<b>${human ? 'You' : T.name(seat)}</b> ${verb(T, seat, 'were', 'was')} not so lucky.`);
     T.refresh();
     if (human) {
@@ -383,7 +385,7 @@ function rebuild(T, { fresh }) {
   handUI.enabled = false; handUI.selected.clear();
   setHandUp(false);
   setDeckSize(createDeck(game.variant).length);
-  clearGlows(); armHide(); gunHome(); gun.cockTarget = 0;
+  clearGlows(); armHide(); gunHome(); gun.cockTarget = 0; clearBlood();
   audio.setTension(0); ui.setTense(false);
   rig.leanTarget = 0; rig.zoomTarget = 1; rig.rollTarget = 0; focusOn(null);
   for (let s = 0; s < 4; s++) if (!T.isMe(s)) react(T.char(s), 'out', !game.alive[s]);
@@ -425,7 +427,7 @@ export const deckMode = {
   exit(T) {
     releaseHand();
     beating = false; holder = null; pendingTurn = null;
-    handUI.enabled = false; clearGlows(); armHide(); gunHome(); gatherToDeck();
+    handUI.enabled = false; clearGlows(); armHide(); gunHome(); gatherToDeck(); clearBlood();
   },
   rebuild,
   on: { round, played, challenge, shot, turn, roulette },

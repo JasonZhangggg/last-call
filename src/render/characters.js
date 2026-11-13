@@ -12,6 +12,8 @@ import { rand, clamp, quatE, UP } from '../util.js';
 export const SEAT_RADIUS = 1.32;
 const _a = new THREE.Vector3(), _d = new THREE.Vector3(), _q = new THREE.Quaternion(), _c = new THREE.Color();
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
+// the revolver's line through the head at the temple, in head space
+const AIM_DIR = V(1, -0.04, -0.16).normalize();
 
 /* ---------- shape helpers (all return geometry already in place) ---------- */
 
@@ -700,7 +702,7 @@ export function buildCharacter(designKey, angle) {
   const grip = new THREE.Object3D(); right.hand.add(grip);
 
   // Aim in head space: barrel level and pointing into the temple, the muzzle 3 cm off it.
-  const aimDir = V(1, -0.04, -0.16).normalize(), aimQ = basis(V(0, 0, -1), aimDir);
+  const aimDir = AIM_DIR, aimQ = basis(V(0, 0, -1), aimDir);
   const muzzle = design.temple.clone().addScaledVector(aimDir, -0.03);
   const aimLocal = new THREE.Matrix4().compose(muzzle.sub(MUZZLE.clone().applyQuaternion(aimQ)), aimQ, V(1, 1, 1));
 
@@ -736,6 +738,8 @@ export function resetCharacter(ch) {
 }
 export const tell = (ch, seconds = 1.3) => { ch.flicker = seconds; };
 export const headWorld = (ch, out) => ch.head.getWorldPosition(out);
+/** A shot to the right temple, in head space: where it goes in, where it comes out, and its line. */
+export const wound = (ch) => ({ head: ch.head, entry: ch.design.temple, exit: V(-ch.design.temple.x, ch.design.temple.y, ch.design.temple.z), dir: AIM_DIR });
 
 /**
  * The flinch pulse at `t` seconds after the click: a 90 ms rise that leaves and arrives at rest
