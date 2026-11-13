@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { $, clamp, settings } from './util.js';
-import { renderer, scene, camera, canvas, render, adapt, applyQuality, quality } from './render/core.js';
+import { renderer, scene, camera, canvas, render, adapt, applyQuality, quality, compileScene } from './render/core.js';
 import { buildWorld, updateWorld, setShadowSize } from './render/world.js';
 import { buildCharacter, updateCharacter } from './render/characters.js';
 import { buildCards, updateCards, warmCards, bodies, hands } from './render/cards.js';
@@ -367,7 +367,7 @@ async function boot() {
   const hidden = [];
   scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
   gun.flash.material.opacity = 0.01;
-  await renderer.compileAsync(scene, camera);
+  await compileScene();
   warmCards(renderer);
   for (let i = 0; i < 3; i++) render(1 / 60, 0);
   for (const o of hidden) o.visible = false;

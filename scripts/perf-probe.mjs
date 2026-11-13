@@ -37,7 +37,7 @@ function __frame() {`);
       s = must(s, /render\(dt, t\);\n/, `{ const a = performance.now(); render(dt, t); if (globalThis.__perf) globalThis.__perf.draw = performance.now() - a; }\n`);
       const mark = (name) => `performance.mark('${name}'); `;
       s = must(s, /\n  buildWorld\(\);/, `\n  ${mark('fonts')}buildWorld();`);
-      s = must(s, /  await renderer\.compileAsync/, `  ${mark('built')}await renderer.compileAsync`);
+      s = must(s, /  await compileScene\(\)/, `  ${mark('built')}await compileScene()`);
       s = must(s, /  warmCards\(renderer\);/, `  ${mark('compiled')}warmCards(renderer);`);
       s = must(s, /  clock\.start\(\);\n  renderer\.setAnimationLoop/, `  ${mark('warmed')}clock.start();\n  renderer.setAnimationLoop`);
       return { contents: s, loader: 'js' };
