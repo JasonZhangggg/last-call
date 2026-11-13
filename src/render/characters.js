@@ -452,6 +452,12 @@ const DESIGNS = {
     const irisMat = standard({ color: 0x2a1400, emissive: 0xffa632, emissiveIntensity: 2.6 });
     const gemMat = standard({ color: 0x0a3a38, emissive: 0x2fd6c0, emissiveIntensity: 1.2, roughness: 0.1 });
     return {
+      mats: { velvet, cape: velvetDark, lace, porcelain, mask, pearl, hat, ribbon, plume, plume_dark: plumeDark, socket, iris: irisMat, gem: gemMat, brass: mats.brass },
+      // her model's face and the shapes its arms are kept out of (tools/models/noctua.py)
+      rig: {
+        eye: 'iris', glow: ['gem'], lids: ['lidR', 'lidL'], lidOpen: 0.25, lidClosed: Math.PI / 2 + 0.05, parts: [],
+        torso: { y0: -0.1, y1: 0.16, rx: 0.196, rz: 0.15, ry: 0.2 }, head: { half: V(0.125, 0.14, 0.11), round: 0.02 },
+      },
       sleeve: velvet, hand: porcelain, arm: { shoulder: 0.045, elbow: 0.037, wrist: 0.03, gap: 0.016 }, handOpts: { palm: [0.036, 0.042, 0.016], r: 0.0072 }, temple: V(-0.143, 0.045, 0.03),
       tint: [velvet, velvetDark, lace, porcelain, mask, pearl, hat, ribbon, plume], noShadow: [pearl, mats.brass, ribbon, plume, plumeDark],
       torso(k) {

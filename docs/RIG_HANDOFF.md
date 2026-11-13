@@ -1,8 +1,8 @@
 # Rigged characters: handoff
 
-Brass is the pilot. He is a glTF model with a skeleton, made by scripted headless Blender, and the
-game plays him through an AnimationMixer with a thin contact IK and collision pass. Noctua and
-Gristle are still code-built.
+Brass was the pilot and Madame Noctua followed. Each is a glTF model with a skeleton, made by
+scripted headless Blender, and the game plays it through an AnimationMixer with a thin contact IK
+and collision pass. Gristle is still code-built.
 
 ## What is done
 
@@ -16,6 +16,25 @@ Gristle are still code-built.
   replaces the code-built posing for any character that has a model. `buildCharacter` returns the
   same object shape either way.
 - **Checks.** `scripts/rig-shots.mjs` stages Brass's poses, photographs them and probes collisions.
+
+## Madame Noctua
+
+- `tools/models/noctua.py` (`build.sh noctua`) writes `assets/models/noctua.glb`: 47 bones (the shared
+  45 and a lid bone over each eye), one skinned mesh in 14 materials (14 draw calls, 21,466
+  triangles), the same sockets and clip set as Brass. 648 KB after `lib/quantise.py`.
+- The hat, plumes, beak, brow tufts, pearls, brooch and gem are rigid on the head and chest. The
+  lace collar is skinned between the chest and the neck. Each puffed sleeve cap is rigid on its
+  upper arm. The capelet is pushed out clear of the bodice and the puffs at build time, then skinned
+  by distance from each shoulder joint: upper arm near the shoulder, clavicle toward the neck,
+  chest elsewhere. So it rides the arm instead of being crossed by it.
+- `lib/quantise.py` is the `after` step: weights to u8, uvs to u16, normals to i8
+  (KHR_mesh_quantization) and keyed rotations to i16. Positions stay float. Brass is not quantised
+  yet; passing `after=quantise.quantise` in `brass.py` would take him from 809 KB to about 600 KB.
+- A design's `rig` entry in `characters.js` names its face (glow material, lid bones and their
+  open and shut angles, extra glow, moving parts) and sizes its collision shapes. Without one,
+  `rig.js` uses Brass's.
+- Idle's first frame must be the rest pose: the other clips are layered as their difference from
+  it, and they start from rest. A constant offset in idle gets added twice.
 
 ## How it fits together
 

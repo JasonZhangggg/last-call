@@ -21,7 +21,7 @@ import { TABLE } from './world.js';
 import { MUZZLE } from './gun.js';
 import { clamp } from '../util.js';
 // fetched beside the page (the Worker serves them, the build copies them into dist/models)
-const SOURCES = { brass: 'models/brass.glb', gristle: 'models/gristle.glb' };
+const SOURCES = { brass: 'models/brass.glb', gristle: 'models/gristle.glb', noctua: 'models/noctua.glb' };
 const LOADED = {};
 
 /** Parses every character model. A model that fails to load leaves its character code-built. */
@@ -345,7 +345,8 @@ export function updateRig(ch, dt, t, tx, sway, drift) {
   rig.chestY = rig.chest.position.y;
 
   // 2. the gaze, slow weight shifts and the tremble, on top of the clips
-  const glassW = Math.max(L.hold_glass.w, L.drink.w), ph = ch.phase;
+  // the held glass hands over to the drink and back as one weight, never dipping in the crossfade
+  const glassW = Math.min(1, L.hold_glass.w + L.drink.w), ph = ch.phase;
   ch.waist.quaternion.multiply(_qe.setFromEuler(_e.set(drift * 0.012 - E.relief * 0.08, sway * 0.03, tx * 2 + sway * 0.014)));
   ch.upper.position.y -= E.relief * 0.008;
   rig.mouth.getWorldPosition(_m0);
