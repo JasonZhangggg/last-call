@@ -93,7 +93,8 @@ def puff(side, sg):
     ph = np.arctan2(z, x); gather = 1 + 0.06 * np.cos(ph * 9) * (1 - y * y)
     # gathered in at the bottom, where the sleeve comes out of it
     pinch = 1 - 0.35 * mk.smoothstep(-0.3, -1, y)
-    g.P = np.stack([x * gather * pinch, y, z * gather * pinch], -1) * PUFF_R + puff_frame(sg)
+    inner = np.where(x * sg < 0, 0.6, 1.0)
+    g.P = np.stack([x * gather * pinch * inner, y, z * gather * pinch], -1) * PUFF_R + puff_frame(sg)
     g.smooth_normals()
     band = mk.ring(puff_frame(sg) + V(0, -PUFF_R[1] * 0.84, 0), V(0, 1, 0), PUFF_R[0] * 0.66, 0.006, 6, 24)
     return [('velvet', g.bind(f'upperarm.{side}')), ('ribbon', band.bind(f'upperarm.{side}'))]
@@ -211,7 +212,7 @@ def arm_parts(side, sg):
     """One arm: the shared sleeve and gloved hand, the puff at the shoulder and a lace frill at the hem."""
     tube, hand = BODY.arm_parts(side, sg)
     e = BODY.sleeve_end()
-    frill = mk.lathe([[0.029, e + 0.026], [0.032, e + 0.008], [0.036, e - 0.006], [0.04, e - 0.013]], 32)
+    frill = mk.lathe([[0.029, e + 0.026], [0.032, e + 0.008], [0.035, e - 0.005], [0.038, e - 0.011]], 32)
     x, y, z = frill.P.T
     w = np.maximum(0, e - y + 0.004) * 7 * np.sin(np.arctan2(z, x) * 11)
     frill.P = np.stack([x * (1 + w * 0.12), y + w * 0.004, z * (1 + w * 0.12)], -1) + V(sg * SHOULDER, SH_Y, SH_Z)
@@ -232,14 +233,15 @@ def idle():
     sway = lambda t: math.sin(mk.TAU * t / (2 * BREATH))
     return dict(
         dur=2 * BREATH,
-        # upright, the chin a touch high, the head tilting slowly as if listening
-        spine=Fn(lambda t: V(-0.015 + 0.003 * sway(t + 1.1), 0.01 * sway(t), 0.005 * sway(t))),
+        # the head tilting slowly as if listening. Every term is 0 at t = 0: the other clips are
+        # layered on as their difference from this first frame, and they start from the rest pose.
+        spine=Fn(lambda t: V(0.003 * sway(2 * t), 0.01 * sway(t), 0.005 * sway(t))),
         chest=Fn(lambda t: V(-0.008 * b(t), 0, 0)),
         chest_dy=Fn(lambda t: 0.004 * b(t)),
         neck=Fn(lambda t: V(0.006 * b(t), -0.014 * sway(t), 0)),
-        head=Fn(lambda t: V(-0.03, 0.008 * sway(t + 2), 0.035 * math.sin(mk.TAU * t / (2 * BREATH) + 0.8))),
-        clav_R=Fn(lambda t: V(0.015 + 0.018 * b(t - 0.15), -0.02)),
-        clav_L=Fn(lambda t: V(0.015 + 0.018 * b(t - 0.15), -0.02)),
+        head=Fn(lambda t: V(0, 0.008 * sway(2 * t), 0.03 * sway(t))),
+        clav_R=Fn(lambda t: V(0.018 * b(t), 0)),
+        clav_L=Fn(lambda t: V(0.018 * b(t), 0)),
     )
 
 
@@ -265,7 +267,7 @@ def aim():
         chest=K((0, Z3), (0.6, V(-0.02, -0.07, 0), 'io')),
         chest_dy=K((0, 0), (0.16, -0.003, 'soft'), (0.7, 0.008, 'io')),
         neck=K((0, Z3), (0.35, Z3), (0.85, V(-0.05, 0.12, 0), 'io')),
-        head=K((0, Z3), (0.4, Z3), (0.92, V(-0.1, 0.03, -0.09), 'over')),
+        head=K((0, Z3), (0.4, Z3), (0.92, V(-0.1, 0.03, -0.04), 'over')),
         clav_R=K((0, Z2), (0.16, V(-0.04, 0), 'soft'), (0.62, V(0.3, -0.1), 'io'), (0.95, V(0.26, -0.1), 'soft')),
         clav_L=K((0, Z2), (0.7, V(0.04, 0), 'io')),
         hand_R=to(REST['R'], AIM, K((0, 0), (0.16, -0.02, 'soft'), (0.76, 1, 'over')), K((0, Z3), (0.44, V(-0.12, 0.03, 0.08), 'soft'), (0.76, Z3, 'soft'))),
