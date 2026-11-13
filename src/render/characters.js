@@ -537,6 +537,12 @@ const DESIGNS = {
     const SX = 1.16, SZ = 0.86, R = (y) => (y < -0.08 ? 0.21 + (y + 0.3) * 0.06 : y < 0.12 ? 0.225 : 0.225 - (y - 0.12) * 0.4);
     const front = (x, y) => Math.sqrt(Math.max(0, 1 - (x / (R(y) * SX)) ** 2)) * R(y) * SZ;
     return {
+      mats: { coat, facing, skin, beard, leather, linen, felt, eyeball, eye: eyeMat, brass: mats.brass },
+      // the rigged body: its glowing eye, lid, and collision shapes (a broad torso with a belly, a big head)
+      rig: { eye: 'eye', glow: [], lidOpen: -0.45, lidClosed: Math.PI / 2 + 0.05, parts: [],
+        torso: { y0: -0.22, y1: 0.14, rx: 0.262, rz: 0.214, ry: 0.21 }, head: { half: V(0.15, 0.14, 0.135), round: 0.02 },
+        // his big hand closes round the revolver lying on the felt from a little higher
+        reachLift: 0.016 },
       sleeve: coat, hand: skin, arm: { shoulder: 0.06, elbow: 0.05, wrist: 0.04, gap: 0.018 }, handOpts: { palm: [0.046, 0.05, 0.022], r: 0.0098 }, temple: V(-0.156, 0.065, 0.025),
       tint: [coat, facing, skin, beard, linen, felt], noShadow: [mats.brass, linen],
       torso(k) {
