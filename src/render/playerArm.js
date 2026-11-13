@@ -20,20 +20,22 @@ import { Mover, easeInOutCubic, smoothDamp } from './motion.js';
 import { rightHand, shapeHand } from './characters.js';
 import { UP, clamp } from '../util.js';
 
-// camera space
-const AIM_POS = new THREE.Vector3(0.2, -0.13, -0.36);
-const AIM_AT = new THREE.Vector3(0.05, 0.05, 0.06);
-// the revolver turned on its barrel so the butt leans out toward the forearm (radians)
-const AIM_CANT = -0.35;
+// camera space: the revolver held up before your face to the right, its muzzle turned back at your
+// temple. A forearm that comes from below and to the right can only meet a barrel pointing back at
+// you with the hand turned palm down, so it lies on its side (AIM_CANT about the barrel), as the
+// hand found it on the felt.
+const AIM_POS = new THREE.Vector3(0.215, -0.07, -0.41);
+const AIM_AT = new THREE.Vector3(0.05, 0.05, 0.045);
+const AIM_CANT = -1.15;
 const HIDE_POS = new THREE.Vector3(0.3, -0.6, -0.12);
 // the shoulder and the way the elbow hangs, in the body's frame: the camera's place and heading,
 // without its pitch or roll, so the head looks up and down without carrying the shoulder with it
-const SHOULDER = new THREE.Vector3(0.2, -0.3, 0.06);
-const POLE = new THREE.Vector3(0.55, -0.8, 0.2).normalize();
+const SHOULDER = new THREE.Vector3(0.21, -0.24, 0.06);
+const POLE = new THREE.Vector3(0.7, -0.7, 0.1).normalize();
 // the arm (tools/models/player_arm.py): elbow to wrist; the upper arm is at least L1, longer to reach
 const L1 = 0.3, L2 = 0.27;
 // the elbow keeps at least this much bend on a long reach; the wrist bends at most WRIST_MAX
-const MIN_BEND = THREE.MathUtils.degToRad(30), WRIST_MAX = THREE.MathUtils.degToRad(25);
+const MIN_BEND = THREE.MathUtils.degToRad(40), WRIST_MAX = THREE.MathUtils.degToRad(25);
 // the hand meets the revolver as it lies, this far above it, and lifts it as the fingers close
 const LIFT = 0.006;
 const SWAY = 0.45;
@@ -55,6 +57,8 @@ export const arm = {
   // the skinned arm, when the model loaded: its bones and this frame's solve (camera space)
   rig: null, solved: { wristBend: 0, twist: 0, elbow: new THREE.Vector3(), shoulder: new THREE.Vector3(), wrist: new THREE.Vector3(), reach: 0 },
   sip: null,
+  // the shoulder and the elbow's hang (see SHOULDER), here so a probe can try others
+  shoulder: SHOULDER.clone(), pole: POLE.clone(),
 };
 
 let gltf = null;
@@ -171,8 +175,8 @@ function solveSkinned() {
   // the body: the camera's heading only
   _f.set(0, 0, -1).applyQuaternion(camera.quaternion);
   _body.setFromAxisAngle(UP, Math.atan2(-_f.x, -_f.z)).premultiply(_q.copy(camera.quaternion).invert());
-  _S.copy(SHOULDER).applyQuaternion(_body);
-  _pole.copy(POLE).applyQuaternion(_body);
+  _S.copy(arm.shoulder).applyQuaternion(_body);
+  _pole.copy(arm.pole).normalize().applyQuaternion(_body);
   // the elbow from a two-bone solve; past arm's length the upper arm lengthens (the shoulder leans in)
   _d.subVectors(_W, _S); const dist = Math.max(0.05, _d.length()); _d.divideScalar(dist);
   const cb = Math.cos(Math.PI - MIN_BEND), sb = Math.sin(Math.PI - MIN_BEND);
@@ -269,7 +273,7 @@ export function armRaise() {
 export function shoulderWorld(out) {
   if (!arm.rig) return camera.localToWorld(out.copy(CODE_SHOULDER));
   _f.set(0, 0, -1).applyQuaternion(camera.quaternion);
-  return out.copy(SHOULDER).applyAxisAngle(UP, Math.atan2(-_f.x, -_f.z)).add(camera.position);
+  return out.copy(arm.shoulder).applyAxisAngle(UP, Math.atan2(-_f.x, -_f.z)).add(camera.position);
 }
 export function armHide() {
   if (arm.hidden) return;

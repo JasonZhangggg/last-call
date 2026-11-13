@@ -141,25 +141,10 @@ if (args.only !== 'dice') {
   const { page, run, until, shot, phase, report } = await open('deck');
   await page.evaluate(() => { const L = window.__lastcall; window.__as.busy = L.MODES.deck.on.shot(L.T, { seat: L.D.me, fired: false }).then(() => { window.__as.busy = null; }); });
   await phase('gun-reach');
-  await until(() => window.__lastcall.arm.root.visible); await until(flight, 0.5); await shot('gun-reach');
+  await until(() => window.__lastcall.arm.root.visible); await until(flight, 0.85); await shot('gun-reach');
   const holding = () => { const L = window.__lastcall; return L.arm.grip.children.includes(L.gun.obj); };
   await until(holding); await phase('gun-raise'); await until(() => window.__lastcall.arm.mover.parent === window.__lastcall.camera); await until(flight, 0.5); await shot('gun-raise');
   await until(() => !window.__lastcall.arm.mover.flight); await phase('gun-aim'); await run(25); await shot('gun-aim');
-  if (args.sweep) {
-    for (const spec of JSON.parse(args.sweep)) {
-      await page.evaluate((spec) => {
-        const L = window.__lastcall, V = L.camera.position.constructor, Q = L.camera.quaternion.constructor, O = L.camera.parent.constructor.prototype.constructor;
-        const o = new L.arm.root.constructor(); o.position.fromArray(spec.pos); o.lookAt(new V().fromArray(spec.at));
-        o.quaternion.multiply(new Q().setFromAxisAngle(new V(0, 0, 1), spec.cant));
-        L.arm.mover.snap(L.camera, o.position, o.quaternion, 1);
-      }, spec);
-      await run(2);
-      const m = await page.evaluate(() => window.__as.measure());
-      console.log(JSON.stringify(spec), `wrist ${m.bend.toFixed(1)} twist ${m.twist.toFixed(0)} elbow ${m.elbow.join(' ')} ndc ${m.elbowNdc[0].toFixed(2)} ${m.elbowNdc[1].toFixed(2)} upper ${m.reach.toFixed(2)}`);
-      if (spec.shot) await shot(spec.shot);
-    }
-    process.exit(0);
-  }
   await until(() => window.__lastcall.arm.mover.parent !== window.__lastcall.camera); await phase('gun-lower'); await until(flight, 0.5); await shot('gun-lower');
   await until(() => !window.__as.busy, null, 1500);
   await report();
@@ -174,14 +159,14 @@ if (args.only !== 'cards') {
     window.__as.busy = L.MODES.dice.on.round(L.T, { round: g.round, diceCounts: g.diceCounts.slice() }).then(() => { window.__as.busy = null; });
   });
   await phase('cup-reach');
-  await until(() => window.__lastcall.arm.root.visible); await until(flight, 0.5); await shot('cup-reach');
+  await until(() => window.__lastcall.arm.root.visible); await until(flight, 0.85); await shot('cup-reach');
   await until(() => window.__lastcall.arm.grip.children.length > 0); await phase('cup-shake'); await run(18); await shot('cup-shake');
   await until(() => !window.__as.busy, null, 1500);
   await run(30);
   // a glass from your tray, held, drunk and put back
   await page.evaluate(() => { const L = window.__lastcall; window.__as.busy = L.MODES.dice.on.drink(L.T, { seat: L.D.me, poisoned: false, drinks: 1 }).then(() => { window.__as.busy = null; }); });
   await phase('glass-reach');
-  await until(() => window.__lastcall.arm.root.visible && window.__lastcall.arm.grasp === 'glass'); await until(flight, 0.5); await shot('glass-reach');
+  await until(() => window.__lastcall.arm.root.visible && window.__lastcall.arm.grasp === 'glass'); await until(flight, 0.85); await shot('glass-reach');
   await until(() => window.__lastcall.arm.grip.children.length > 0); await shot('glass-take');
   await phase('glass-hold'); await until(() => window.__lastcall.arm.mover.parent === window.__lastcall.camera); await until(() => !window.__lastcall.arm.mover.flight); await shot('glass-hold');
   await until(() => window.__lastcall.arm.sip); await phase('sip-up');

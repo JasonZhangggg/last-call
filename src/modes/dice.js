@@ -81,10 +81,11 @@ const Y = new THREE.Vector3(0, 1, 0);
 const GLASS_H = 0.056;
 // your arm's poses in camera space (set on entering): the glass held up before you, its base at
 // HOLD_GLASS, the hand straight on from a forearm that comes up from HOLD_FROM, below and to the
-// right; and tipped back to your lips, the rim at LIPS_RIM
+// right, and the glass tipped HOLD_TIP toward you so that forearm can rise; and tipped back to your
+// lips, the rim at LIPS_RIM
 const HOLD = { pos: new THREE.Vector3(), quat: new THREE.Quaternion() };
 const LIPS = { pos: new THREE.Vector3(), quat: new THREE.Quaternion() };
-const HOLD_GLASS = new THREE.Vector3(0.075, -0.1, -0.34), HOLD_FROM = new THREE.Vector3(0.3, -0.4, -0.02);
+const HOLD_GLASS = new THREE.Vector3(0.075, -0.1, -0.34), HOLD_FROM = new THREE.Vector3(0.35, -0.4, -0.1), HOLD_TIP = 0.45;
 const LIPS_RIM = new THREE.Vector3(0.01, -0.065, -0.1);
 const MOUTH = new THREE.Vector3(0, -0.07, 0.12);
 const LOOK_UP = new THREE.Vector3(0, 2.6, -0.2);
@@ -222,7 +223,7 @@ async function round(T, msg) {
   const mine = msg.diceCounts[T.me] > 0;
   await T.step(350);
   // your hand comes in over your cup as it lands
-  if (mine) { rig.leanTarget = 0.35; arm.grasp = 'cup'; armReach(cupTop('rest', _b)); }
+  if (mine) { rig.leanTarget = 0.6; arm.grasp = 'cup'; armReach(cupTop('rest', _b)); }
   await T.step(450);
   const shakers = [];
   for (let v = 0; v < 4; v++) if (msg.diceCounts[viewSeat(T, v)]) shakers.push(v);
@@ -716,6 +717,8 @@ export const diceMode = {
     LIPS.quat.setFromAxisAngle(AX, 1.05).multiply(HOLD.quat);
     _y.copy(Y).applyAxisAngle(AX, 1.05);
     LIPS.pos.copy(LIPS_RIM).addScaledVector(_y, -GLASS_H).sub(_a.copy(arm.glassAt.pos).applyQuaternion(LIPS.quat));
+    HOLD.quat.premultiply(_q.setFromAxisAngle(AX, HOLD_TIP));
+    HOLD.pos.copy(arm.glassAt.pos).applyQuaternion(HOLD.quat).negate().add(HOLD_GLASS);
     if (!bound) { bound = T; bindControls(); }
     document.body.classList.add('mode-dice');
     gun.obj.visible = false;
