@@ -805,7 +805,7 @@ const ELBOW_SWAY = 0.6;
  * swings toward where the hand says the forearm should come from, so the wrist bends less. The hand
  * itself always keeps exactly the pose asked for, since the revolver and the cards are held in it.
  */
-function solveArm(arm, wrist, fore, pole) {
+function solveArm(arm, wrist, fore, pole, sway = ELBOW_SWAY) {
   const { pos, quat } = arm;
   _W.copy(wrist).applyQuaternion(quat).add(pos);
   _S.copy(arm.upper.position);
@@ -821,7 +821,7 @@ function solveArm(arm, wrist, fore, pole) {
   if (_x.lengthSq() > 1e-8) {
     _x.normalize();
     const swing = Math.atan2(_y.crossVectors(_n, _x).dot(_d), _n.dot(_x));
-    _n.applyAxisAngle(_d, clamp(swing, -ELBOW_SWAY, ELBOW_SWAY));
+    _n.applyAxisAngle(_d, clamp(swing, -sway, sway));
   }
   _E.copy(_S).addScaledVector(_d, cosA * L1).addScaledVector(_n, sinA * L1);
   boneQuat(_S, _E, _n, _q2); arm.upper.quaternion.copy(_q2);
@@ -830,10 +830,14 @@ function solveArm(arm, wrist, fore, pole) {
   arm.hand.position.copy(wrist).applyQuaternion(arm.hand.quaternion).negate(); arm.hand.position.y -= L2;
 }
 
-/** Re-solve a character's right arm to a grip pose in upper-body space, over its own pose this frame. */
-export function poseRightHand(ch, pos, quat) {
+/**
+ * Re-solve a character's right arm to a grip pose in upper-body space, over its own pose this frame.
+ * `pole`, if given, is where the elbow points (upper-body space, +z forward); `free` (0..1) scales how
+ * far the elbow may still swing toward the hand's line, so a pose can fade that out and back in.
+ */
+export function poseRightHand(ch, pos, quat, pole, free = 1) {
   ch.arm.pos.copy(pos); ch.arm.quat.copy(quat);
-  solveArm(ch.arm, ch.arm.handMesh.userData.wrist, ch.arm.handMesh.userData.fore, _pole.set(-1, -0.7, -0.1).normalize());
+  solveArm(ch.arm, ch.arm.handMesh.userData.wrist, ch.arm.handMesh.userData.fore, pole ? _pole.copy(pole).normalize() : _pole.set(-1, -0.7, -0.1).normalize(), ELBOW_SWAY * free);
 }
 
 /**

@@ -104,6 +104,9 @@ const DIM = new THREE.Color(0.42, 0.4, 0.38), LIT = new THREE.Color(0.92, 0.85, 
  */
 const sips = new Map(); // view -> { ch, w, wT, tilt, tiltT }
 function sipFor(ch, v) { let s = sips.get(v); if (!s) sips.set(v, s = { ch, w: 0, wT: 0, tilt: 0, tiltT: 0 }); s.ch = ch; return s; }
+// the elbow at rest out to the side and down; drinking, it comes up and forward so the forearm rises
+// in front of the chest instead of crossing through it
+const ELBOW_REST = new THREE.Vector3(-1, -0.7, -0.1).normalize(), ELBOW_SIP = new THREE.Vector3(-0.55, -0.35, 0.75).normalize(), _pl = new THREE.Vector3();
 const SIP_YAW = new THREE.Quaternion().setFromAxisAngle(Y, Math.PI - 0.35);
 const ease = (a, b, v) => { const u = clamp((v - a) / (b - a), 0, 1); return u * u * (3 - 2 * u); };
 /** The grip pose (upper-body space) holding the glass before the mouth `_a`, tipped by `tilt` (0..1). */
@@ -111,7 +114,7 @@ function sipGrip(ch, tilt, pos, quat) {
   _q.setFromAxisAngle(AX, -(0.2 + 1.25 * tilt));
   _y.copy(Y).applyQuaternion(_q);
   // rim just under the lip when drinking, a hand's width lower and forward while holding
-  pos.copy(_a).add(_z.set(-0.01, -0.1 + 0.09 * tilt, 0.12 - 0.1 * tilt)).addScaledVector(_y, -GLASS_H);
+  pos.copy(_a).add(_z.set(-0.01, -0.1 + 0.09 * tilt, 0.17 - 0.12 * tilt)).addScaledVector(_y, -GLASS_H);
   quat.copy(_q).multiply(SIP_YAW).multiply(_q2.copy(ch.glassAt.quat).invert());
   return pos.sub(_z.copy(ch.glassAt.pos).applyQuaternion(quat));
 }
@@ -133,7 +136,7 @@ function poseSip(s, dt) {
   _gp.copy(wrist).applyQuaternion(_gq).negate().add(_w0);
   _gp.lerpVectors(ch.arm.pos, _gp, s.w);
   _gq.slerpQuaternions(ch.arm.quat, _gq, s.w);
-  poseRightHand(ch, _gp, _gq);
+  poseRightHand(ch, _gp, _gq, _pl.lerpVectors(ELBOW_REST, ELBOW_SIP, s.w), 1 - s.w);
   return true;
 }
 
