@@ -13,6 +13,7 @@ import { audio } from './audio.js';
 import * as ui from './ui.js';
 import { headWorld, resetCharacter, setPresent, SEAT_RADIUS } from './render/characters.js';
 import { rig, focusOn } from './render/camera.js';
+import { setSeatMug } from './render/world.js';
 import { MODES } from './modes/index.js';
 
 export const VIEWS = [
@@ -234,6 +235,7 @@ function seatPresence() {
   for (let v = 1; v < 4; v++) {
     const empty = T.absent(seatAt(v));
     setPresent(D.viewChars[v], !empty);
+    setSeatMug(v, !empty);
     ui.setSeatEmpty(v, empty);
   }
 }
@@ -255,7 +257,7 @@ export function leaveTable() {
   if (D.mode) D.mode.exit(T);
   D.mode = null; D.phase = 'idle';
   for (const ch of Object.values(D.characters)) { resetCharacter(ch); setPresent(ch, true); }
-  for (let v = 1; v < 4; v++) ui.setSeatEmpty(v, false);
+  for (let v = 1; v < 4; v++) { ui.setSeatEmpty(v, false); setSeatMug(v, true); }
   ui.setInGame(false);
 }
 

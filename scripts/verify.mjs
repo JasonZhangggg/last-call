@@ -58,15 +58,26 @@ const frameMs = () => page.evaluate(() => new Promise((r) => { let n = 0; const 
 const shown = (id) => page.waitForFunction((id) => { const el = document.getElementById(id); return !el.classList.contains('fade') && getComputedStyle(el).opacity === '1'; }, id);
 
 const url = HOST + path.join(ROOT, 'dist/index.html');
-// A smaller table, once: the first round (or auction) dealt and nothing left to play back.
-let tableShot = !PLAYERS;
+// A smaller table, once: a watcher in the page freezes game time at the first prompt after the
+// first deal (a timer, since software-rendered frames can be seconds apart), and the shot follows.
+let tableShot = !PLAYERS, watching = false;
 async function shootTable() {
   if (tableShot) return;
-  const ready = await page.evaluate(() => { const D = window.__lastcall?.D, g = D?.shown; return !!g && (g.round ?? g.auction) >= 1 && !!D.prompt && D.queue.length === 0; });
-  if (!ready) return;
+  if (!watching) {
+    watching = await page.evaluate(() => {
+      const L = window.__lastcall;
+      if (!L) return false;
+      const id = setInterval(() => {
+        const D = L.D, g = D.shown;
+        if (g && (g.round ?? g.auction) >= 1 && D.prompt) { L.settings.paused = true; window.__tableReady = true; clearInterval(id); }
+      }, 15);
+      return true;
+    });
+    return;
+  }
+  if (!(await page.evaluate(() => !!window.__tableReady))) return;
   tableShot = true;
-  await page.evaluate(() => { window.__lastcall.settings.paused = true; });
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(2500);
   await shot('table');
   await page.evaluate(() => { window.__lastcall.settings.paused = false; });
 }
@@ -140,8 +151,8 @@ if (args.mode === 'auction') {
       });
       if (p.end) break;
       await shootTable();
-      if (p.mark !== last) { last = p.mark; still = 0; } else if (++still > 30) throw new Error(`soak stalled at ${p.mark}`);
-      await page.waitForTimeout(10000);
+      if (p.mark !== last) { last = p.mark; still = 0; } else if ((still += tableShot ? 1 : 0.05) > 30) throw new Error(`soak stalled at ${p.mark}`);
+      await page.waitForTimeout(tableShot ? 10000 : 500);
     }
     const s = await state();
     console.log(`  game ${i + 1}: ${s.alive[s.me] ? 'player won' : 'player lost'}`);
