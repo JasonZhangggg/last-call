@@ -24,9 +24,9 @@ import { UP, clamp } from '../util.js';
 // temple. A forearm that comes from below and to the right can only meet a barrel pointing back at
 // you with the hand turned palm down, so it lies on its side (AIM_CANT about the barrel), as the
 // hand found it on the felt.
-const AIM_POS = new THREE.Vector3(0.215, -0.07, -0.41);
+const AIM_POS = new THREE.Vector3(0.18, -0.05, -0.41);
 const AIM_AT = new THREE.Vector3(0.05, 0.05, 0.045);
-const AIM_CANT = -1.15;
+const AIM_CANT = -0.6;
 const HIDE_POS = new THREE.Vector3(0.3, -0.6, -0.12);
 // the shoulder and the way the elbow hangs, in the body's frame: the camera's place and heading,
 // without its pitch or roll, so the head looks up and down without carrying the shoulder with it
