@@ -88,6 +88,7 @@ function layoutAll(T, { snap = false, dur = 0.5, stagger = 0.02 } = {}) {
     const v = T.view(s), res = g.scoring?.remaining[s];
     for (const value of MONEY) {
       const b = moneyBody(s, value);
+      if (T.absent(s)) { go(b, 'off'); continue; }
       if (res) { const k = res.indexOf(value); if (k >= 0) go(b, 'purse', v, k, res.length); else go(b, 'spent'); continue; }
       if (g.spent[s].includes(value)) go(b, 'spent');
       else if (g.bids[s].includes(value)) go(b, 'bid', v, g.bids[s].indexOf(value), g.bids[s].length);
@@ -392,7 +393,7 @@ async function scoring(T, msg) {
   T.setActor(null);
   ui.toast('The purses are opened', 'gold');
   // each seat's remaining money is laid out face up, you last so the camera ends on the table
-  const order = [1, 2, 3, 0].map((v) => T.seatAt(v));
+  const order = [1, 2, 3, 0].map((v) => T.seatAt(v)).filter((s) => !T.absent(s));
   for (const s of order) {
     const v = T.view(s), res = msg.remaining[s];
     if (!T.isMe(s)) T.focusSeat(s, 0.35); else focusOn(null);
@@ -403,7 +404,7 @@ async function scoring(T, msg) {
   }
   focusOn(null);
   const castOut = msg.castOut.map((x, s) => (x ? s : null)).filter((s) => s != null);
-  const least = Math.min(...msg.money);
+  const least = Math.min(...order.map((s) => msg.money[s]));
   ui.toast(castOut.length === 1 ? `${castOut.map((s) => (T.isMe(s) ? 'You are' : `${T.name(s)} is`))[0]} the poorest. Cast out.` : `${castOut.length} tie for poorest. All cast out.`, 'liar');
   audio.sting();
   for (const s of castOut) {
@@ -417,7 +418,7 @@ async function scoring(T, msg) {
   T.refresh();
   await T.step(1400);
   // the status of everyone still in the running, counted up together
-  const live = [0, 1, 2, 3].filter((s) => !msg.castOut[s]);
+  const live = order.filter((s) => !msg.castOut[s]);
   const steps = 14;
   for (let i = 1; i <= steps; i++) {
     for (const s of live) {
@@ -461,7 +462,7 @@ function rebuild(T, { fresh }) {
   if (!entered) for (const b of table.bodies) if (b.money) sendTo(b, 'deck', { k: table.bodies.length - STATUS_BASE + b.i, snap: true });
   layoutAll(T, { snap: !entered, dur: fresh ? 0.6 : 0.4, stagger: fresh ? 0.012 : 0 });
   entered = true;
-  if (g.scoring) g.scoring.castOut.forEach((x, s) => ui.setStatus(T.view(s), x ? 'cast out' : `status <b>${fmtStatus(g.scoring.status[s])}</b>`));
+  if (g.scoring) g.scoring.castOut.forEach((x, s) => { if (!T.absent(s)) ui.setStatus(T.view(s), x ? 'cast out' : `status <b>${fmtStatus(g.scoring.status[s])}</b>`); });
   else for (let s = 1; s < 4; s++) ui.setStatus(s, '');
   hud(T); top(T);
   if (g.card) setGlow(isDisgrace(g.card) || g.card.kind === 'favour' ? 0.8 : 0.35, GLOW[g.card.kind]);

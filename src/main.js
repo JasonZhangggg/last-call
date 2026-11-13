@@ -170,7 +170,7 @@ addEventListener('keydown', (e) => {
 
 /* ---------- menus and the table flow ---------- */
 const solo = () => S.kind === 'local';
-const MODE_LIST = () => Object.keys(ENGINES).map((mode) => ({ mode, variants: ENGINES[mode].variants, playable: isPlayable(mode) }));
+const MODE_LIST = () => Object.keys(ENGINES).map((mode) => ({ mode, variants: ENGINES[mode].variants, minPlayers: ENGINES[mode].minPlayers, playable: isPlayable(mode) }));
 const LABELS = { label: modeLabel, variantLabel, note: variantNote };
 
 function togglePause(force) {
@@ -384,8 +384,13 @@ async function boot() {
   $('#solo-btn').focus({ preventScroll: true });
   window.__lastcall = { D, S, quality, hooks, gun, arm, rig, camera, renderer, MODES, CATALOG, leaveTable, cards: { bodies, hands }, diceTable, T, settings, pose: { straightGrip, poseRightHand }, blood, spray };
   const room = new URLSearchParams(location.search).get('room');
+  // #autoplay-<mode>[-<variant>][-<n>p]: a self-playing solo table, -2p or -3p for a smaller one
   const AUTO = { '#autoplay-devil': ['deck', 'devil'], '#autoplay-dice': ['dice', 'basic'], '#autoplay-dice-traditional': ['dice', 'traditional'], '#autoplay-auction': ['auction', 'classic'] };
-  if (settings.autoplay) { const [mode, variant] = AUTO[location.hash] || ['deck', 'basic']; startSolo({ mode, variant }); }
+  if (settings.autoplay) {
+    const [, key, n] = location.hash.match(/^(.*?)(?:-([2-4])p)?$/);
+    const [mode, variant] = AUTO[key] || ['deck', 'basic'];
+    startSolo({ mode, variant, players: n ? +n : 4 });
+  }
   else if (room) enterTable('join', normalizeRoomCode(room));
 }
 boot().catch((err) => {

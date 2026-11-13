@@ -3,7 +3,8 @@
 // every server message. Lobby, connection, `look` and chat news is handled at once; game messages go to the
 // director's queue, which plays them in order.
 import { createLocalTransport, createSocketTransport, createRoomCode } from './net/client.js';
-import { ERR, FATAL, TURN_SECONDS } from './net/protocol.js';
+import { ERR, FATAL, MAX_SEATS, MIN_PLAYERS, TURN_SECONDS } from './net/protocol.js';
+import { ENGINES } from './net/engines.js';
 import { settings, store } from './util.js';
 import { D, receive, setLobby, setLook, refused, resetDirector } from './director.js';
 
@@ -33,10 +34,11 @@ function soloClock() {
   };
 }
 
-export function playSolo({ mode, variant }) {
+export function playSolo({ mode, variant, players = MAX_SEATS }) {
   close();
   const clock = soloClock();
-  const t = createLocalTransport({ name: store.get('name', '') || 'You', options: { mode, variant, turnSeconds: settings.autoplay ? TURN_SECONDS.max : 60 }, clock });
+  players = Math.min(MAX_SEATS, Math.max(players, ENGINES[mode]?.minPlayers ?? MIN_PLAYERS));
+  const t = createLocalTransport({ name: store.get('name', '') || 'You', options: { mode, variant, players, turnSeconds: settings.autoplay ? TURN_SECONDS.max : 60 }, clock });
   open(t, 'local', clock.rate);
   t.send({ type: 'start' });
 }

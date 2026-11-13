@@ -52,19 +52,31 @@ export const matchesTable = (card, tableRank) => card.rank === tableRank || card
  * after this one. A lone shooter passes its own seat (it starts again if it lived); a Devil
  * volley passes the seat after the accused.
  */
-export function newGame({ seats = 4, rng = Math.random, variant = 'basic' } = {}) {
+export function newGame({ seats = 4, rng = Math.random, variant = 'basic', absent = [] } = {}) {
+  const present = presentSeats(seats, absent);
   return {
     variant,
     deck: createDeck(variant),
-    players: Array.from({ length: seats }, (_, seat) => ({ seat, alive: true, hand: [], pulls: 0, bullet: randInt(rng, 0, CHAMBERS - 1) })),
+    players: Array.from({ length: seats }, (_, seat) => ({ seat, alive: !absent.includes(seat), absent: absent.includes(seat), hand: [], pulls: 0, bullet: randInt(rng, 0, CHAMBERS - 1) })),
     round: 0,
     tableRank: null,
     plays: [],
     turn: null,
     phase: 'between',
     pending: null,
-    starter: randInt(rng, 0, seats - 1),
+    starter: present[randInt(rng, 0, present.length - 1)],
   };
+}
+
+/**
+ * The seats that take part when `absent` stay empty. An empty seat enters the game already out:
+ * it holds nothing, is never asked to act, and never counts as a loser. At least two must play.
+ */
+export function presentSeats(seats, absent = []) {
+  const present = [];
+  for (let s = 0; s < seats; s++) if (!absent.includes(s)) present.push(s);
+  if (present.length < 2) throw new Error('a game needs at least two players');
+  return present;
 }
 
 export const alive = (game) => game.players.filter((p) => p.alive);
@@ -191,7 +203,7 @@ export function publicView(game, seat) {
     tableRank: game.tableRank,
     round: game.round,
     hand: game.players[seat].hand.map((c) => ({ ...c })),
-    players: game.players.map((p) => ({ seat: p.seat, alive: p.alive, handCount: p.hand.length, pulls: p.pulls })),
+    players: game.players.map((p) => ({ seat: p.seat, alive: p.alive, absent: !!p.absent, handCount: p.hand.length, pulls: p.pulls })),
     plays: game.plays.map((pl) => ({ seat: pl.seat, claim: pl.claim, own: pl.seat === seat ? pl.cards.map((c) => ({ ...c })) : null })),
     options: game.turn === seat ? turnOptions(game) : null,
   };

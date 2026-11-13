@@ -1,7 +1,8 @@
 # Last Call
 
 A three.js bluffing game set in The Crooked Lantern tavern. Play solo against Brass, Madame Noctua
-and Captain Gristle, or open a table online and fill the empty seats with bots.
+and Captain Gristle, or open a table online and fill the empty seats with bots. A table seats 2, 3
+or 4 players (the auction needs 3).
 
 Live: https://last-call.jasonxyz.workers.dev
 

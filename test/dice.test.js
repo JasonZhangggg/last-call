@@ -8,9 +8,9 @@ import { mulberry32 } from '../src/model/rules.js';
 const personaFor = (seat) => [PERSONAS.player, PERSONAS.brass, PERSONAS.noctua, PERSONAS.gristle][seat];
 const tally = (g, face) => g.players.flatMap((p) => p.dice).filter((d) => d === face || d === 1).length;
 
-function simulate(seed, variant, seats) {
+function simulate(seed, variant, seats, absent = []) {
   const rng = mulberry32(seed);
-  const g = D.newGame({ seats, rng, variant });
+  const g = D.newGame({ seats, rng, variant, absent });
   const mem = g.players.map(() => DAI.newMemory());
   const log = { rounds: 0, bids: 0, liars: 0, spotOns: 0, forced: 0, multiDrink: 0 };
   let queue = [];
@@ -82,6 +82,22 @@ for (const variant of D.VARIANTS) {
     else assert.equal(total.spotOns, 0, 'no spot on in basic');
   });
 }
+
+test('dice: empty seats sit the game out, and only present dice count toward a bid', () => {
+  for (const variant of D.VARIANTS) for (const absent of [[1, 3], [0, 2], [2], [1]]) {
+    for (let seed = 1; seed <= 300; seed++) {
+      const { g } = simulate(seed, variant, 4, absent);
+      assert.equal(D.alive(g).length, 1);
+      assert.ok(!absent.includes(D.winner(g)), 'an empty seat never wins');
+      for (const s of absent) assert.deepEqual([g.players[s].alive, g.players[s].dice.length, g.players[s].drinks], [false, 0, 0]);
+    }
+  }
+  const g = D.newGame({ seats: 4, absent: [1, 3], rng: mulberry32(2) });
+  D.startRound(g, mulberry32(3));
+  assert.equal(D.totalDice(g), 10, 'two players: ten dice in play');
+  assert.equal(D.turnOptions(g).maxQuantity, 10);
+  assert.ok(!D.publicView(g, g.turn).players[1].alive && D.publicView(g, g.turn).players[1].absent);
+});
 
 /** A rolled round with every cup fixed, so a rule can be pinned exactly. */
 function rigged({ variant = 'basic', cups, starter = 0, dead = [] }) {

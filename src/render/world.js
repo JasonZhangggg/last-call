@@ -6,7 +6,7 @@ import { woodCanvas, feltCanvas, softDot, roughnessFrom, damaskCanvas, rugCanvas
 import { rand, pick } from '../util.js';
 
 export const mats = {};
-export const world = { lights: [], haze: null, dust: null, lampPivot: null, spot: null };
+export const world = { lights: [], haze: null, dust: null, lampPivot: null, spot: null, mugs: [] };
 export const TABLE = { radius: 1.06, feltRadius: 0.8 };
 
 /* ---------- geometry kit ----------
@@ -358,9 +358,16 @@ function buildTable() {
   const mugProf = [[0, 0.002], [0.044, 0], [0.047, 0.008], [0.043, 0.02], [0.042, 0.1], [0.046, 0.108], [0.046, 0.114], [0.04, 0.114], [0.038, 0.06], [0, 0.06]].map(([x, y]) => new THREE.Vector2(x, y));
   const mug = mergeGeometries([new THREE.LatheGeometry(mugProf, 22), place(new THREE.TorusGeometry(0.032, 0.007, 8, 16, Math.PI), [0.045, 0.06, 0], [0, 0, -Math.PI / 2]), place(new THREE.CylinderGeometry(0.044, 0.044, 0.012, 22), [0, 0.02, 0])]);
   const foam = new THREE.CircleGeometry(0.039, 18); foam.rotateX(-Math.PI / 2); foam.translate(0, 0.1, 0);
+  // one by each seat, in view order (0 is yours)
   const mugAt = [[0.5, 0.62, 0.4], [-0.78, -0.05, 2.2], [0.3, -0.8, -1.2], [0.82, 0.25, -2.4]].map(([x, z, r]) => [[x, 0, z], [0, r, 0]]);
-  instanced(mug, mats.pewter, mugAt, { cast: true });
-  instanced(foam, new THREE.MeshStandardMaterial({ color: 0xe9dcc0, roughness: 0.9 }), mugAt);
+  world.mugs = [instanced(mug, mats.pewter, mugAt, { cast: true }), instanced(foam, new THREE.MeshStandardMaterial({ color: 0xe9dcc0, roughness: 0.9 }), mugAt)];
+  for (const im of world.mugs) im.userData.at = mugAt.map((_, i) => { const m = new THREE.Matrix4(); im.getMatrixAt(i, m); return m; });
+}
+
+const NO_MUG = new THREE.Matrix4().makeScale(0, 0, 0);
+/** Takes the tankard away from a chair nobody sits in this game, or puts it back. */
+export function setSeatMug(v, on) {
+  for (const im of world.mugs) { im.setMatrixAt(v, on ? im.userData.at[v] : NO_MUG); im.instanceMatrix.needsUpdate = true; }
 }
 
 function buildAtmosphere() {

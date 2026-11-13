@@ -1,6 +1,6 @@
 // Pure model for the Dice mode: dice under cups, bids, 1s wild, and the poison tray. Same shape
 // as rules.js (plain data in, plain data out) so it simulates and tests headlessly.
-import { randInt, nextAliveSeat, aliveAfter } from './rules.js';
+import { randInt, nextAliveSeat, aliveAfter, presentSeats } from './rules.js';
 
 export const VARIANTS = ['basic', 'traditional'];
 export const DICE_PER_SEAT = 5;
@@ -18,17 +18,18 @@ export const GLASSES = 6;
  * pending.startFrom: once the queue is spent, the next round opens at the first living seat at
  * or after this one.
  */
-export function newGame({ seats = 4, rng = Math.random, variant = 'basic' } = {}) {
+export function newGame({ seats = 4, rng = Math.random, variant = 'basic', absent = [] } = {}) {
   if (!VARIANTS.includes(variant)) throw new Error(`unknown variant ${variant}`);
+  const present = presentSeats(seats, absent);
   return {
     variant,
-    players: Array.from({ length: seats }, (_, seat) => ({ seat, alive: true, dice: [], drinks: 0, poison: randInt(rng, 0, GLASSES - 1) })),
+    players: Array.from({ length: seats }, (_, seat) => ({ seat, alive: !absent.includes(seat), absent: absent.includes(seat), dice: [], drinks: 0, poison: randInt(rng, 0, GLASSES - 1) })),
     round: 0,
     bids: [],
     turn: null,
     phase: 'between',
     pending: null,
-    starter: randInt(rng, 0, seats - 1),
+    starter: present[randInt(rng, 0, present.length - 1)],
   };
 }
 
@@ -151,7 +152,7 @@ export function publicView(game, seat) {
     variant: game.variant,
     round: game.round,
     dice: game.players[seat].dice.slice(),
-    players: game.players.map((p) => ({ seat: p.seat, alive: p.alive, diceCount: p.dice.length, drinks: p.drinks })),
+    players: game.players.map((p) => ({ seat: p.seat, alive: p.alive, absent: !!p.absent, diceCount: p.dice.length, drinks: p.drinks })),
     bids: game.bids.map((b) => ({ ...b })),
     options: game.turn === seat ? turnOptions(game) : null,
   };

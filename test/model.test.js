@@ -6,9 +6,9 @@ import * as AI from '../src/model/ai.js';
 const personaFor = (seat) => [AI.PERSONAS.player, AI.PERSONAS.brass, AI.PERSONAS.noctua, AI.PERSONAS.gristle][seat];
 const countRanks = (cards) => cards.reduce((m, c) => ({ ...m, [c.rank]: (m[c.rank] || 0) + 1 }), {});
 
-function simulate(seed, variant = 'basic', seats = 4) {
+function simulate(seed, variant = 'basic', seats = 4, absent = []) {
   const rng = R.mulberry32(seed);
-  const g = R.newGame({ rng, variant, seats });
+  const g = R.newGame({ rng, variant, seats, absent });
   const mem = g.players.map(() => AI.newMemory());
   const log = { rounds: 0, challenges: 0, forced: 0, plays: 0, devils: 0, devilVolleys: 0 };
   let volley = null;
@@ -80,6 +80,29 @@ for (const variant of ['basic', 'devil']) {
     else assert.equal(devils, 0, 'no Devil without the variant');
   });
 }
+
+test('empty seats sit the game out: 2 and 3 players at a 4-seat table play to one winner', () => {
+  for (const variant of ['basic', 'devil']) for (const absent of [[1, 3], [0, 2], [2], [3], [0]]) {
+    for (let seed = 1; seed <= 300; seed++) {
+      const { g, log } = simulate(seed, variant, 4, absent);
+      assert.equal(R.alive(g).length, 1);
+      assert.ok(!absent.includes(R.winner(g)), 'an empty seat never wins');
+      for (const s of absent) {
+        const p = g.players[s];
+        assert.deepEqual([p.alive, p.absent, p.hand.length, p.pulls], [false, true, 0, 0], 'never dealt, never shoots');
+      }
+      if (absent.length === 2) assert.equal(log.devilVolleys, 0, 'two players never see a Devil volley');
+    }
+  }
+});
+
+test('a game needs two players: every seat but one empty is refused', () => {
+  assert.throws(() => R.newGame({ seats: 4, absent: [0, 1, 2] }), /two players/);
+  const g = R.newGame({ seats: 4, absent: [1, 3], rng: R.mulberry32(5) });
+  assert.ok([0, 2].includes(g.starter), 'a present seat starts');
+  R.startRound(g, R.mulberry32(6));
+  assert.deepEqual(g.players.map((p) => p.hand.length), [5, 0, 5, 0], 'only present seats are dealt; ten of twenty cards');
+});
 
 test('the deck holds 6 Kings, 6 Queens, 6 Aces and 2 Jokers; the Devil variant adds one Devil', () => {
   assert.deepEqual(countRanks(R.createDeck()), { king: 6, queen: 6, ace: 6, joker: 2 });

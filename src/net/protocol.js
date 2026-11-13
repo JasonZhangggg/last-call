@@ -89,11 +89,16 @@
 //
 //   SeatInfo  { kind: 'human'|'bot'|'empty', name, connected, ready, persona }  persona: bots only
 //   Card      { token, rank }                     rank names come from the active engine
-//   Options   { mode, variant, turnSeconds, private }
+//   Options   { mode, variant, turnSeconds, private, players }
+//             players: how many play, 2..MAX_SEATS, at least the mode's minimum (the auction: 3).
+//             The start fills open seats with bots up to `players`; the rest stay empty all game.
+//             It is never below the number already seated: a person or bot taking a seat beyond
+//             it raises it, and lowering it below them is refused.
 //   timeoutMs milliseconds left when the message was sent (relative, so client clocks don't
 //             matter); null when a bot is acting for the seat.
 //   prompt    in `state`: { type: 'turn'|'roulette', seat, timeoutMs, options } or null
 //   game      in `state`: the engine snapshot for your seat
+//             every mode: absent (bool by seat: an empty seat that sits this game out)
 //             deck: variant, round, tableRank, starter, hand, handCounts,
 //                   plays: [{ seat, claim, tokens }], alive, pulls, reveal (last challenge or null)
 //             dice: variant, round, starter, dice, diceCounts, bids: [{ seat, quantity, face }],
@@ -120,7 +125,8 @@ export const PONG = 'pong';
 /** WebSocket close code for a connection the server will not take back (bad room, full, replaced). */
 export const CLOSE_FATAL = 4001;
 
-export const DEFAULT_OPTIONS = Object.freeze({ mode: 'deck', variant: 'basic', turnSeconds: 30, private: true });
+export const DEFAULT_OPTIONS = Object.freeze({ mode: 'deck', variant: 'basic', turnSeconds: 30, private: true, players: MAX_SEATS });
+export const MIN_PLAYERS = 2;
 
 export const ERR = Object.freeze({
   badMessage: 'bad-message',
@@ -235,11 +241,35 @@ const CLIENT = {
 function validOptionShape(o) {
   for (const [k, v] of Object.entries(o)) {
     if (k === 'mode' || k === 'variant') { if (!isStr(v, 32)) return false; }
-    else if (k === 'turnSeconds') { if (!Number.isInteger(v)) return false; }
+    else if (k === 'turnSeconds' || k === 'players') { if (!Number.isInteger(v)) return false; }
     else if (k === 'private') { if (typeof v !== 'boolean') return false; }
     else return false;
   }
   return true;
+}
+
+// Where each table size puts its players, as views from the host's chair (0 is the host, 2 across):
+// two face each other, three sit at the host's chair and the two diagonals, 120 degrees apart.
+const SPREAD = { 2: [0, 2], 3: [0, 1, 3], 4: [0, 1, 2, 3] };
+
+/**
+ * The seats a table of `players` uses, given which seats are taken: every taken seat, plus the
+ * open seats that spread the table most evenly as `host` sees it. Null when more are taken.
+ */
+export function seatPlan(taken, host, players) {
+  const held = [], open = [];
+  taken.forEach((t, s) => (t ? held : open).push(s));
+  const need = players - held.length;
+  if (need < 0) return null;
+  const anchor = host ?? held[0] ?? 0, want = new Set(SPREAD[players]?.map((v) => (v + anchor) % MAX_SEATS));
+  let best = null, bestScore = -1;
+  for (let mask = 0; mask < 1 << open.length; mask++) {
+    const pick = open.filter((_, i) => mask & (1 << i));
+    if (pick.length !== need) continue;
+    const score = pick.filter((s) => want.has(s)).length;
+    if (score > bestScore) { best = pick; bestScore = score; }
+  }
+  return [...held, ...best].sort((a, b) => a - b);
 }
 
 /** Parses a frame (string) or an already-decoded object. Returns { msg } or { error }. */

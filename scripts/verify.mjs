@@ -6,6 +6,8 @@
 //   node scripts/verify.mjs --mode dice [--variant traditional]   the dice table (soak: #autoplay-dice)
 //   node scripts/verify.mjs --mode auction        The Gilded Bid (#autoplay-auction): your bid UI, a won
 //                                                 card, a disgrace, the scoring and the end; --soak works too
+//   node scripts/verify.mjs --soak 1 --players 2  a smaller table (2 or 3; the auction takes 3): the soak
+//                                                 also captures the table once it is dealt, empty chairs and all
 // three.js is served from tools/vendor so the run works offline. Exits non-zero on page errors.
 import { createRequire } from 'node:module';
 import { mkdirSync, existsSync } from 'node:fs';
@@ -36,7 +38,9 @@ await page.route('**/*', (route) => {
   return route.abort();
 });
 const DICE = args.mode === 'dice';
-const tag = `${W}x${H}${DICE ? `-dice${args.variant ? `-${args.variant}` : ''}` : ''}`;
+const PLAYERS = args.players ? +args.players : null;
+const SIZE = PLAYERS ? `-${PLAYERS}p` : '';
+const tag = `${W}x${H}${DICE ? `-dice${args.variant ? `-${args.variant}` : ''}` : ''}${SIZE}`;
 const shot = async (name) => { await page.screenshot({ path: path.join(OUT, `${tag}-${name}.png`) }); console.log(`  captured ${tag}-${name}.png`); };
 const state = () => page.evaluate(() => {
   const D = window.__lastcall?.D, g = D?.shown;
@@ -54,6 +58,29 @@ const frameMs = () => page.evaluate(() => new Promise((r) => { let n = 0; const 
 const shown = (id) => page.waitForFunction((id) => { const el = document.getElementById(id); return !el.classList.contains('fade') && getComputedStyle(el).opacity === '1'; }, id);
 
 const url = HOST + path.join(ROOT, 'dist/index.html');
+// A smaller table, once: a watcher in the page freezes game time at the first prompt after the
+// first deal (a timer, since software-rendered frames can be seconds apart), and the shot follows.
+let tableShot = !PLAYERS, watching = false;
+async function shootTable() {
+  if (tableShot) return;
+  if (!watching) {
+    watching = await page.evaluate(() => {
+      const L = window.__lastcall;
+      if (!L) return false;
+      const id = setInterval(() => {
+        const D = L.D, g = D.shown;
+        if (g && (g.round ?? g.auction) >= 1 && D.prompt) { L.settings.paused = true; window.__tableReady = true; clearInterval(id); }
+      }, 15);
+      return true;
+    });
+    return;
+  }
+  if (!(await page.evaluate(() => !!window.__tableReady))) return;
+  tableShot = true;
+  await page.waitForTimeout(2500);
+  await shot('table');
+  await page.evaluate(() => { window.__lastcall.settings.paused = false; });
+}
 process.on('unhandledRejection', async (e) => { console.error(String(e).split('\n')[0]); console.error('PROBLEMS:\n' + (problems.join('\n') || '(none recorded)')); try { console.error(JSON.stringify(await state())); } catch {} process.exit(1); });
 if (args.mode === 'auction') {
   // The game plays itself (#autoplay-auction) so a slow machine never meets the turn clock. A watcher
@@ -61,7 +88,7 @@ if (args.mode === 'auction') {
   // running, so each shot shows the scene settled. Your first turn is held and played by clicking.
   const games = args.soak ? +args.soak : 1;
   if (!args.soak) await page.addInitScript(() => { globalThis.__auctionHold = true; });
-  await page.goto(url + '#autoplay-auction');
+  await page.goto(url + '#autoplay-auction' + SIZE);
   await page.waitForFunction(() => window.__lastcall?.settings);
   if (!args.soak) await page.evaluate(() => {
     const L = window.__lastcall, seen = new Set(), bad = (c) => ['ale', 'debt', 'scandal'].includes(c?.kind);
@@ -93,7 +120,7 @@ if (args.mode === 'auction') {
         if (!args.soak) { await shown('end'); await page.waitForTimeout(600); await shot('99-end'); }
         break;
       }
-      if (!s.cap) { await page.waitForTimeout(250); continue; }
+      if (!s.cap) { await shootTable(); await page.waitForTimeout(250); continue; }
       taken.add(s.cap);
       if (s.cap === 'my-turn') {
         await page.click('#cards-btn');
@@ -114,7 +141,7 @@ if (args.mode === 'auction') {
   if (!args.soak && !taken.has('disgrace')) console.log('  (no disgrace came up this game)');
 } else if (args.soak) {
   const games = +args.soak;
-  await page.goto(url + (DICE ? (args.variant === 'traditional' ? '#autoplay-dice-traditional' : '#autoplay-dice') : args.variant === 'devil' ? '#autoplay-devil' : '#autoplay'));
+  await page.goto(url + (DICE ? (args.variant === 'traditional' ? '#autoplay-dice-traditional' : '#autoplay-dice') : args.variant === 'devil' ? '#autoplay-devil' : '#autoplay') + SIZE);
   for (let i = 0; i < games; i++) {
     // a slow software renderer can take many minutes per game, so fail on a stall, not on a clock
     for (let last = '', still = 0; ;) {
@@ -123,8 +150,9 @@ if (args.mode === 'auction') {
         return { end: !document.getElementById('end').classList.contains('fade'), mark: JSON.stringify([g?.round, (g?.plays ?? g?.bids)?.length, g?.pulls ?? g?.drinks, D?.queue.length, D?.prompt?.type]) };
       });
       if (p.end) break;
-      if (p.mark !== last) { last = p.mark; still = 0; } else if (++still > 30) throw new Error(`soak stalled at ${p.mark}`);
-      await page.waitForTimeout(10000);
+      await shootTable();
+      if (p.mark !== last) { last = p.mark; still = 0; } else if ((still += tableShot ? 1 : 0.05) > 30) throw new Error(`soak stalled at ${p.mark}\n${problems.join('\n')}`);
+      await page.waitForTimeout(tableShot ? 10000 : 500);
     }
     const s = await state();
     console.log(`  game ${i + 1}: ${s.alive[s.me] ? 'player won' : 'player lost'}`);
@@ -140,6 +168,7 @@ if (args.mode === 'auction') {
   await shown('solo');
   if (DICE) await page.click('#solo-mode-seg button[data-v="dice"]');
   if (args.variant) await page.click(`#solo-variant-seg button[data-v="${args.variant}"]`);
+  if (PLAYERS) await page.click(`#solo-players-seg button[data-v="${PLAYERS}"]`);
   await shot('01b-solo');
   await page.click('#solo-start-btn');
   const seen = new Set();

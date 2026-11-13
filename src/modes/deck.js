@@ -388,7 +388,7 @@ function rebuild(T, { fresh }) {
   clearGlows(); armHide(); gunHome(); gun.cockTarget = 0; clearBlood();
   audio.setTension(0); ui.setTense(false);
   rig.leanTarget = 0; rig.zoomTarget = 1; rig.rollTarget = 0; focusOn(null);
-  for (let s = 0; s < 4; s++) if (!T.isMe(s)) react(T.char(s), 'out', !game.alive[s]);
+  for (let s = 0; s < 4; s++) if (!T.isMe(s)) react(T.char(s), 'out', !game.alive[s] && !T.absent(s));
   if (fresh || !game.round) {
     gatherToDeck();
     ui.setClaim('');

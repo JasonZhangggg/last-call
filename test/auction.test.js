@@ -319,7 +319,7 @@ test('the public view holds only your own hand, plus everything on the table', (
   A.raise(g, 0, [3]);
   const v = A.publicView(g, 1);
   assert.deepEqual(v.hand, A.MONEY);
-  assert.deepEqual(v.players[0], { seat: 0, handCount: 10, bid: [3], passed: false, won: [], spent: [], aleOwed: false });
+  assert.deepEqual(v.players[0], { seat: 0, absent: false, handCount: 10, bid: [3], passed: false, won: [], spent: [], aleOwed: false });
   assert.ok(!JSON.stringify(v).includes('"deck"'), 'the face-down deck is not in the view');
   assert.equal(v.deckCount, 4);
   assert.deepEqual(v.turned, [C(7)]);
@@ -387,6 +387,57 @@ function botGames(seats, games) {
   }
   return out;
 }
+
+test('three players at a four-seat table: the empty seat holds no money, never bids, and is never cast out', () => {
+  let decided = 0, games = 0;
+  for (const empty of [0, 1, 2, 3]) for (let seed = 1; seed <= 250; seed++) {
+    const rng = mulberry32(seed * 13 + empty);
+    const g = A.newGame({ seats: 4, rng, absent: [empty] });
+    assert.notEqual(g.starter, empty);
+    for (let steps = 0; g.phase !== 'over'; steps++) {
+      assert.ok(steps < 2000, 'the game ends');
+      const e = g.players[empty];
+      assert.deepEqual([e.hand, e.bid, e.spent, e.won, e.passed], [[], [], [], [], true], 'the empty seat never takes part');
+      if (g.phase === 'reveal') { A.reveal(g); continue; }
+      if (g.phase === 'settle') { A.settle(g); continue; }
+      if (g.phase === 'scoring') { A.score(g); continue; }
+      assert.notEqual(g.turn, empty, 'the empty seat is never asked to bid');
+      const view = A.publicView(g, g.turn);
+      const act = AI.decide(view, AI.PERSONAS[PERSONA_NAMES[(g.turn + seed) % 4]], AI.newMemory(), rng);
+      if (act.type === 'raise') A.raise(g, g.turn, act.cards); else A.pass(g, g.turn);
+    }
+    const r = g.result;
+    games++;
+    assert.deepEqual([r.castOut[empty], r.place[empty]], [false, null], 'the empty seat is never cast out or placed');
+    assert.ok(r.castOut.some(Boolean), 'one of the three players is the poorest');
+    if (r.winner != null) { decided++; assert.notEqual(r.winner, empty); }
+  }
+  assert.ok(decided >= games * 0.99, `nearly every game has one winner (${decided} of ${games})`);
+});
+
+test('the auction refuses fewer than three players', () => {
+  assert.throws(() => A.newGame({ seats: 4, absent: [1, 3], rng: mulberry32(1) }), /3 to 5 players/);
+  assert.throws(() => A.newGame({ seats: 2, rng: mulberry32(1) }), /3 to 5 players/);
+});
+
+test('with an empty seat, a normal auction ends when two of three pass, a disgrace when one passes', () => {
+  const g = A.newGame({ seats: 4, rng: mulberry32(1), absent: [2] });
+  g.deck = [C(5), DEBT, FAV, FAV, FAV, SCAN];
+  g.starter = 1;
+  A.reveal(g);
+  assert.equal(g.turn, 1);
+  A.raise(g, 1, [2]);
+  assert.equal(g.turn, 3, 'bidding skips the empty seat');
+  A.pass(g, 3);
+  A.pass(g, 0);
+  assert.equal(g.phase, 'settle');
+  assert.equal(A.settle(g).seat, 1);
+  assert.equal(g.players[2].passed, true, 'the empty seat stays out for the next auction');
+  A.reveal(g);
+  A.raise(g, 1, [1]);
+  A.pass(g, 3);
+  assert.equal(A.settle(g).seat, 3, 'the first to pass takes the disgrace');
+});
 
 const once = (f) => { let v; return () => (v ??= f()); };
 const FOUR = once(() => botGames(4, 3000));

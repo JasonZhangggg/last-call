@@ -652,10 +652,11 @@ function rebuild(T, { fresh }) {
   for (let v = 1; v < 4; v++) T.viewChars[v].grasp = 'gun';
   audio.setTension(0); ui.setTense(false);
   rig.leanTarget = 0; rig.zoomTarget = 1; rig.rollTarget = 0; focusOn(null);
-  for (let s = 0; s < 4; s++) if (!T.isMe(s)) react(T.char(s), 'out', !g.alive[s]);
+  for (let s = 0; s < 4; s++) if (!T.isMe(s)) react(T.char(s), 'out', !g.alive[s] && !T.absent(s));
   const revealed = g.reveal && g.bids.length;
   for (let v = 0; v < 4; v++) {
-    const s = viewSeat(T, v), n = fresh ? 5 : g.diceCounts[s];
+    const s = viewSeat(T, v), n = T.absent(s) ? 0 : fresh ? 5 : g.diceCounts[s];
+    DT.setSeatEmpty(v, T.absent(s));
     DT.setGlasses(v, g.drinks[s]);
     DT.setShake(v, false);
     const faces = T.isMe(s) ? g.dice : revealed ? g.reveal.cups[s] : null;

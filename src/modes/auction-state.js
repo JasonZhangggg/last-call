@@ -30,7 +30,7 @@ export function reduceAuction(game, msg, me) {
       if (msg.seat === me) game.hand = asc(game.hand.concat(msg.returned));
       break;
     case 'taken': {
-      msg.paid.forEach((b, s) => { game.spent[s].push(...b); game.bids[s] = []; game.passed[s] = false; });
+      msg.paid.forEach((b, s) => { game.spent[s].push(...b); game.bids[s] = []; game.passed[s] = !!game.absent?.[s]; });
       const won = game.won[msg.seat];
       won.push({ ...msg.card });
       if (msg.spilled != null) {
