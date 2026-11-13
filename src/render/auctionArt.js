@@ -318,6 +318,9 @@ export function auctionAtlas() {
   draw(CELL.debt, '#5a1a14', debt);
   draw(CELL.scandal, '#d8a446', scandal);
   draw(CELL.statusBack, GOLD, statusBack);
+  // Each HUD thumbnail is a canvas read back (toDataURL), which waits on the GPU: done mid-game, the
+  // first reveal of each card stalled a frame, so they are all made here, during loading.
+  for (let cell = CELL.curio; cell <= CELL.statusBack; cell++) cellThumb(cell);
   return c;
 }
 
