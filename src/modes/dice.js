@@ -132,7 +132,12 @@ function poseSip(s, dt) {
   _lean.lerpVectors(LEAN_HOLD, LEAN_POUR, ease(0.15, 1, tilt)).normalize();
   straightGrip(ch, _rim, _lean, ELBOW_SIP, WRIST_GIVE, _gp, _gq);
   _gp.lerpVectors(_w0, _gp, s.w);
-  _gq.slerpQuaternions(_q0, _gq, s.w);
+  // slerp into _q0, not _gq: slerpQuaternions copies its first argument into the target before reading the second
+  _gq.copy(_q0.slerp(_gq, s.w));
+  // the blend from the table pose would swing the glass through a tilt on the way up; turn the hand
+  // so it keeps its lean, fully at the start and fading out as the drinking pose takes over
+  _y.set(0, 1, 0).applyQuaternion(ch.glassAt.quat).applyQuaternion(_gq);
+  _gq.premultiply(_q.setFromUnitVectors(_y, _lean).slerp(_q2.identity(), s.w));
   poseRightHand(ch, _gp, _gq, _pl.lerpVectors(ELBOW_REST, ELBOW_SIP, s.w), 1 - s.w);
   return true;
 }

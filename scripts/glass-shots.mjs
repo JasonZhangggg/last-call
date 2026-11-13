@@ -29,6 +29,10 @@ await page.evaluate((CARDS) => {
     const ch = Object.values(L.D.characters).find((c) => c.group.visible && c.grasp === 'glass' && (c.env.reach > 0.5 || near(c)));
     // a character holding the glass: every few rendered frames, to catch the lift and the sip
     const held = L.diceTable.held, holder = held?.visible && Object.values(L.D.characters).find((c) => c.grip.children.includes(held) || c.arm.hand.children.some((k) => k.children.includes(held)));
+    // autoplay cuts every scripted wait to a fifth and the software renderer only moves 0.25 s a frame,
+    // so the drink would never play out: at full waits and a slower pace while a glass is held
+    if (holder && L.settings.autoplay) { L.settings.autoplay = false; L.settings.speed = 0.15; }
+    if (!holder && !L.settings.autoplay) { L.settings.autoplay = true; L.settings.speed = 1; }
     if (holder) {
       const y = holder.arm.hand.getWorldPosition(h).y;
       if (y !== window.__hy) { window.__hy = y; window.__hf = (window.__hf || 0) + 1; }
