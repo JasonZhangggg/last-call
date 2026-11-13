@@ -27,6 +27,13 @@ await page.evaluate((CARDS) => {
     const V = L.camera.position.constructor, h = new V(), d = new V();
     const near = (c) => c.arm.hand.getWorldPosition(h).y > c.head.getWorldPosition(d).y - 0.3;
     const ch = Object.values(L.D.characters).find((c) => c.group.visible && c.grasp === 'glass' && (c.env.reach > 0.5 || near(c)));
+    // a character holding the glass: every few rendered frames, to catch the lift and the sip
+    const held = L.diceTable.held, holder = held?.visible && Object.values(L.D.characters).find((c) => c.grip.children.includes(held) || c.arm.hand.children.some((k) => k.children.includes(held)));
+    if (holder) {
+      const y = holder.arm.hand.getWorldPosition(h).y;
+      if (y !== window.__hy) { window.__hy = y; window.__hf = (window.__hf || 0) + 1; }
+      if (window.__hf % 4 === 1) { L.settings.paused = true; window.__cap = `${String(++n).padStart(2, '0')}-ch-hold`; window.__hf++; return; }
+    } else window.__hf = 0;
     const sip = ch && near(ch);
     const aim = Object.values(L.D.characters).find((c) => c.group.visible && c.env.aim > 0.95 && c.grip.children.includes(L.gun.obj));
     const key = CARDS ? (aim ? 'aim' : L.D.shown?.round ? 'table' : '') : mine ? `me-${L.arm.mover.flying ? 'move' : 'still'}` : ch ? `ch-${sip ? 'sip' : ch.env.reach > 0.95 ? 'at' : 'going'}` : '';
