@@ -179,10 +179,15 @@ function checkPostOutput() {
  * output), so both sets are built: the post chain's for normal play, the screen's for the low rungs.
  */
 export function compileScene() {
+  // compile only walks visible objects, and things that wait hidden for their moment (the blood, the
+  // other modes' tables) would otherwise compile when they first appear: show them for the call
+  const hidden = [];
+  scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
   const direct = renderer.compileAsync(scene, camera);
   renderer.setRenderTarget(scenePass.target);
   const post = renderer.compileAsync(scene, camera);
   renderer.setRenderTarget(null);
+  for (const o of hidden) o.visible = false;
   return Promise.all([direct, post]);
 }
 
