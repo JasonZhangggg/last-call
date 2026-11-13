@@ -24,10 +24,11 @@ await page.evaluate((CARDS) => {
   setInterval(() => {
     if (L.settings.paused) return;
     const mine = L.arm.root.visible && L.arm.grasp === 'glass';
-    const ch = Object.values(L.D.characters).find((c) => c.group.visible && c.grasp === 'glass' && c.env.reach > 0.5);
     const V = L.camera.position.constructor, h = new V(), d = new V();
-    const sip = ch && ch.arm.hand.getWorldPosition(h).y > ch.head.getWorldPosition(d).y - 0.3;
-    const aim = Object.values(L.D.characters).find((c) => c.group.visible && c.env.aim > 0.95);
+    const near = (c) => c.arm.hand.getWorldPosition(h).y > c.head.getWorldPosition(d).y - 0.3;
+    const ch = Object.values(L.D.characters).find((c) => c.group.visible && c.grasp === 'glass' && (c.env.reach > 0.5 || near(c)));
+    const sip = ch && near(ch);
+    const aim = Object.values(L.D.characters).find((c) => c.group.visible && c.env.aim > 0.95 && c.grip.children.includes(L.gun.obj));
     const key = CARDS ? (aim ? 'aim' : L.D.shown?.round ? 'table' : '') : mine ? `me-${L.arm.mover.flying ? 'move' : 'still'}` : ch ? `ch-${sip ? 'sip' : ch.env.reach > 0.95 ? 'at' : 'going'}` : '';
     if (key && key !== last) { L.settings.paused = true; window.__cap = `${String(++n).padStart(2, '0')}-${key}`; }
     last = key;
