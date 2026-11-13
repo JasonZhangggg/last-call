@@ -4,13 +4,15 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
+// pages load from a fake http origin that is served from disk: Chromium won't fetch() from file://
+const HOST = 'http://last-call.local';
 
 const ROOT = path.resolve(process.argv[2]);
 const OUT = path.resolve(process.argv[3]);
 const what = process.argv[4] || 'all';
 mkdirSync(OUT, { recursive: true });
 const SIZES = [[1920, 1080], [1280, 720], [960, 540], [844, 390], [390, 844]];
-const url = 'file://' + path.join(ROOT, 'dist/index.html');
+const url = HOST + path.join(ROOT, 'dist/index.html');
 
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
 const problems = [];
@@ -23,7 +25,7 @@ async function open(w, h, hash = '') {
     const u = route.request().url();
     if (u.includes('/build/three.module.js')) return route.fulfill({ path: path.join(ROOT, 'tools/vendor/three/build/three.module.js'), contentType: 'text/javascript' });
     if (u.includes('/examples/jsm/')) return route.fulfill({ path: path.join(ROOT, 'tools/vendor/three/examples/jsm', u.split('/examples/jsm/')[1]), contentType: 'text/javascript' });
-    if (u.startsWith('file:')) return route.continue();
+    if (u.startsWith(HOST)) return route.fulfill({ path: decodeURIComponent(new URL(u).pathname) });
     return route.abort();
   });
   await page.goto(url + hash);

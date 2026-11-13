@@ -9,6 +9,8 @@ import { mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
+// pages load from a fake http origin that is served from disk: Chromium won't fetch() from file://
+const HOST = 'http://last-call.local';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, arr) => (v.startsWith('--') ? [...a, [v.slice(2), arr[i + 1]?.startsWith('--') ? true : arr[i + 1] ?? true]] : a), []));
 const HZ = +(args.hz || 240), AMP_MM = +(args.amp || 1);
@@ -27,7 +29,7 @@ await page.route('**/*', (route) => {
   const u = route.request().url();
   if (u.includes('/build/three.module.js')) return route.fulfill({ path: path.join(ROOT, 'tools/vendor/three/build/three.module.js'), contentType: 'text/javascript' });
   if (u.includes('/examples/jsm/')) return route.fulfill({ path: path.join(ROOT, 'tools/vendor/three/examples/jsm', u.split('/examples/jsm/')[1]), contentType: 'text/javascript' });
-  if (u.startsWith('file:')) return route.continue();
+  if (u.startsWith(HOST)) return route.fulfill({ path: decodeURIComponent(new URL(u).pathname) });
   return route.abort();
 });
 await page.addInitScript((seed) => {
@@ -35,7 +37,7 @@ await page.addInitScript((seed) => {
   Math.random = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   try { localStorage.setItem('lastcall.coach', JSON.stringify({ lead: 1, liar: 1 })); localStorage.setItem('lastcall.quality', '"low"'); } catch {}
 }, SEED);
-await page.goto('file://' + PAGE + HASH);
+await page.goto(HOST + PAGE + HASH);
 await page.waitForFunction(() => window.__lastcall?.D?.viewChars?.[3]);
 
 await page.evaluate(({ hz, amp, rebuild }) => {

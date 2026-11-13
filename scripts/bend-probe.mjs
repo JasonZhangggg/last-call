@@ -2,6 +2,8 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 const { chromium } = createRequire(import.meta.url)('playwright');
+// pages load from a fake http origin that is served from disk: Chromium won't fetch() from file://
+const HOST = 'http://last-call.local';
 const [file = 'dist/index.html', hash = '#autoplay-dice', secs = '240'] = process.argv.slice(2);
 const ROOT = path.resolve('.');
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
@@ -11,9 +13,9 @@ await page.route('**/*', (route) => {
   const u = route.request().url();
   if (u.includes('/build/three.module.js')) return route.fulfill({ path: path.join(ROOT, 'tools/vendor/three/build/three.module.js'), contentType: 'text/javascript' });
   if (u.includes('/examples/jsm/')) return route.fulfill({ path: path.join(ROOT, 'tools/vendor/three/examples/jsm', u.split('/examples/jsm/')[1]), contentType: 'text/javascript' });
-  return u.startsWith('file:') ? route.continue() : route.abort();
+  return u.startsWith(HOST) ? route.fulfill({ path: decodeURIComponent(new URL(u).pathname) }) : route.abort();
 });
-await page.goto('file://' + path.join(ROOT, file) + hash);
+await page.goto(HOST + path.join(ROOT, file) + hash);
 await page.waitForFunction(() => Object.keys(window.__lastcall?.D?.characters ?? {}).length, null, { timeout: 600000 });
 const FORE = process.env.FORE ? JSON.parse(process.env.FORE) : null;
 const res = await page.evaluate(([secs, FORE]) => new Promise((done) => {

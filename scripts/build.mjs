@@ -1,8 +1,9 @@
 // Bundles src/ into one inline module and emits:
 //   dist/index.html     full document for static hosting (the Cloudflare Worker serves this)
 //   dist/artifact.html  skeleton-less page for claude.ai Artifacts (they add the document shell)
+//   dist/models/*.glb   the character models, fetched by the page (the Worker serves these too)
 import { build } from 'esbuild';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, copyFileSync } from 'node:fs';
 
 const out = await build({
   entryPoints: ['src/main.js'], bundle: true, format: 'esm', minify: true, write: false,
@@ -13,7 +14,8 @@ const shell = readFileSync('index.html', 'utf8');
 const tag = '<script type="module" src="./src/main.js"></script>';
 if (!shell.includes(tag)) throw new Error('index.html is missing the dev entry script tag');
 const page = shell.replace(tag, () => `<script type="module">${js}</script>`);
-mkdirSync('dist', { recursive: true });
+mkdirSync('dist/models', { recursive: true });
+for (const f of readdirSync('assets/models')) if (f.endsWith('.glb')) copyFileSync(`assets/models/${f}`, `dist/models/${f}`);
 writeFileSync('dist/artifact.html', page);
 writeFileSync('dist/index.html', `<!doctype html>
 <html lang="en">

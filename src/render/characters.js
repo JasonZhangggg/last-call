@@ -8,6 +8,7 @@ import { normalCanvas, weaveHeight, hammeredHeight, poreHeight, mottleCanvas, ma
 import { smoothDamp } from './motion.js';
 import { GRIP as GUN_GRIP, MUZZLE } from './gun.js';
 import { rand, clamp, quatE, UP } from '../util.js';
+import { hasRig, buildRigged, updateRig } from './rig.js';
 
 export const SEAT_RADIUS = 1.32;
 const _a = new THREE.Vector3(), _d = new THREE.Vector3(), _q = new THREE.Quaternion(), _c = new THREE.Color();
@@ -380,6 +381,7 @@ const DESIGNS = {
     const shutter = standard({ color: 0xd9a95a, map: mats.brassMap, metalness: 1, roughness: 0.45, envMapIntensity: 1.8 });
     const dialMat = standard({ color: 0xe8dcbc, roughness: 0.5, emissive: 0x2a2010, emissiveIntensity: 0.3 });
     return {
+      mats: { body, iron, copper, lens: lensMat, tip: tipMat, shutter, dial: dialMat, needle: new THREE.MeshBasicMaterial({ color: 0x8a1a10 }) },
       sleeve: body, hand: body, arm: { shoulder: 0.055, elbow: 0.046, wrist: 0.036, gap: 0.012 }, handOpts: { palm: [0.044, 0.046, 0.021], r: 0.0088 }, temple: V(-0.146, 0.06, 0.03),
       tint: [body, iron, copper, dialMat, shutter], noShadow: [dialMat, copper],
       cuff(k, el, wr) { k.add(iron, ring(V(0, wr.y + 0.012, 0), V(0, 1, 0), 0.039, 0.0075)); },
@@ -672,6 +674,7 @@ export function buildCharacter(designKey, angle) {
   group.position.set(Math.cos(angle) * SEAT_RADIUS, 0, Math.sin(angle) * SEAT_RADIUS);
   group.lookAt(0, 0, 0);
   scene.add(group);
+  if (hasRig(designKey)) return riggedCharacter(designKey, design, group);
   const waist = new THREE.Group(); waist.position.y = -0.3; group.add(waist);
   const upper = new THREE.Group(); upper.position.y = 0.3; waist.add(upper);
   const neck = new THREE.Group(); neck.position.y = 0.36; upper.add(neck);
@@ -718,13 +721,30 @@ export function buildCharacter(designKey, angle) {
     parts, design, tints, tintAt: 0,
     glow: glowMats.map((m) => ({ m, base: m.emissiveIntensity })),
     eyeMat: face.eyes[0].material,
-    lookTarget: new THREE.Vector3(),
-    yaw: 0, pitch: 0, lv: {}, phase: Math.random() * 6, breath: 0, blinkAt: rand(1, 4), blinkT: 1, flicker: 0,
-    glanceAt: rand(1, 3), glanceYaw: 0, glancePitch: 0,
-    flinchT: Infinity, flinchFrom: 0,
-    env: { lean: 0, tremble: 0, flinch: 0, relief: 0, out: 0, aim: 0, reach: 0, hold: 0, grip: 0, glass: 0, inspect: 0 },
-    target: { lean: 0, tremble: 0, relief: 0, out: 0, aim: 0, reach: 0, inspect: 0 },
-    vel: {},
+    ...freshState(),
+  };
+}
+
+/** What every character starts with, however its body is made: where it looks, and its reactions at rest. */
+const freshState = () => ({
+  lookTarget: new THREE.Vector3(),
+  yaw: 0, pitch: 0, lv: {}, phase: Math.random() * 6, breath: 0, blinkAt: rand(1, 4), blinkT: 1, flicker: 0,
+  glanceAt: rand(1, 3), glanceYaw: 0, glancePitch: 0,
+  flinchT: Infinity, flinchFrom: 0,
+  env: { lean: 0, tremble: 0, flinch: 0, relief: 0, out: 0, aim: 0, reach: 0, hold: 0, grip: 0, glass: 0, inspect: 0 },
+  target: { lean: 0, tremble: 0, relief: 0, out: 0, aim: 0, reach: 0, inspect: 0 },
+  vel: {},
+});
+
+/** A character whose body is a loaded model (see rig.js); the same object the code-built ones are. */
+function riggedCharacter(designKey, design, group) {
+  const body = buildRigged(designKey, design, group);
+  const chair = new THREE.Mesh(chairGeometry(), mats.chair); chair.castShadow = true; chair.receiveShadow = true; group.add(chair);
+  return {
+    group, ...body, design, reachTarget: new THREE.Vector3(), reachQuat: new THREE.Quaternion(), grasp: 'gun',
+    tints: design.tint.map((m) => ({ m, base: m.color.clone(), sheen: m.sheenColor?.clone() })), tintAt: 0,
+    glow: [body.eyeMat, ...body.extraGlow].map((m) => ({ m, base: m.emissiveIntensity })),
+    ...freshState(),
   };
 }
 
@@ -992,6 +1012,7 @@ export function updateCharacter(ch, dt, t) {
   const ph = ch.phase, sway = (Math.sin(t * 0.21 + ph) * 0.6 + Math.sin(t * 0.37 + ph * 2.3) * 0.4) * live;
   const drift = (Math.sin(t * 0.29 + ph * 1.7) * 0.6 + Math.sin(t * 0.53 + ph * 0.6) * 0.4) * live;
   const lean = E.out * 0.42 + E.lean * 0.16 - E.flinch * 0.045 - E.relief * 0.08;
+  if (ch.rig) updateRig(ch, dt, t, tx, sway, drift); else {
   ch.waist.rotation.x = lean + drift * 0.012;
   ch.waist.rotation.y = sway * 0.03;
   ch.waist.rotation.z = tx * 2 + E.out * 0.12 + sway * 0.014;
@@ -1003,6 +1024,7 @@ export function updateCharacter(ch, dt, t) {
   ch.head.rotation.x = ch.pitch * 0.7 * live + E.out * 0.75 - E.flinch * 0.085 + E.relief * -0.12;
   ch.head.rotation.z = E.out * 0.32 + (Math.sin(t * 0.7 + ph) * 0.016 + Math.sin(t * 0.43 + ph * 3.1) * 0.012 - sway * 0.012) * live + tx * 2.5;
   poseArms(ch, t);
+  }
 
   // A blink shuts fast and opens slower; now and then a second follows straight after.
   if (t > ch.blinkAt) { ch.blinkT = 0; ch.blinkAt = t + rand(2.2, 5.5); if (Math.random() < 0.18) ch.blinkAt = t + 0.3; }

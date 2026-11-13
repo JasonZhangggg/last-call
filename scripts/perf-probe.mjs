@@ -12,6 +12,8 @@ import os from 'node:os';
 import { build } from 'esbuild';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
+// pages load from a fake http origin that is served from disk: Chromium won't fetch() from file://
+const HOST = 'http://last-call.local';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, arr) => (v.startsWith('--') ? [...a, [v.slice(2), arr[i + 1]?.startsWith('--') ? true : arr[i + 1] ?? true]] : a), []));
 const SECS = +(args.secs || 20), [W, H] = String(args.size || '960x540').split('x').map(Number);
@@ -70,11 +72,11 @@ for (const mode of MODES) {
     const u = route.request().url();
     if (u.includes('/build/three.module.js')) return route.fulfill({ path: path.join(ROOT, 'tools/vendor/three/build/three.module.js'), contentType: 'text/javascript' });
     if (u.includes('/examples/jsm/')) return route.fulfill({ path: path.join(ROOT, 'tools/vendor/three/examples/jsm', u.split('/examples/jsm/')[1]), contentType: 'text/javascript' });
-    if (u.startsWith('file:')) return route.continue();
+    if (u.startsWith(HOST)) return route.fulfill({ path: decodeURIComponent(new URL(u).pathname) });
     return route.abort();
   });
   const t0 = Date.now();
-  await pg.goto('file://' + file + HASH[mode]);
+  await pg.goto(HOST + file + HASH[mode]);
   await pg.waitForFunction(() => document.getElementById('loading')?.hidden, null, { timeout: 180000 });
   const bootMs = Date.now() - t0;
   const boot = await pg.evaluate(() => Object.fromEntries(performance.getEntriesByType('mark').map((m) => [m.name, Math.round(m.startTime)])));
@@ -140,19 +142,19 @@ for (const mode of MODES) {
   const modSelf = {}, fnSelf = {}, incl = {}, threeBy = {};
   for (const [id, ms] of self) {
     const n = byId.get(id), cf = n.callFrame;
-    const mod = cf.url.includes('three.module') ? 'three' : cf.url.includes('/jsm/') ? 'three/addons' : cf.url.startsWith('file:') ? modOf[cf.lineNumber] : `(${cf.functionName || cf.url || 'native'})`;
+    const mod = cf.url.includes('three.module') ? 'three' : cf.url.includes('/jsm/') ? 'three/addons' : cf.url.startsWith(HOST) ? modOf[cf.lineNumber] : `(${cf.functionName || cf.url || 'native'})`;
     modSelf[mod] = (modSelf[mod] || 0) + ms;
     const fk = `${cf.functionName || '(anon)'} ${mod}`; fnSelf[fk] = (fnSelf[fk] || 0) + ms;
-    if (mod === 'three') { let p = parent.get(id); while (p != null && !byId.get(p).callFrame.url.startsWith('file:')) p = parent.get(p); const k = `${cf.functionName}<${p != null ? byId.get(p).callFrame.functionName : '?'}`; threeBy[k] = (threeBy[k] || 0) + ms; }
+    if (mod === 'three') { let p = parent.get(id); while (p != null && !byId.get(p).callFrame.url.startsWith(HOST)) p = parent.get(p); const k = `${cf.functionName}<${p != null ? byId.get(p).callFrame.functionName : '?'}`; threeBy[k] = (threeBy[k] || 0) + ms; }
     const seen = new Set();
     for (let p = id; p != null; p = parent.get(p)) {
       const f = byId.get(p).callFrame.functionName;
-      if (UPDATES.includes(f) && byId.get(p).callFrame.url.startsWith('file:') && !seen.has(f)) { seen.add(f); incl[f] = (incl[f] || 0) + ms; }
+      if (UPDATES.includes(f) && byId.get(p).callFrame.url.startsWith(HOST) && !seen.has(f)) { seen.add(f); incl[f] = (incl[f] || 0) + ms; }
     }
   }
   // allocations per function (sampled, including objects already collected)
   const alloc = {}; let allocBytes = 0;
-  const walk = (n) => { const cf = n.callFrame; const mod = cf.url.includes('three.module') ? 'three' : cf.url.includes('/jsm/') ? 'addons' : cf.url.startsWith('file:') ? modOf[cf.lineNumber] : ''; const k = `${cf.functionName || '(anon)'} ${mod}`; alloc[k] = (alloc[k] || 0) + n.selfSize; allocBytes += n.selfSize; (n.children || []).forEach(walk); };
+  const walk = (n) => { const cf = n.callFrame; const mod = cf.url.includes('three.module') ? 'three' : cf.url.includes('/jsm/') ? 'addons' : cf.url.startsWith(HOST) ? modOf[cf.lineNumber] : ''; const k = `${cf.functionName || '(anon)'} ${mod}`; alloc[k] = (alloc[k] || 0) + n.selfSize; allocBytes += n.selfSize; (n.children || []).forEach(walk); };
   walk(heap.head);
 
   const F = perf.frames, nf = F.length, top = (o, k = 14) => Object.fromEntries(Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, k).map(([a, b]) => [a, r2(b)]));

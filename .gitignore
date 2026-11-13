@@ -3,3 +3,5 @@ dist/
 .wrangler/
 artifacts/
 .claude/worktrees/
+tools/models/.venv/
+__pycache__/

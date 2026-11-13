@@ -3,6 +3,7 @@ import { $, clamp, settings } from './util.js';
 import { renderer, scene, camera, canvas, render, adapt, applyQuality, quality, compileScene } from './render/core.js';
 import { buildWorld, updateWorld, setShadowSize } from './render/world.js';
 import { buildCharacter, updateCharacter, straightGrip, poseRightHand } from './render/characters.js';
+import { loadRigs } from './render/rig.js';
 import { buildCards, updateCards, warmCards, bodies, hands } from './render/cards.js';
 import { buildGun, updateGun, gun } from './render/gun.js';
 import { buildBlood, updateBlood, blood, spray } from './render/blood.js';
@@ -347,6 +348,7 @@ function splitShadowDepthMaterials() {
 async function boot() {
   try { await Promise.race([Promise.all([document.fonts.load('700 25px Cinzel'), document.fonts.load('500 16px "Alegreya Sans"')]), new Promise((r) => setTimeout(r, 2500))]); } catch { /* fallback fonts */ }
   buildWorld();
+  await loadRigs();
   DESIGNS.forEach((design, i) => {
     const ch = D.characters[design] = buildCharacter(design, VIEWS[i + 1].angle);
     ch.tagAnchor = ch.head.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.27, 0));

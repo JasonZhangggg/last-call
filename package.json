@@ -6,6 +6,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "build": "node scripts/build.mjs",
+    "models": "tools/models/build.sh",
     "verify": "node scripts/verify.mjs",
     "deploy": "node scripts/build.mjs && wrangler deploy"
   },

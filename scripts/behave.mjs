@@ -3,6 +3,8 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
+// pages load from a fake http origin that is served from disk: Chromium won't fetch() from file://
+const HOST = 'http://last-call.local';
 const ROOT = path.resolve(process.argv[2]);
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
 const ctx = await browser.newContext({ viewport: { width: 960, height: 540 } });
@@ -15,10 +17,10 @@ await page.route('**/*', (route) => {
   const u = route.request().url();
   if (u.includes('/build/three.module.js')) return route.fulfill({ path: path.join(ROOT, 'tools/vendor/three/build/three.module.js'), contentType: 'text/javascript' });
   if (u.includes('/examples/jsm/')) return route.fulfill({ path: path.join(ROOT, 'tools/vendor/three/examples/jsm', u.split('/examples/jsm/')[1]), contentType: 'text/javascript' });
-  if (u.startsWith('file:')) return route.continue();
+  if (u.startsWith(HOST)) return route.fulfill({ path: decodeURIComponent(new URL(u).pathname) });
   return route.abort();
 });
-const url = 'file://' + path.join(ROOT, 'dist/index.html');
+const url = HOST + path.join(ROOT, 'dist/index.html');
 let fails = 0;
 const check = (ok, msg) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${msg}`); if (!ok) fails++; };
 const active = () => page.evaluate(() => document.activeElement?.id || document.activeElement?.tagName);

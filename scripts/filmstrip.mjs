@@ -13,6 +13,8 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
+// pages load from a fake http origin that is served from disk: Chromium won't fetch() from file://
+const HOST = 'http://last-call.local';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, arr) => (v.startsWith('--') ? [...a, [v.slice(2), arr[i + 1]?.startsWith('--') ? true : arr[i + 1] ?? true]] : a), []));
 const [W, H] = String(args.size || '480x270').split('x').map(Number);
@@ -33,7 +35,7 @@ await page.route('**/*', (route) => {
   const u = route.request().url();
   if (u.includes('/build/three.module.js')) return route.fulfill({ path: path.join(ROOT, 'tools/vendor/three/build/three.module.js'), contentType: 'text/javascript' });
   if (u.includes('/examples/jsm/')) return route.fulfill({ path: path.join(ROOT, 'tools/vendor/three/examples/jsm', u.split('/examples/jsm/')[1]), contentType: 'text/javascript' });
-  if (u.startsWith('file:')) return route.continue();
+  if (u.startsWith(HOST)) return route.fulfill({ path: decodeURIComponent(new URL(u).pathname) });
   return route.abort();
 });
 await page.addInitScript(({ seed, step }) => {
@@ -50,7 +52,7 @@ await page.addInitScript(({ seed, step }) => {
   window.requestAnimationFrame = (cb) => raf(() => { if (!held) { v += window.__strip.film ? step : 100; window.__strip.frame++; window.__strip.tick?.(); } cb(v); });
 }, { seed: SEED, step: 1000 / FPS });
 
-await page.goto('file://' + PAGE);
+await page.goto(HOST + PAGE);
 await page.waitForSelector('#title-menu:not([hidden])');
 await page.evaluate(({ moments, secs, every, fps }) => {
   const L = window.__lastcall, S = window.__strip;

@@ -12,6 +12,8 @@ import { mkdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
+// pages load from a fake http origin that is served from disk: Chromium won't fetch() from file://
+const HOST = 'http://last-call.local';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, arr) => (v.startsWith('--') ? [...a, [v.slice(2), arr[i + 1]?.startsWith('--') ? true : arr[i + 1] ?? true]] : a), []));
 const [W, H] = String(args.size || '960x540').split('x').map(Number);
@@ -30,7 +32,7 @@ await page.route('**/*', (route) => {
   const u = route.request().url();
   if (u.includes('/build/three.module.js')) return route.fulfill({ path: path.join(ROOT, 'tools/vendor/three/build/three.module.js'), contentType: 'text/javascript' });
   if (u.includes('/examples/jsm/')) return route.fulfill({ path: path.join(ROOT, 'tools/vendor/three/examples/jsm', u.split('/examples/jsm/')[1]), contentType: 'text/javascript' });
-  if (u.startsWith('file:')) return route.continue();
+  if (u.startsWith(HOST)) return route.fulfill({ path: decodeURIComponent(new URL(u).pathname) });
   return route.abort();
 });
 const DICE = args.mode === 'dice';
@@ -51,7 +53,7 @@ const state = () => page.evaluate(() => {
 const frameMs = () => page.evaluate(() => new Promise((r) => { let n = 0; const t0 = performance.now(); const f = () => (++n < 20 ? requestAnimationFrame(f) : r((performance.now() - t0) / 20)); requestAnimationFrame(f); }));
 const shown = (id) => page.waitForFunction((id) => { const el = document.getElementById(id); return !el.classList.contains('fade') && getComputedStyle(el).opacity === '1'; }, id);
 
-const url = 'file://' + path.join(ROOT, 'dist/index.html');
+const url = HOST + path.join(ROOT, 'dist/index.html');
 process.on('unhandledRejection', async (e) => { console.error(String(e).split('\n')[0]); console.error('PROBLEMS:\n' + (problems.join('\n') || '(none recorded)')); try { console.error(JSON.stringify(await state())); } catch {} process.exit(1); });
 if (args.mode === 'auction') {
   // The game plays itself (#autoplay-auction) so a slow machine never meets the turn clock. A watcher

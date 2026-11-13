@@ -7,6 +7,7 @@ import { smoothDamp } from '../render/motion.js';
 import { audio } from '../audio.js';
 import * as ui from '../ui.js';
 import { react, tell, poseRightHand, glassGrip, straightGrip } from '../render/characters.js';
+import { rigSip } from '../render/rig.js';
 import { rig, focusOn, centerLook, lockLook } from '../render/camera.js';
 import { camera } from '../render/core.js';
 import { gun } from '../render/gun.js';
@@ -116,6 +117,8 @@ const LEAN_HOLD = new THREE.Vector3(0, 1, 0), LEAN_POUR = new THREE.Vector3(0, -
 const WRIST_GIVE = 0.25;
 const _rim = new THREE.Vector3(), _lean = new THREE.Vector3();
 function poseSip(s, dt) {
+  // a rigged character plays its own drink; it only needs to know what is asked of it
+  if (s.ch.rig) { rigSip(s.ch, s.wT, s.tiltT); return s.wT > 0 || s.tiltT > 0; }
   // critically damped, so the head tips back and the glass rises without a jolt at the start
   s.w = smoothDamp(s.w, s.wT, s, 'wv', 0.32, dt);
   s.tilt = smoothDamp(s.tilt, s.tiltT, s, 'tv', 0.34, dt);
