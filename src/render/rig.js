@@ -21,7 +21,7 @@ import { TABLE } from './world.js';
 import { MUZZLE } from './gun.js';
 import { clamp } from '../util.js';
 // fetched beside the page (the Worker serves them, the build copies them into dist/models)
-const SOURCES = { brass: 'models/brass.glb' };
+const SOURCES = { brass: 'models/brass.glb', gristle: 'models/gristle.glb' };
 const LOADED = {};
 
 /** Parses every character model. A model that fails to load leaves its character code-built. */
@@ -39,10 +39,14 @@ export async function loadRigs() {
 export const hasRig = (key) => !!LOADED[key];
 
 const L1 = 0.27, L2 = 0.26;
-// Collision shapes. The torso is a capsule with an elliptical section in the chest's space; the
-// head is a rounded box in the head's space.
+// Collision shapes (Brass's; a design's `rig` gives its own). The torso is a capsule with an
+// elliptical section in the chest's space; the head is a rounded box in the head's space.
 export const TORSO = { y0: -0.22, y1: 0.2, rx: 0.243, rz: 0.194, ry: 0.17 };
 export const HEAD = { half: new THREE.Vector3(0.135, 0.12, 0.115), round: 0.02 };
+// What else differs between the rigged bodies, by node and material name; a design's `rig` overrides it.
+const FACE = { eye: 'lens', glow: ['tip'], lids: ['lid'], lidOpen: -0.25, lidClosed: Math.PI / 2 - 0.05, parts: ['needle'], torso: TORSO, head: HEAD };
+// the shapes of the character being posed
+let TS = TORSO, HS = HEAD;
 const UPPER_R = 0.046, ELBOW_R = 0.056, FORE_R = 0.043, WRIST_R = 0.037, GLASS_R = 0.024, BARREL_R = 0.014, FINGER_FLOOR = 0.016;
 
 const _m = new THREE.Matrix4(), _inv = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3();
@@ -56,23 +60,23 @@ const smoothstep = (a, b, v) => { const u = clamp((v - a) / (b - a), 0, 1); retu
 
 /** How deep a ball of radius r at p (chest space) sits in the torso: 1 on its surface, less inside. */
 function torsoLevel(p, r) {
-  const dy = Math.max(0, p.y - TORSO.y1, TORSO.y0 - p.y);
-  return Math.hypot(p.x / (TORSO.rx + r), p.z / (TORSO.rz + r), dy / (TORSO.ry + r));
+  const dy = Math.max(0, p.y - TS.y1, TS.y0 - p.y);
+  return Math.hypot(p.x / (TS.rx + r), p.z / (TS.rz + r), dy / (TS.ry + r));
 }
 /** Moves p (chest space) out of the torso sideways, the way an arm slides round a barrel. */
 function clearTorso(p, r) {
-  const dy = Math.max(0, p.y - TORSO.y1, TORSO.y0 - p.y) / (TORSO.ry + r);
+  const dy = Math.max(0, p.y - TS.y1, TS.y0 - p.y) / (TS.ry + r);
   if (dy >= 1) return 0;
-  const k = Math.hypot(p.x / (TORSO.rx + r), p.z / (TORSO.rz + r)), want = Math.sqrt(1 - dy * dy);
+  const k = Math.hypot(p.x / (TS.rx + r), p.z / (TS.rz + r)), want = Math.sqrt(1 - dy * dy);
   if (k >= want) return 0;
   const before = Math.hypot(p.x, p.z), f = want / Math.max(k, 1e-4);
-  if (k < 1e-4) p.x = -(TORSO.rx + r) * want; else { p.x *= f; p.z *= f; }
+  if (k < 1e-4) p.x = -(TS.rx + r) * want; else { p.x *= f; p.z *= f; }
   return Math.hypot(p.x, p.z) - before;
 }
 /** Moves p (head space) out of the head. */
 function clearHead(p, r) {
-  const h = HEAD.half, qx = Math.abs(p.x) - h.x, qy = Math.abs(p.y) - h.y, qz = Math.abs(p.z) - h.z;
-  const out = Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)), d = out + Math.min(Math.max(qx, qy, qz), 0) - HEAD.round - r;
+  const h = HS.half, qx = Math.abs(p.x) - h.x, qy = Math.abs(p.y) - h.y, qz = Math.abs(p.z) - h.z;
+  const out = Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)), d = out + Math.min(Math.max(qx, qy, qz), 0) - HS.round - r;
   if (d >= 0) return 0;
   if (out > 1e-5) { const f = -d / out; p.x += Math.sign(p.x) * Math.max(qx, 0) * f; p.y += Math.sign(p.y) * Math.max(qy, 0) * f; p.z += Math.sign(p.z) * Math.max(qz, 0) * f; }
   // inside the box itself: out through the nearest face
@@ -131,7 +135,7 @@ function armOf(root, chest, side, control) {
 
 /** The body of a rigged character: everything buildCharacter returns that is made of bones. */
 export function buildRigged(key, design, group) {
-  const gltf = LOADED[key], root = gltf.scene, M = design.mats;
+  const gltf = LOADED[key], root = gltf.scene, M = design.mats, F = { ...FACE, ...design.rig };
   group.add(root);
   root.traverse((o) => {
     if (!o.isMesh) return;
@@ -168,7 +172,7 @@ export function buildRigged(key, design, group) {
   const rig = {
     root, mixer, idle, layer, shape, chest, head, hips: node('hips'), mouth: node('mouth'),
     targets: { restR: node('rest_r'), restL: node('rest_l'), aim: node('aim'), fan: node('fan_hold'), fanUp: node('fan_up') },
-    sip: { hold: 0, tip: 0, was: 0 }, fanFloor: 0, colliders: { TORSO, HEAD },
+    sip: { hold: 0, tip: 0, was: 0 }, fanFloor: 0, colliders: { TORSO: F.torso, HEAD: F.head },
   };
   rig.fanFloor = node('fan_hold').position.y - 0.01;
   rig.post = [node('spine'), node('neck'), head, right.upper, right.fore, right.wristBone, left.upper, left.fore, left.wristBone];
@@ -176,8 +180,8 @@ export function buildRigged(key, design, group) {
   return {
     rig, waist: node('spine'), upper: chest, neck: node('neck'), head,
     arm: right, leftArm: left, grip, handAnchor: node('fan'), leftHand: palm, glassAt,
-    eyes: [], eyeMat: M.lens, extraGlow: [M.tip], lids: [node('lid')], lidOpen: -0.25, lidClosed: Math.PI / 2 - 0.05,
-    parts: { needle: node('needle') },
+    eyes: [], eyeMat: M[F.eye], extraGlow: F.glow.map((n) => M[n]), lids: F.lids.map(node), lidOpen: F.lidOpen, lidClosed: F.lidClosed,
+    parts: Object.fromEntries(F.parts.map((n) => [n, node(n)])),
   };
 }
 
@@ -297,6 +301,7 @@ export function updateRig(ch, dt, t, tx, sway, drift) {
   const rig = ch.rig, E = ch.env, T = ch.target, L = rig.layer, live = 1 - E.out, out = !!T.out;
   const held = ch.grip.children[0], settling = !!held && ch.grasp === 'gun' && held.position.lengthSq() > 1e-10;
   const sip = rig.sip, drinkEnd = L.drink.action.getClip().duration;
+  TS = rig.colliders.TORSO; HS = rig.colliders.HEAD;
 
   // 1. layers
   drive(L.reach, !out && !!(T.reach || settling), dt);

@@ -213,15 +213,15 @@ def epaulette(side, sg):
     # the sleeve's shoulder cap the fringe has to hang clear of
     cap = V(sg * BODY.shoulder, BODY.sh_y, BODY.sh_z); clear = BODY.arm['shoulder'] + 0.011
     Rb = mk.euler_yxz(*tilt)
-    n = 15
+    n = 17
     for i in range(n):
         a = (i / (n - 1) - 0.5) * PI * 1.12
         e = c + Rb @ V(sg * math.cos(a) * 0.07, -0.004, math.sin(a) * 0.07 * 0.82)
         def off(p):
             d = p - cap; L = np.linalg.norm(d)
             return cap + d / L * max(L, clear)
-        mid, end = off(e + V(0, -0.026, 0)), off(e + V(0, -0.054, 0))
-        coil = lambda t: 0.0058 * (1 + 0.14 * math.sin(t * PI * 3.5) ** 2) * (1 - 0.18 * t)
+        mid, end = off(e + V(0, -0.034, 0)), off(e + V(0, -0.07, 0))
+        coil = lambda t: 0.0068 * (1 + 0.14 * math.sin(t * PI * 3.5) ** 2) * (1 - 0.12 * t)
         g = mk.sweep([e, mid, end], coil, 7, 5, caps=True)
         # the outer tassels follow the arm more than those at the front and back
         k = 0.35 * max(0.0, math.cos(a))
