@@ -19,15 +19,20 @@ const COUNT = STATUS_BASE + 16;
 
 /** Seat angle per view (0 is you), matching director.js VIEWS. */
 const ANGLE = [Math.PI / 2, Math.PI + 0.52, -Math.PI / 2, -0.52];
-// Where each view's bid row and won row sit on the felt (x, z): rows run left to right as you see them.
+// Where each view's rows sit on the felt (x, z). Other seats' bid rows run left to right as you see
+// them, in front of the seat and clear of the easel, the candle and the tankards. Won rows run along
+// the seat's edge, and the purses opened at the end lie where the seat leans over the felt.
 const SPOTS = [
-  { bid: [0.34, 0.56], won: [-0.36, 0.58] },
-  { bid: [-0.46, -0.2], won: [-0.62, -0.02] },
-  { bid: [-0.3, -0.46], won: [0.3, -0.56] },
-  { bid: [0.46, -0.2], won: [0.62, -0.02] },
+  { bid: [0.34, 0.56], won: [-0.36, 0.58], purse: [0.34, 0.56] },
+  { bid: [-0.36, -0.14], won: [-0.62, -0.02], purse: [-0.46, -0.2] },
+  { bid: [-0.26, -0.5], won: [0.3, -0.56], purse: [-0.3, -0.46] },
+  { bid: [0.36, -0.14], won: [0.62, -0.02], purse: [0.46, -0.2] },
 ];
+// Other seats' bids lie larger than life and square to you, so their numbers read across the table,
+// a shade darker so the candle and the lamp don't bleach the ink off the pale notes.
+const BID_SCALE = 1.4, BID_ROW_MAX = 0.44, BID_TINT = 0.8, SEAT_R = 1.32;
 const DECK_AT = new THREE.Vector3(-0.36, 0, 0.26);
-const SPENT_AT = new THREE.Vector3(0.0, 0, -0.16);
+const SPENT_AT = new THREE.Vector3(0.0, 0, -0.27);
 const EASEL_AT = new THREE.Vector3(0, 0, 0.34);
 const EASEL_TILT = 0.62; // back from vertical
 const EASEL_SCALE = 2.3;
@@ -197,9 +202,16 @@ export function setTint(body, r, g = r, b = r) { body.tintTarget.setRGB(r, g, b)
 
 /* ---------- places ---------- */
 const easelWorld = (out) => out.copy(table.easelPose.pos);
-/** World pose of slot k of n in a row of `kind` ('bid', 'won', 'purse') for a view. */
+/** World pose of slot k of n in a row of `kind` ('bid', 'won', 'purse') for a view. Returns the scale. */
 export function rowPose(view, kind, k, n, outPos, outQuat) {
-  const spot = SPOTS[view][kind === 'won' ? 'won' : 'bid'];
+  const spot = SPOTS[view][kind];
+  if (kind === 'bid' && view > 0) {
+    // left to right, each note on top of the one before and far enough along that its numeral shows
+    const w = CW * BID_SCALE, gap = n > 1 ? Math.min(w * 0.66, (BID_ROW_MAX - w) / (n - 1)) : 0;
+    outPos.set(spot[0] + (k - (n - 1) / 2) * gap, 0.004 + k * CT * BID_SCALE * 1.3, spot[1]);
+    FACE_UP(jitter(k * 7 + view, 3) * 0.05, outQuat);
+    return BID_SCALE;
+  }
   const a = ANGLE[view];
   _d.set(Math.cos(a), 0, Math.sin(a));
   _t.set(-_d.z, 0, _d.x); if (_t.x < 0) _t.negate();
@@ -216,7 +228,7 @@ function deckPose(slot, outPos, outQuat) {
   return FACE_DOWN(jitter(slot, 1) * 0.05, outQuat);
 }
 function spentPose(i, outPos, outQuat, faceUp) {
-  outPos.set(SPENT_AT.x + jitter(i, 1) * 0.16, 0.004 + (i % 60) * CT * 0.6, SPENT_AT.z + jitter(i, 2) * 0.1);
+  outPos.set(SPENT_AT.x + jitter(i, 1) * 0.12, 0.004 + (i % 60) * CT * 0.6, SPENT_AT.z + jitter(i, 2) * 0.1);
   return faceUp ? FACE_UP(jitter(i, 4) * 1.2, outQuat) : FACE_DOWN(jitter(i, 4) * 1.6, outQuat);
 }
 
@@ -227,6 +239,7 @@ function spentPose(i, outPos, outQuat, faceUp) {
 export function sendTo(body, place, { view = 0, k = 0, n = 1, dur = 0.5, arc = 0.08, delay = 0, snap = false, ease = easeFling } = {}) {
   body.place = place; body.view = view; body.slot = k;
   body.hidden = place === 'off';
+  if (body.money && (place === 'bid' || place === 'hand' || place === 'purse')) body.tintTarget.setScalar(place === 'bid' && view > 0 ? BID_TINT : 1);
   if (place === 'hand') { body.pendingDelay = delay; body.handFresh = true; return; }
   let scale = 1;
   if (place === 'deck') deckPose(k, _v, _q);
@@ -240,7 +253,11 @@ export function sendTo(body, place, { view = 0, k = 0, n = 1, dur = 0.5, arc = 0
 /** A flight through a pose of your choosing (the flourish of a turned card, a won card held up). */
 export function flyTo(body, pos, quat, scale, opts) { body.mover.go(scene, pos, quat, scale, { ease: easeFling, ...opts }); }
 export const easelPoint = () => table.easelPose.pos;
-export function bidPoint(view, out) { const s = SPOTS[view].bid; return out.set(s[0], 0.02, s[1]); }
+/** Where a seat reaches to push its bid out: its row, drawn in toward the seat so the arm isn't at full stretch. */
+export function bidPoint(view, out) {
+  const s = SPOTS[view].bid, a = ANGLE[view], r = view ? 0.25 : 0;
+  return out.set(s[0] + (Math.cos(a) * SEAT_R - s[0]) * r, 0.02, s[1] + (Math.sin(a) * SEAT_R - s[1]) * r);
+}
 
 /* ---------- held hands, laid out every frame ---------- */
 function hold(body, parent, pos, quat, scale, arc) {
@@ -261,11 +278,14 @@ export function myHand(seat) {
 
 /**
  * Your hand in camera space, sized to the viewport; on a narrow portrait screen it splits into two
- * rows so every note stays a comfortable tap target. `up` (0..1) blends it from a low strip at the
- * bottom edge, corner numbers showing, to held up large to read and pick from. Other seats hold
- * theirs as a fan, face down.
+ * rows so every note stays a comfortable tap target. `up` (0..1) blends it from a low strip, corner
+ * numbers showing, to held up to read and pick from, standing on the HUD band and kept short so the
+ * felt and the other seats' bids stay in view above it. While your turn's controls are up they fill
+ * the bottom `bandPx` of the screen; `band` (0..1) eases the resting strip onto them instead of under
+ * them. Other seats hold theirs as a fan, face down.
  */
-export function layoutHands(T, reservePx, up) {
+const HAND_TILT = -0.06, HAND_LAYER = 0.002, _X = new THREE.Vector3(1, 0, 0);
+export function layoutHands(T, reservePx, up, band = 0, bandPx = 0) {
   const mine = myHand(T.me), n = mine.length, ui = table.ui;
   if (n) {
     const d = 0.5;
@@ -273,20 +293,25 @@ export function layoutHands(T, reservePx, up) {
     const rows = n > 6 && camera.aspect < 0.9 ? 2 : 1;
     const perRow = Math.ceil(n / rows);
     const down = 1 - up;
-    let s = ((rows === 2 ? 0.13 : 0.14) + 0.08 * up) * 2 * hh / CH, spacing = CW * s * 0.74;
+    let s = ((rows === 2 ? 0.12 : 0.13) + 0.04 * up) * 2 * hh / CH, spacing = CW * s * 0.74;
     const total = CW * s + spacing * (perRow - 1), maxW = hw * 2 * 0.92;
     if (total > maxW) { const f = maxW / total; s *= f; spacing *= f; }
-    const px = (2 * hh) / innerHeight;
-    const baseY = -hh + reservePx * px + (CH * s) / 2 - down * CH * s * (rows === 2 ? 1.1 : 0.68) - reservePx * px * 0.55 * down;
+    const px = (2 * hh) / innerHeight, ch = CH * s;
+    // resting, the strip shows its corners above 0.45 of the reserve, or above the controls' band
+    const floor = reservePx * 0.45 + (Math.max(bandPx, reservePx * 0.45) - reservePx * 0.45) * band;
+    const baseY = -hh + reservePx * px + ch / 2 - down * (ch * ((rows === 2 ? 1.1 : 0.68) - 0.2 * band) + (reservePx - floor) * px);
     for (let i = 0; i < n; i++) {
       const b = mine[i], row = rows === 2 && i >= perRow ? 1 : 0, j = row ? i - perRow : i;
       const inRow = rows === 2 ? (row ? n - perRow : perRow) : n, t = j - (inRow - 1) / 2;
       const sel = ui.selected.has(b.value), hov = ui.hover === b.value && ui.enabled;
-      const lift = sel ? CH * s * 0.26 : hov ? CH * s * 0.08 : 0;
+      const lift = sel ? ch * (rows === 2 ? 0.22 : 0.26) : hov ? ch * 0.08 : 0;
       // the back row sits higher, so its corner numbers show above the front row
-      const y = baseY + (rows === 2 && row === 0 ? CH * s * 0.52 : 0) - t * t * 0.002 * s + lift;
-      _v.set(t * spacing, y, -d + i * 0.0012 + row * 0.004);
-      quatE(-0.06 + (hov ? 0.04 : 0), 0, -t * 0.035, _q);
+      const y = baseY + (rows === 2 && row === 0 ? ch * 0.56 : 0) - t * t * 0.002 * s + lift;
+      // One tilt for every note, each on its own layer of the tilted stack (the front row's above the
+      // back row's), so a lift or a hover slides a note within its layer and no two can ever meet.
+      _v.set(t * spacing, y, i * HAND_LAYER).applyAxisAngle(_X, HAND_TILT);
+      _v.z -= d;
+      quatE(HAND_TILT, 0, -t * 0.035, _q);
       hold(b, camera, _v, _q, s * (hov && !sel ? 1.04 : 1), 0.03);
       b.hit.scale.y = hov ? 1.25 : 1;
       if (sel) b.tintTarget.setRGB(1.25, 1.18, 1.0); else b.tintTarget.setRGB(1, 1, 1);
