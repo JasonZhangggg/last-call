@@ -1,5 +1,6 @@
 import html from '../dist/index.html';
 import brassGlb from '../assets/models/brass.glb';
+import noctuaGlb from '../assets/models/noctua.glb';
 import { TableRoom } from './net/table-room.js';
 import { ROOM_CODE_RE, randomRoomCode } from './net/protocol.js';
 
@@ -17,7 +18,7 @@ async function page(request) {
 }
 
 // the character models, fetched by the page beside it; revalidated by tag like the page
-const MODELS = { '/models/brass.glb': brassGlb };
+const MODELS = { '/models/brass.glb': brassGlb, '/models/noctua.glb': noctuaGlb };
 const modelTags = {};
 async function model(request, path) {
   const bytes = MODELS[path];
