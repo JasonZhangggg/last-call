@@ -35,7 +35,7 @@ await page.evaluate((CARDS) => {
       if (window.__hf % 4 === 1) { L.settings.paused = true; window.__cap = `${String(++n).padStart(2, '0')}-ch-hold`; window.__hf++; return; }
     } else window.__hf = 0;
     const sip = ch && near(ch);
-    const aim = Object.values(L.D.characters).find((c) => c.group.visible && c.env.aim > 0.95 && c.grip.children.includes(L.gun.obj));
+    const aim = Object.values(L.D.characters).find((c) => c.group.visible && c.env.aim > 0.95 && c.grip.children.includes(L.gun.mover.obj));
     const key = CARDS ? (aim ? 'aim' : L.D.shown?.round ? 'table' : '') : mine ? `me-${L.arm.mover.flying ? 'move' : 'still'}` : ch ? `ch-${sip ? 'sip' : ch.env.reach > 0.95 ? 'at' : 'going'}` : '';
     if (key && key !== last) { L.settings.paused = true; window.__cap = `${String(++n).padStart(2, '0')}-${key}`; }
     last = key;
