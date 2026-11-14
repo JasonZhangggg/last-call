@@ -6,7 +6,7 @@ import { $, pick, clamp, settings } from '../util.js';
 import { smoothDamp } from '../render/motion.js';
 import { audio } from '../audio.js';
 import * as ui from '../ui.js';
-import { greet, caught, wrongCall, survived, poisoned, setOrdeal } from '../emotes.js';
+import { greet, caught, wrongCall, survived, poisoned as laughAtPoisoned, setOrdeal } from '../emotes.js';
 import { react, tell, poseRightHand, glassGrip, straightGrip } from '../render/characters.js';
 import { rigSip } from '../render/rig.js';
 import { rig, focusOn, centerLook, lockLook } from '../render/camera.js';
@@ -596,7 +596,7 @@ async function drink(T, msg) {
     await T.step(1300);
     if (T.game.alive.filter(Boolean).length > 1) T.eliminated();
     settle(T);
-    return poisoned(T, seat);
+    return laughAtPoisoned(T, seat);
   }
   react(ch, 'flinch');
   ui.toast(`${T.name(seat)} is poisoned`, 'liar');
@@ -613,7 +613,7 @@ async function drink(T, msg) {
   await T.step(1600);
   held = null;
   settle(T);
-  poisoned(T, seat);
+  laughAtPoisoned(T, seat);
   await T.step(400);
 }
 
