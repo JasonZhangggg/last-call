@@ -8,7 +8,7 @@ import { normalCanvas, weaveHeight, hammeredHeight, poreHeight, mottleCanvas, ma
 import { smoothDamp } from './motion.js';
 import { GRIP as GUN_GRIP, MUZZLE } from './gun.js';
 import { rand, clamp, quatE, UP } from '../util.js';
-import { hasRig, buildRigged, updateRig } from './rig.js';
+import { hasRig, buildRigged, updateRig, rigEmote } from './rig.js';
 
 export const SEAT_RADIUS = 1.32;
 const _a = new THREE.Vector3(), _d = new THREE.Vector3(), _q = new THREE.Quaternion(), _c = new THREE.Color();
@@ -771,7 +771,11 @@ export function setPresent(ch, on) {
 export function resetCharacter(ch) {
   for (const k of Object.keys(ch.target)) ch.target[k] = 0;
   ch.flicker = 0;
+  if (ch.rig) ch.rig.emote = null;
 }
+/** A table gesture (see rig.js EMOTES). False when the hands are taken or the body is code-built. */
+export const emote = (ch, kind) => (ch.rig ? rigEmote(ch, kind) : false);
+export const emoting = (ch) => !!ch.rig?.emote;
 export const tell = (ch, seconds = 1.3) => { ch.flicker = seconds; };
 export const headWorld = (ch, out) => ch.head.getWorldPosition(out);
 /** A shot to the right temple, in head space: where it goes in, where it comes out, and its line. */

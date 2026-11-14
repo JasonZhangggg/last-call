@@ -162,6 +162,33 @@ async function open(mode) {
   return { page, run, until, shot, phase, report };
 }
 
+// --only emotes: each table gesture at its peak, from the front and from your seat, and the
+// collision probe over the whole of each (aimed at you, so the arm turns toward the camera)
+if (args.only === 'emotes') {
+  const { page, run, until, shot, phase, report } = await open('deck');
+  const kinds = String(args.kinds || 'wave,flip,thumbs,laugh,shrug,clap').split(',');
+  for (const kind of kinds) {
+    await phase(`emote-${kind}`);
+    const ok = await page.evaluate((kind) => {
+      const S = window.__rs, L = window.__lastcall;
+      S.ch.lookTarget.copy(L.camera.position);
+      return L.emote(S.ch, kind);
+    }, kind);
+    if (!ok) { console.log(`  ${kind}: refused (hands busy?)`); continue; }
+    const end = await page.evaluate((kind) => window.__rs.ch.rig.emotes[kind].end, kind);
+    const peak = { wave: 0.45, flip: 0.62, thumbs: 0.5, laugh: 0.45, shrug: 0.45, clap: 0.42 }[kind] ?? 0.5;
+    await run(Math.round(end * peak * FPS));
+    await shot(`emote-${kind}`, ['front', 'seat']);
+    await until(() => !window.__rs.ch.rig.emote, null, { max: 300 });
+    await run(20);
+  }
+  await report();
+  await page.close();
+  await browser.close();
+  if (problems.length) { console.error(problems.join('\n')); process.exit(1); }
+  process.exit(0);
+}
+
 if (args.only !== 'dice') {
   const { page, run, until, shot, phase, report } = await open('deck');
   await phase('cards'); await run(30);

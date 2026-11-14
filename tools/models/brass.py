@@ -18,6 +18,8 @@ import numpy as np
 from lib import meshkit as mk
 from lib.meshkit import V
 from lib.biped import Body, SIDES, K, Z3, Z2, Fn, to
+from lib.emotes import Gestures
+from lib import quantise
 
 PI = math.pi
 SHOULDER, SH_Y, SH_Z = 0.215, 0.245, -0.01
@@ -220,7 +222,9 @@ def slump():
 
 
 CLIPS = dict(idle=idle, reach=reach, aim=aim, hold_cards=hold_cards, hold_glass=hold_glass, drink=drink, flinch=flinch, lean=lean, slump=slump)
+# his gestures are mechanical: they snap into place and hold, the wave a metronome
+CLIPS.update(Gestures(BODY, dict(tempo=0.95, big=0.95, ease='snap', crisp=True)).clips())
 
 
 if __name__ == '__main__':
-    BODY.build(sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'assets', 'models', 'brass.glb'), body_parts(), COLOURS, CLIPS)
+    BODY.build(sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'assets', 'models', 'brass.glb'), body_parts(), COLOURS, CLIPS, after=quantise.quantise)

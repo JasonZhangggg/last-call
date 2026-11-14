@@ -102,7 +102,8 @@ const reachLimit = (d) => (d <= REACH_KNEE ? d : REACH_KNEE + (REACH_MAX - REACH
 function additive(clip, idle) {
   if (clip.blendMode === THREE.AdditiveAnimationBlendMode) return clip;
   for (const track of clip.tracks) {
-    const ref = idle.tracks.find((t) => t.name === track.name), v = track.values;
+    // GLTFLoader hands clips that key the same values one shared array: each gets its own before it is changed
+    const ref = idle.tracks.find((t) => t.name === track.name), v = track.values = track.values.slice();
     if (track.name.endsWith('.quaternion')) {
       if (ref) _q.fromArray(ref.values, 0).invert(); else _q.identity();
       for (let i = 0; i < v.length; i += 4) _tq.fromArray(v, i).premultiply(_q).toArray(v, i);
@@ -115,6 +116,12 @@ function additive(clip, idle) {
 }
 
 const LAYERS = ['reach', 'aim', 'hold_cards', 'hold_glass', 'drink', 'flinch', 'lean', 'slump'];
+// The table gestures (lib/emotes.py): each one clip, keyed aimed straight ahead and turned here
+// toward whoever it is for. AIMED is how far the arm turns with the gaze; the trunk turns a little too.
+export const EMOTES = ['wave', 'flip', 'thumbs', 'laugh', 'shrug', 'clap'];
+const TWO_HANDED = new Set(['shrug', 'clap']);
+const AIMED = { wave: 0.6, flip: 1, thumbs: 0.85, laugh: 0.8, shrug: 0.2, clap: 0.3 };
+const AIM_YAW = 0.75, TRUNK_YAW = 0.3, PALM_IN = 0.07;
 const SHAPES = ['fist_r', 'glass_r', 'spread_r', 'fan_l'];
 // how long a layer takes to blend away once its cause is gone (s, as smoothDamp's time)
 const FADE_OUT = 0.2, SWAP = 0.05;
@@ -164,6 +171,14 @@ export function buildRigged(key, design, group) {
     action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; action.setEffectiveWeight(0); action.play();
     layer[name] = { action, w: 0, on: false, v: {} };
   }
+  const emotes = {};
+  for (const kind of EMOTES) {
+    const clip = clips[`emote_${kind}`];
+    if (!clip) continue;
+    const action = mixer.clipAction(additive(clip, clips.idle));
+    action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; action.setEffectiveWeight(0); action.play();
+    emotes[kind] = { action, w: 0, on: false, v: {}, end: clip.duration };
+  }
   for (const name of SHAPES) {
     const action = mixer.clipAction(additive(clips[name], clips.idle));
     action.setEffectiveWeight(0); action.play(); action.paused = true;
@@ -172,7 +187,7 @@ export function buildRigged(key, design, group) {
   const rig = {
     root, mixer, idle, layer, shape, chest, head, hips: node('hips'), mouth: node('mouth'),
     targets: { restR: node('rest_r'), restL: node('rest_l'), aim: node('aim'), fan: node('fan_hold'), fanUp: node('fan_up') },
-    sip: { hold: 0, tip: 0, was: 0 }, fanFloor: 0, colliders: { TORSO: F.torso, HEAD: F.head }, reachLift: F.reachLift,
+    sip: { hold: 0, tip: 0, was: 0 }, fanFloor: 0, emotes, emote: null, emoteLeft: null, emoteYaw: 0, ev: {}, colliders: { TORSO: F.torso, HEAD: F.head }, reachLift: F.reachLift,
   };
   rig.fanFloor = node('fan_hold').position.y - 0.01;
   rig.post = [node('spine'), node('neck'), head, right.upper, right.fore, right.wristBone, left.upper, left.fore, left.wristBone];
@@ -183,6 +198,22 @@ export function buildRigged(key, design, group) {
     eyes: [], eyeMat: M[F.eye], extraGlow: F.glow.map((n) => M[n]), lids: F.lids.map(node), lidOpen: F.lidOpen, lidClosed: F.lidClosed,
     parts: Object.fromEntries(F.parts.map((n) => [n, node(n)])),
   };
+}
+
+/** Whether the character's hands are taken: a prop held or being reached for, a drink, or out cold. */
+export function handsBusy(ch) {
+  const T = ch.target, E = ch.env;
+  return !!(ch.grip.children.length || T.reach || T.aim || T.out || ch.rig?.sip.hold || E.reach > 0.05 || E.aim > 0.05 || E.out > 0.1);
+}
+
+/** Starts a gesture. False (and nothing happens) while the hands are taken or one is already playing. */
+export function rigEmote(ch, kind) {
+  const rig = ch.rig;
+  if (!rig?.emotes[kind] || rig.emote || handsBusy(ch)) return false;
+  rig.emote = kind;
+  // a shrug with cards in hand is made with the other hand alone; a clap takes the cards along
+  rig.emoteLeft = TWO_HANDED.has(kind) && !(kind === 'shrug' && ch.handAnchor.children.length) ? kind : null;
+  return true;
 }
 
 /** The drink, from src/modes/dice.js: `hold` has the glass held before the chest, `tip` drinks from it. */
@@ -272,6 +303,26 @@ function pull(rig, a, node, k) {
   a.pos.lerp(_tp, k); a.quat.slerp(_tq, k);
 }
 
+const lastEmote = (rig) => { let best = null, w = 0; for (const k in rig.emotes) if (rig.emotes[k].w > w) { w = rig.emotes[k].w; best = k; } return best; };
+
+/** Turns a gesturing hand about the chest's upright axis, toward whoever it is aimed at. */
+function aimGesture(rig, a, yaw) {
+  if (Math.abs(yaw) < 1e-4) return;
+  _qe.setFromAxisAngle(_u.set(0, 1, 0), yaw);
+  a.pos.applyQuaternion(_qe); a.quat.premultiply(_qe);
+}
+
+/** Keeps a gesturing hand's wrist and palm out of the torso and the head; the hand moves whole. */
+function clearHand(rig, a) {
+  _hm.multiplyMatrices(_m.copy(rig.head.matrixWorld).invert(), rig.chest.matrixWorld);
+  for (const k of [0, 1]) {
+    _v.copy(a.foreDir).multiplyScalar(-PALM_IN * k).add(a.wrist).applyQuaternion(a.quat).add(a.pos); _w.copy(_v);
+    if (clearTorso(_w, WRIST_R)) a.pos.add(_u.subVectors(_w, _v));
+    _v.copy(a.foreDir).multiplyScalar(-PALM_IN * k).add(a.wrist).applyQuaternion(a.quat).add(a.pos).applyMatrix4(_hm); _w.copy(_v);
+    if (clearHead(_w, WRIST_R)) a.pos.add(_u.subVectors(_w, _v).transformDirection(_m.copy(_hm).invert()).multiplyScalar(_w.distanceTo(_v)));
+  }
+}
+
 /** Keeps the wrist of a posed arm above the table top, in from its edge. */
 function overTable(ch, a) {
   _v.copy(a.wrist).applyQuaternion(a.quat).add(a.pos).applyMatrix4(ch.rig.chest.matrixWorld);
@@ -306,7 +357,17 @@ export function updateRig(ch, dt, t, tx, sway, drift) {
   // 1. layers
   drive(L.reach, !out && !!(T.reach || settling), dt);
   drive(L.aim, !out && !!T.aim && !settling, dt, 0.24);
-  drive(L.hold_cards, !out && ch.handAnchor.children.length > 0, dt, 0.24);
+  // a gesture gives way to anything that needs the hands; it ends when its clip has played
+  if (rig.emote && (out || T.reach || T.aim || held || sip.hold)) rig.emote = null;
+  let eR = 0, eL = 0;
+  for (const kind in rig.emotes) {
+    const l = rig.emotes[kind];
+    drive(l, rig.emote === kind, dt, 0.16);
+    if (rig.emote === kind && l.action.time >= l.end - 1e-3) { rig.emote = null; l.on = false; }
+    eR = Math.max(eR, l.w); if (rig.emoteLeft === kind) eL = Math.max(eL, l.w);
+  }
+  // a two-handed gesture takes the left hand off the fan; the cards go with it
+  drive(L.hold_cards, !out && ch.handAnchor.children.length > 0 && !(rig.emote && rig.emoteLeft === rig.emote), dt, 0.24);
   drive(L.lean, !out && !!T.lean, dt, 0.26);
   drive(L.slump, out, dt, 0.4);
   // the drink plays through once its tip is asked for, then hands back to the held glass
@@ -331,7 +392,7 @@ export function updateRig(ch, dt, t, tx, sway, drift) {
   rig.shape.fist_r.setEffectiveWeight(E.grip * (1 - E.glass));
   rig.shape.glass_r.setEffectiveWeight(E.grip * E.glass);
   rig.shape.spread_r.setEffectiveWeight(smoothstep(0, 0.5, E.reach) * (1 - E.grip) * live);
-  rig.shape.fan_l.setEffectiveWeight(E.hold);
+  rig.shape.fan_l.setEffectiveWeight(E.hold * (1 - eL));
   // breathing quickens with a tremble and stops with the lights
   rig.idle.timeScale = live * (1 + E.tremble * 1.2);
   if (!rig.started) { rig.started = true; rig.idle.time = ch.phase; }
@@ -347,10 +408,15 @@ export function updateRig(ch, dt, t, tx, sway, drift) {
   // 2. the gaze, slow weight shifts and the tremble, on top of the clips
   // the held glass hands over to the drink and back as one weight, never dipping in the crossfade
   const glassW = Math.min(1, L.hold_glass.w + L.drink.w), ph = ch.phase;
-  ch.waist.quaternion.multiply(_qe.setFromEuler(_e.set(drift * 0.012 - E.relief * 0.08, sway * 0.03, tx * 2 + sway * 0.014)));
+  // where a gesture is aimed: the gaze target, as a turn from straight ahead in the seat's frame
+  const aimed = eR > 0.001 ? AIMED[rig.emote] ?? AIMED[lastEmote(rig)] ?? 0 : 0;
+  ch.group.worldToLocal(_v.copy(ch.lookTarget));
+  rig.emoteYaw = smoothDamp(rig.emoteYaw, clamp(Math.atan2(_v.x, _v.z), -AIM_YAW - TRUNK_YAW, AIM_YAW + TRUNK_YAW), rig.ev, 'y', 0.18, dt);
+  const turn = eR * aimed, trunk = clamp(rig.emoteYaw, -TRUNK_YAW, TRUNK_YAW), trunkYaw = trunk * turn, armYaw = clamp(rig.emoteYaw - trunk, -AIM_YAW, AIM_YAW) * turn;
+  ch.waist.quaternion.multiply(_qe.setFromEuler(_e.set(drift * 0.012 - E.relief * 0.08, sway * 0.03 + trunkYaw, tx * 2 + sway * 0.014)));
   ch.upper.position.y -= E.relief * 0.008;
   rig.mouth.getWorldPosition(_m0);
-  ch.neck.quaternion.multiply(_qe.setFromEuler(_e.set(-drift * 0.01 * live, (ch.yaw * (1 - E.aim * 0.65) * (1 - 0.7 * glassW) - sway * 0.03) * live + tx * 2, 0)));
+  ch.neck.quaternion.multiply(_qe.setFromEuler(_e.set(-drift * 0.01 * live, (ch.yaw * (1 - E.aim * 0.65) * (1 - 0.7 * glassW) - trunkYaw - sway * 0.03) * live + tx * 2, 0)));
   ch.head.quaternion.multiply(_qe.setFromEuler(_e.set((ch.pitch * 0.7 * (1 - 0.6 * L.drink.w) - E.relief * 0.12) * live, 0, (Math.sin(t * 0.7 + ph) * 0.016 + Math.sin(t * 0.43 + ph * 3.1) * 0.012 - sway * 0.012) * live + tx * 2.5)));
   ch.group.updateMatrixWorld(true);
   _inv.copy(rig.chest.matrixWorld).invert(); _chestWorld = rig.chest.matrixWorld;
@@ -358,7 +424,8 @@ export function updateRig(ch, dt, t, tx, sway, drift) {
   // 3. contact correction, right arm
   const R = ch.arm;
   inChest(rig, R.hand, R.pos, R.quat);
-  pull(rig, R, rig.targets.restR, (1 - L.reach.w) * (1 - L.aim.w) * (1 - glassW) * (1 - L.slump.w));
+  pull(rig, R, rig.targets.restR, (1 - L.reach.w) * (1 - L.aim.w) * (1 - glassW) * (1 - L.slump.w) * (1 - eR));
+  if (eR > 0.001) aimGesture(rig, R, armYaw);
   const reach = smoothstep(0.5, 0.97, E.reach) * live;
   if (reach > 0.001) {
     _tp.copy(ch.reachTarget); _tp.y += rig.reachLift; _tp.applyMatrix4(_inv);
@@ -385,6 +452,7 @@ export function updateRig(ch, dt, t, tx, sway, drift) {
     _v.set(0, 0.028, 0).applyQuaternion(ch.glassAt.quat).add(ch.glassAt.pos).applyQuaternion(R.quat).add(R.pos).applyMatrix4(_hm); _w.copy(_v);
     if (clearHead(_w, GLASS_R)) R.pos.add(_u.subVectors(_w, _v).transformDirection(_m.copy(_hm).invert()).multiplyScalar(_w.distanceTo(_v)));
   }
+  if (eR > 0.001) clearHand(rig, R);
   overTable(ch, R);
   solveArm(R, !!held && ch.grasp === 'gun');
   settleFingers(R, 1 - E.grip, false);
@@ -392,10 +460,11 @@ export function updateRig(ch, dt, t, tx, sway, drift) {
   // left arm
   const Lf = ch.leftArm;
   inChest(rig, Lf.hand, Lf.pos, Lf.quat);
-  pull(rig, Lf, rig.targets.restL, (1 - L.hold_cards.w) * (1 - L.slump.w));
-  pull(rig, Lf, rig.targets.fan, smoothstep(0.55, 0.98, E.hold) * live);
-  pull(rig, Lf, rig.targets.fanUp, E.inspect * E.hold * live);
-  if (E.hold > 0.001) {
+  pull(rig, Lf, rig.targets.restL, (1 - L.hold_cards.w) * (1 - L.slump.w) * (1 - eL));
+  pull(rig, Lf, rig.targets.fan, smoothstep(0.55, 0.98, E.hold) * live * (1 - eL));
+  pull(rig, Lf, rig.targets.fanUp, E.inspect * E.hold * live * (1 - eL));
+  if (eL > 0.001) { aimGesture(rig, Lf, armYaw); clearHand(rig, Lf); }
+  if (E.hold * (1 - eL) > 0.001) {
     // leaning in tips the body forward, which would lower the fan into the felt
     const y = _v.copy(Lf.pos).applyMatrix4(rig.chest.matrixWorld).y - ch.group.position.y;
     if (y < rig.fanFloor) Lf.pos.y += (rig.fanFloor - y) * E.hold * live;

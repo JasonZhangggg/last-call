@@ -17,6 +17,7 @@ import numpy as np
 from lib import meshkit as mk
 from lib.meshkit import V, unit
 from lib.biped import Body, SIDES, HEAD_AT, K, Z3, Z2, Fn, to
+from lib.emotes import Gestures
 from lib import quantise
 
 PI = math.pi
@@ -439,6 +440,8 @@ def slump():
 
 
 CLIPS = dict(idle=idle, reach=reach, aim=aim, hold_cards=hold_cards, hold_glass=hold_glass, drink=drink, flinch=flinch, lean=lean, slump=slump)
+# his are big and gruff: the whole body joins in, and the jaw drops when he laughs
+CLIPS.update(Gestures(BODY, dict(tempo=1.1, big=1.25, ease='io', jaw=True)).clips())
 
 
 if __name__ == '__main__':

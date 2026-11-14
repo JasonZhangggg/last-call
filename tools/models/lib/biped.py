@@ -234,6 +234,11 @@ class Body:
             # the elbow's own bone turns half as far as the forearm, so the tube rounds the bend
             out[f'elbow.{side}'] = q_slerp(IDENT, fo, 0.5)
             out[f'hand.{side}'] = q_mul(q_mul(q_conj(q3), quat), q_conj(self.RC[side]))
+            # a clip may key the fingers too: fingers_<side>(t) -> (hand pose, how far from open)
+            if f'fingers_{side}' in spec:
+                pose, k = spec[f'fingers_{side}'](t)
+                mix = lambda a, b: [x + (y - x) * k for x, y in zip(a, b)]
+                out.update(self.fingers(dict(fingers=[mix(a, b) for a, b in zip(hd.OPEN['fingers'], pose['fingers'])], thumb=mix(hd.OPEN['thumb'], pose['thumb'])), side))
         return out
 
     def fingers(self, pose, side):
