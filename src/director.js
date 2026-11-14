@@ -53,6 +53,8 @@ export const T = {
   get rushing() { return D.queue.length > 2; },
   view, seatAt,
   isMe: (seat) => seat === D.me,
+  isBot: (seat) => D.info[seat]?.kind === 'bot',
+  get phase() { return D.phase; },
   /** The seat sits this game out: an empty chair, with nothing on the table in front of it. */
   absent: (seat) => !!D.shown?.absent?.[seat],
   name: (seat) => (seat === D.me ? 'You' : D.info[seat]?.name || `Seat ${seat + 1}`),

@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { $, pick, settings } from '../util.js';
 import { audio } from '../audio.js';
 import * as ui from '../ui.js';
+import { greet, applaud } from '../emotes.js';
 import { camera } from '../render/core.js';
 import { react, tell } from '../render/characters.js';
 import { rig, focusOn } from '../render/camera.js';
@@ -267,6 +268,7 @@ async function reveal(T, msg) {
   await T.landed(body.mover);
   T.setWatch(null); rig.zoomTarget = 1; focusOn(null);
   hud(T);
+  if (g.auction === 1) greet(T);
   if (g.auction === 1) ui.coach('auction', 'Tap money cards to build a bid that beats the high bid, then <b>Bid</b>. <b>Pass</b> takes your money back.');
   await T.step(600);
 }
@@ -440,6 +442,7 @@ async function scoring(T, msg) {
     ui.log(`<b>${Name(T, w)}</b> ${verb(T, w, 'win', 'wins')} with <b>${fmtStatus(msg.status[w])}</b> status.`);
     if (!T.isMe(w)) { react(T.char(w), 'lean'); say(T, w, voice(T, w, 'winner')); }
     gildChime(true);
+    applaud(T, w, castOut);
   } else ui.toast('A dead heat: no winner tonight', 'small');
   await T.step(1600);
   if (token === T.token() && w != null && !T.isMe(w)) react(T.char(w), 'lean', false);

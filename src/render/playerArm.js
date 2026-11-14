@@ -40,7 +40,8 @@ const MIN_BEND = THREE.MathUtils.degToRad(40), WRIST_MAX = THREE.MathUtils.degTo
 const LIFT = 0.006;
 const SWAY = 0.45;
 const MODEL = 'models/player_arm.glb';
-const POSES = ['relaxed', 'open', 'gun', 'glass', 'cup'];
+const POSES = ['relaxed', 'open', 'gun', 'glass', 'cup', 'flat', 'flip', 'thumbs', 'point', 'cupped'];
+const HOLDS = 5; // the poses before this are the hand's own; the rest are the gestures'
 
 const _v = new THREE.Vector3(), _d = new THREE.Vector3(), _f = new THREE.Vector3(), _ax = new THREE.Vector3(), _q = new THREE.Quaternion(), _o = new THREE.Object3D();
 const _m = new THREE.Matrix4(), _s = new THREE.Vector3(), _P = new THREE.Vector3(), _Q = new THREE.Quaternion(), _Qh = new THREE.Quaternion(), _W = new THREE.Vector3();
@@ -57,6 +58,8 @@ export const arm = {
   // the skinned arm, when the model loaded: its bones and this frame's solve (camera space)
   rig: null, solved: { wristBend: 0, twist: 0, elbow: new THREE.Vector3(), shoulder: new THREE.Vector3(), wrist: new THREE.Vector3(), reach: 0 },
   sip: null,
+  // a table gesture while it plays: { kind, t, dur }, and how far the fingers have taken its shape
+  emote: null, emoteK: 0, emotePose: 0,
   // the shoulder and the elbow's hang (see SHOULDER), here so a probe can try others
   shoulder: SHOULDER.clone(), pole: POLE.clone(),
 };
@@ -144,9 +147,10 @@ function boneQuat(from, to, bend, out) {
 }
 
 function poseFingers(R) {
-  const w = R.w, closed = arm.closed, c = arm.cuppy, gl = arm.glassy * (1 - c);
-  w[0] = (1 - closed) * (1 - arm.open); w[1] = (1 - closed) * arm.open;
-  w[2] = closed * (1 - gl - c); w[3] = closed * gl; w[4] = closed * c;
+  const w = R.w, closed = arm.closed, c = arm.cuppy, gl = arm.glassy * (1 - c), e = arm.emoteK, own = 1 - e;
+  w[0] = (1 - closed) * (1 - arm.open) * own; w[1] = (1 - closed) * arm.open * own;
+  w[2] = closed * (1 - gl - c) * own; w[3] = closed * gl * own; w[4] = closed * c * own;
+  for (let k = HOLDS; k < w.length; k++) w[k] = k === arm.emotePose ? e : 0;
   for (const f of R.fingers) {
     const out = f.bone.quaternion.set(0, 0, 0, 0);
     for (let k = 0; k < w.length; k++) {
@@ -315,8 +319,88 @@ function stepSip(dt) {
   if (s.t >= s.dur) arm.sip = null;
 }
 
+/* ---------- the table gestures ---------- */
+// Each in camera space, aimed at whatever you look at: the palm centre, where the fingers point and
+// where the palm faces, at time t into it, and the finger pose. The arm comes up from below, plays
+// it and goes back down; the hand never holds anything meanwhile.
+const G = {
+  wave: { dur: 1.75, pose: 'flat', at(t, o) {
+    const wag = 0.42 * Math.sin(Math.PI * 2 * 2.5 * clamp((t - 0.35) / 1.0, 0, 1)) * window01(t, 0.3, 0.45, 1.25, 1.4);
+    o.palm.set(0.2 - Math.sin(wag) * 0.05, -0.01, -0.46); o.finger.set(-0.12, 1, 0).applyAxisAngle(FWD, wag); o.facing.set(-0.1, 0, -1);
+  } },
+  flip: { dur: 1.7, pose: 'flip', at(t, o) {
+    const jab = 0.03 * window01(t, 0.3, 0.42, 0.55, 0.8);
+    o.palm.set(0.11, -0.03, -0.43 - jab); o.finger.set(-0.05, 1, -0.1); o.facing.set(0.05, -0.05, 1);
+  } },
+  thumbs: { dur: 1.6, pose: 'thumbs', at(t, o) {
+    const pump = 0.02 * Math.sin(Math.PI * clamp((t - 0.35) / 0.3, 0, 1));
+    o.palm.set(0.15, -0.06 + pump, -0.42); o.finger.set(-0.2, 0.05, -1); o.facing.set(-1, 0, -0.1);
+  } },
+  laugh: { dur: 2.1, pose: 'point', at(t, o) {
+    const j = Math.sin(Math.PI * 2 * 2.8 * t) * window01(t, 0.35, 0.5, 1.5, 1.7);
+    o.palm.set(0.12, -0.04 + 0.008 * j, -0.5 + 0.01 * j); o.finger.set(-0.22, 0.1 + 0.04 * j, -1); o.facing.set(0, -1, 0);
+  } },
+  shrug: { dur: 1.6, pose: 'cupped', at(t, o) {
+    const lift = 0.03 * window01(t, 0.3, 0.55, 1.0, 1.3);
+    o.palm.set(0.22, -0.11 + lift, -0.42); o.finger.set(0.45, 0.05, -1); o.facing.set(0, 1, 0.15);
+  } },
+  clap: { dur: 2.45, pose: 'flat', beats: [0.4, 0.95, 1.5], at(t, o) {
+    // the one hand you can see swings in and slaps (the other is out of view), three slow beats
+    let a = 1;
+    if (t > 0.25 && t < 1.8) { const ph = ((t - 0.25) / 0.55) % 1; a = ph < 0.27 ? 1 - (ph / 0.27) ** 2 : smooth01((ph - 0.27) / 0.73); }
+    o.palm.set(0.05 + 0.12 * a, -0.08, -0.4); o.finger.set(-0.1, 0.6, -1); o.facing.set(-1, 0, 0.05);
+  } },
+};
+export const ARM_GESTURES = G;
+const RISE = 0.32, FALL = 0.38;
+const smooth01 = (u) => { u = clamp(u, 0, 1); return u * u * (3 - 2 * u); };
+const window01 = (t, a, b, c, d) => smooth01((t - a) / (b - a)) * (1 - smooth01((t - c) / (d - c)));
+const gp = { palm: new THREE.Vector3(), finger: new THREE.Vector3(), facing: new THREE.Vector3() };
+const _gt = new THREE.Vector3(), _gq = new THREE.Quaternion(), _gp = new THREE.Vector3(), _gw = new THREE.Vector3();
+// the palm's centre in the hand bone's frame (its origin is the wrist joint)
+const PALM_AT = new THREE.Vector3(-0.004, -0.068, 0);
+
+/** The arm is free: hidden, not on its way anywhere, holding nothing. */
+export const armFree = () => !!arm.rig && arm.hidden && !arm.mover.flying && !arm.sip && !arm.emote && arm.grip.children.length === 0;
+
+/** Plays a gesture with your own arm. False, and nothing happens, while the arm is busy. */
+export function armEmote(kind) {
+  if (!G[kind] || !armFree()) return false;
+  const m = arm.mover;
+  m.flight = null; m.stopSprings();
+  if (m.parent !== camera) { camera.add(m.obj); m.parent = camera; }
+  arm.emote = { kind, t: 0, dur: G[kind].dur };
+  arm.emotePose = POSES.indexOf(G[kind].pose);
+  arm.hidden = false; arm.root.visible = true;
+  return true;
+}
+
+function stepEmote(dt) {
+  const e = arm.emote, g = G[e.kind], m = arm.mover, s = arm.rig.sockets.gun;
+  e.t = Math.min(e.dur, e.t + dt);
+  g.at(e.t, gp);
+  // narrow (portrait) views keep the hand in from the edge, as armRaise does
+  const halfW = -gp.palm.z * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect / camera.zoom;
+  gp.palm.x = Math.min(gp.palm.x, halfW * 0.6);
+  // the hand bone's frame: +x against the palm, +y back up the fingers, +z against the thumb
+  _f.copy(gp.finger).normalize(); _n.copy(gp.facing).addScaledVector(_f, -gp.facing.dot(_f)).normalize(); _gt.crossVectors(_f, _n);
+  _mb.makeBasis(_x.copy(_n).negate(), _y.copy(_f).negate(), _z.copy(_gt).negate()); _gq.setFromRotationMatrix(_mb);
+  _gw.copy(PALM_AT).applyQuaternion(_gq).negate().add(gp.palm);
+  _gp.copy(s.pos).applyQuaternion(_gq).add(_gw);
+  _gq.multiply(s.quat);
+  // up from below the view and back down again
+  const k = easeInOutCubic(clamp(e.t / RISE, 0, 1)) * (1 - easeInOutCubic(clamp((e.t - (e.dur - FALL)) / FALL, 0, 1)));
+  m.pos.lerpVectors(HIDE_POS, _gp, k); m.quat.slerpQuaternions(arm.hideQuat, _gq, k);
+  m.obj.position.copy(m.pos); m.obj.quaternion.copy(m.quat);
+  arm.emoteK = smooth01(Math.min(e.t / (RISE * 0.9), (e.dur - e.t) / (FALL * 0.8)));
+  if (e.t >= e.dur) { arm.emote = null; arm.emoteK = 0; arm.hidden = true; arm.root.visible = false; }
+}
+
 export function updatePlayerArm(dt) {
   if (arm.sip && arm.mover.flying) arm.sip = null;
+  // anything the arm is asked to do takes it from a gesture at once
+  if (arm.emote && (arm.mover.flying || arm.sip || arm.grip.children.length)) { arm.emote = null; arm.emoteK = 0; }
+  if (arm.emote) stepEmote(dt);
   if (arm.sip) stepSip(dt);
   arm.mover.update(dt);
   const { root } = arm;

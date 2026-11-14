@@ -18,9 +18,9 @@ export function initUI() {
   const ro = new ResizeObserver(measure);
   for (let seat = 1; seat < 4; seat++) {
     const el = document.createElement('div'); el.className = 'tag'; el.style.opacity = '0';
-    el.innerHTML = `<div class="bubble"></div><div class="nm"><span></span></div><div class="meta panel-chip"><span class="cnt"></span><span class="pips"></span></div><div class="status"></div>`;
+    el.innerHTML = `<div class="bubble"></div><div class="nm"><span></span><b class="emo"></b></div><div class="meta panel-chip"><span class="cnt"></span><span class="pips"></span></div><div class="status"></div>`;
     $('#tags').appendChild(el);
-    tags[seat] = { el, name: el.querySelector('.nm span'), bubble: el.querySelector('.bubble'), cnt: el.querySelector('.cnt'), pips: el.querySelector('.pips'), status: el.querySelector('.status'), timer: 0, lastPulls: 0, x: 0, y: 0, h: 44, bh: 0, below: false, px: NaN, py: NaN };
+    tags[seat] = { el, name: el.querySelector('.nm span'), bubble: el.querySelector('.bubble'), emo: el.querySelector('.emo'), emoTimer: 0, cnt: el.querySelector('.cnt'), pips: el.querySelector('.pips'), status: el.querySelector('.status'), timer: 0, lastPulls: 0, x: 0, y: 0, h: 44, bh: 0, below: false, px: NaN, py: NaN };
     ro.observe(el); ro.observe(tags[seat].bubble);
   }
   tags[0] = { pips: $('#me-pips'), lastPulls: 0 };
@@ -192,6 +192,13 @@ export function say(seat, text, ms = 2400) {
   const t = tags[seat]; if (!text || !t?.bubble) return;
   t.bubble.textContent = text; t.bubble.classList.add('show');
   clearTimeout(t.timer); t.timer = setTimeout(() => t.bubble.classList.remove('show'), ms / settings.speed);
+}
+/** A gesture's icon pops up beside a seat's name for a moment, so it reads from across the table. */
+export function emoteBadge(seat, icon, ms = 1600) {
+  const t = tags[seat]; if (!t?.emo) return;
+  t.emo.textContent = icon;
+  t.emo.classList.remove('show'); void t.emo.offsetWidth; t.emo.classList.add('show');
+  clearTimeout(t.emoTimer); t.emoTimer = setTimeout(() => t.emo.classList.remove('show'), ms);
 }
 export function toast(text, kind = '') {
   const t = $('#toast-t'); t.className = 't'; void t.offsetWidth; t.textContent = text; t.className = `t show ${kind}`;

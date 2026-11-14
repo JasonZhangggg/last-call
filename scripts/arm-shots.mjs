@@ -137,6 +137,24 @@ async function open(mode) {
 
 const flight = (want) => window.__lastcall.arm.mover.flight && window.__lastcall.arm.mover.flight.t / window.__lastcall.arm.mover.flight.dur >= want;
 
+// --only emotes: each of your own table gestures at its peak (the arm's own clock, stepped with the frames)
+if (args.only === 'emotes') {
+  const { page, until, shot, phase, report } = await open('deck');
+  const PEAK = { wave: 0.62, flip: 0.5, thumbs: 0.42, laugh: 0.5, shrug: 0.5, clap: 0.6 };
+  for (const kind of String(args.kinds || Object.keys(PEAK).join(',')).split(',')) {
+    await phase(`emote-${kind}`);
+    if (!await page.evaluate((kind) => window.__lastcall.emotes.arm(kind), kind)) { console.log(`  ${kind}: refused (arm busy)`); continue; }
+    await until((p) => { const e = window.__lastcall.arm.emote; return !e || e.t >= e.dur * p; }, PEAK[kind] ?? 0.5);
+    await shot(`emote-${kind}`);
+    await until(() => !window.__lastcall.arm.emote);
+  }
+  await report();
+  await page.close();
+  await browser.close();
+  if (problems.length) { console.error(problems.join('\n')); process.exit(1); }
+  process.exit(0);
+}
+
 if (args.only !== 'dice') {
   const { page, run, until, shot, phase, report } = await open('deck');
   await page.evaluate(() => { const L = window.__lastcall; window.__as.busy = L.MODES.deck.on.shot(L.T, { seat: L.D.me, fired: false }).then(() => { window.__as.busy = null; }); });

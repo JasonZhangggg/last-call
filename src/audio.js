@@ -316,3 +316,35 @@ Object.assign(Audio.prototype, {
     this.noise({ dur: 0.3, type: 'lowpass', freq: 240, gain: 0.3, t: 0.9, verb: 0.4, pan });
   },
 });
+
+/* ---------- table gestures ---------- */
+// Light and short, under the table's own sounds: a gesture is a flourish, not an event.
+Object.assign(Audio.prototype, {
+  /** One clap: a broadband slap with a short body under it. */
+  clap(pan = 0, t = 0, gain = 1) {
+    this.noise({ dur: 0.07, type: 'bandpass', freq: 1500 + Math.random() * 400, q: 0.9, gain: 0.16 * gain, attack: 0.001, t, verb: 0.35, pan });
+    this.noise({ dur: 0.04, type: 'highpass', freq: 3200, q: 0.7, gain: 0.05 * gain, attack: 0.001, t, pan });
+    this.noise({ dur: 0.05, type: 'lowpass', freq: 420, gain: 0.08 * gain, attack: 0.002, t, pan });
+  },
+  /** A wave: air moving past an open hand, rising then falling. */
+  whoosh(pan = 0, t = 0) {
+    for (let i = 0; i < 2; i++) this.noise({ dur: 0.32, type: 'bandpass', freq: 700 + i * 380, q: 0.7, gain: 0.035, attack: 0.14, t: t + i * 0.36, verb: 0.2, pan });
+  },
+  /** A short chuckle: a few breathy, falling vowels. */
+  chuckle(pan = 0, low = false) {
+    const f0 = low ? 420 : 640;
+    for (let i = 0; i < 4; i++) {
+      const t = i * (0.12 + Math.random() * 0.03);
+      this.noise({ dur: 0.08, type: 'bandpass', freq: f0 * (1 - i * 0.05) + Math.random() * 80, q: 5, gain: 0.05, attack: 0.01, t, verb: 0.3, pan });
+      this.tone({ freq: (low ? 150 : 230) * (1 - i * 0.04), type: 'triangle', dur: 0.08, gain: 0.025, lp: 900, attack: 0.012, t, pan });
+    }
+  },
+  /** A soft cloth rustle, for a shrug or a hand coming up. */
+  rustle(pan = 0, t = 0) {
+    this.noise({ dur: 0.22, type: 'bandpass', freq: 2400, q: 0.6, gain: 0.025, attack: 0.06, t, pan });
+  },
+  /** A short, rude, rising whistle. */
+  whistle(pan = 0, t = 0) {
+    this.tone({ freq: 1300, type: 'sine', dur: 0.22, gain: 0.03, slide: 2100, attack: 0.02, t, verb: 0.3, pan });
+  },
+});

@@ -55,6 +55,9 @@ export function chatKey(e) {
   return false;
 }
 
+/** Puts the floating panel away (another panel is opening where it sits). */
+export function hideChat() { if (C.open && !C.docked) closeChat(); }
+
 function openChat() {
   if (!C.docked) { C.open = true; syncChat(); }
   // docked, the focus scrolls the lobby sheet to the panel

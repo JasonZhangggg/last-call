@@ -14,6 +14,7 @@ import { spray, clearBlood } from '../render/blood.js';
 import { RANK_STYLE } from '../render/textures.js';
 import { createDeck, HAND_SIZE, CHAMBERS } from '../model/rules.js';
 import { reduceDeck, pileCount, lastPlay } from './deck-state.js';
+import { greet, caught, wrongCall, survived, setOrdeal } from '../emotes.js';
 import { bindHand, releaseHand, setHandUp, syncHandButton, handKey, stepHand, handUp, spaceHint } from './hand.js';
 
 const LINES = {
@@ -93,6 +94,7 @@ async function round(T, msg) {
   ui.toast(`Table card: ${RANK_STYLE[msg.tableRank].plural}`, 'gold');
   ui.log(`Round ${msg.round}: the table card is <b>${RANK_STYLE[msg.tableRank].plural}</b>.`);
   T.setWatch(null);
+  if (msg.round === 1) greet(T);
   await T.step(1500);
   if (msg.round === 1 && game.alive[T.me]) ui.coach('lead', 'Play 1–3 cards face down and claim they match the table card. You may lie.');
 }
@@ -217,6 +219,7 @@ async function challenge(T, msg) {
     ui.log(lie ? `The cards don't match. <b>${accusedName}</b> ${verb(T, accused, 'were', 'was')} lying.` : `Every card matches. <b>${T.isMe(caller) ? 'You' : T.name(caller)}</b> ${verb(T, caller, 'were', 'was')} wrong.`);
     if (!T.isMe(accused)) say(T, accused, voice(T, accused, lie ? 'caught' : 'honest'));
     if (!T.isMe(caller) && !lie) setTimeout(() => say(T, caller, voice(T, caller, 'wrong')), 900);
+    if (lie) caught(T, accused, caller); else if (!forced) wrongCall(T, accused, caller);
   }
   await T.step(1600);
   if (!T.isMe(caller)) react(T.char(caller), 'lean', false);
@@ -248,6 +251,7 @@ async function roulette(T, msg) {
 async function buildUp(T, seat) {
   if (holder === seat) return;
   const human = T.isMe(seat), token = T.token();
+  setOrdeal(true);
   audio.setTension(1); ui.setTense(true);
   ui.toast(`${human ? 'You' : T.name(seat)} ${verb(T, seat, 'pick', 'picks')} up the revolver`, 'small');
   if (human) { setHandUp(false); rig.rollTarget = 0.05; focusOn(null); centerLook(0.5); rig.zoomTarget = 1.05; }
@@ -368,10 +372,12 @@ async function shot(T, msg) {
     if (ch.grip) gunHome({ slide: true });
   }
   settle(T);
+  if (!fired && !human) survived(T, seat);
   await T.step(500);
 }
 
 function settle(T) {
+  setOrdeal(false);
   audio.setTension(0); ui.setTense(false);
   rig.zoomTarget = 1; rig.rollTarget = 0; focusOn(null);
   T.setActor(null);
@@ -381,7 +387,7 @@ function settle(T) {
 /** Puts the table exactly as T.game says, at once: for a new game, a reconnect, or a tab coming back. */
 function rebuild(T, { fresh }) {
   const game = T.game;
-  beating = false; holder = null; pendingTurn = null;
+  beating = false; holder = null; pendingTurn = null; setOrdeal(false);
   handUI.enabled = false; handUI.selected.clear();
   setHandUp(false);
   setDeckSize(createDeck(game.variant).length);

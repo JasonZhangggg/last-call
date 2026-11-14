@@ -2,13 +2,13 @@ import * as THREE from 'three';
 import { $, clamp, settings } from './util.js';
 import { renderer, scene, camera, canvas, render, adapt, applyQuality, quality, compileScene } from './render/core.js';
 import { buildWorld, updateWorld, setShadowSize } from './render/world.js';
-import { buildCharacter, updateCharacter, straightGrip, poseRightHand } from './render/characters.js';
+import { buildCharacter, updateCharacter, straightGrip, poseRightHand, emote as charEmote } from './render/characters.js';
 import { loadRigs } from './render/rig.js';
 import { buildCards, updateCards, warmCards, bodies, hands } from './render/cards.js';
 import { buildGun, updateGun, gun } from './render/gun.js';
 import { buildBlood, updateBlood, blood, spray } from './render/blood.js';
 import { buildAuctionTable, updateAuctionTable } from './render/auctionTable.js';
-import { buildPlayerArm, updatePlayerArm, loadPlayerArm, arm } from './render/playerArm.js';
+import { buildPlayerArm, updatePlayerArm, loadPlayerArm, arm, armEmote } from './render/playerArm.js';
 import { buildDiceTable, updateDiceTable, table as diceTable } from './render/diceTable.js';
 import { rig, updateCamera, fitToViewport, lookFromPointer, lookByDelta, centerLook } from './render/camera.js';
 import { handPointer } from './modes/hand.js';
@@ -21,7 +21,8 @@ import { MODES, isPlayable } from './modes/index.js';
 import { CATALOG, modeLabel, variantLabel, variantNote } from './modes/catalog.js';
 import { ENGINES } from './net/engines.js';
 import { ROOM_CODE_RE, normalizeRoomCode } from './net/protocol.js';
-import { initChat, chatKey, chatMessage, syncChat, resetChat } from './chat.js';
+import { initChat, chatKey, chatMessage, syncChat, resetChat, hideChat } from './chat.js';
+import { initEmotes, emoteKey, emoteMessage, syncEmotes, emoteLook, resetEmotes, botEmote } from './emotes.js';
 
 const clock = new THREE.Clock(false);
 const raycaster = new THREE.Raycaster();
@@ -42,7 +43,7 @@ function simulate(dt, t) {
     // another person's head goes where they look, and their cards rise when they read them
     ch.target.inspect = l?.hand === 'up' ? 1 : 0;
     // the gaze target glides between subjects, so a head starts turning gently instead of all at once
-    dampVec3(ch.lookTarget, l ? humanLookTarget(v, l, camera, _look) : lookTargetFor(v, camera, _look), lookVel[v], 0.16, dt);
+    dampVec3(ch.lookTarget, l ? humanLookTarget(v, l, camera, _look) : emoteLook(v, _look) ?? lookTargetFor(v, camera, _look), lookVel[v], 0.16, dt);
     updateCharacter(ch, dt, t);
   }
   D.mode?.frame(T, innerWidth < 720 ? 112 : 124, dt);
@@ -162,6 +163,7 @@ function tryPick() {
 addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;
   if (chatKey(e)) return;
+  if (emoteKey(e)) return;
   if (e.key === 'Escape') { e.preventDefault(); return togglePause(); }
   if (e.key === 'm' || e.key === 'M') return $('#sound-btn').click();
   if (settings.paused || ui.topOverlay()) return;
@@ -199,6 +201,7 @@ function setRoomInUrl(code) {
 function toTitle(message) {
   closeTable();
   resetChat();
+  syncEmotes(false); resetEmotes();
   settings.paused = false;
   setRoomInUrl(null);
   ui.setNet(null);
@@ -254,6 +257,7 @@ const CLOSED = {
 S.hooks = {
   onLobby() { syncChat(); if (ui.isOpen('lobby')) drawLobby(); },
   onChat: chatMessage,
+  onEmote: emoteMessage,
   onRefused(msg) { if (!D.prompt) ui.toast(msg.message, 'small'); },
   onStatus(status, detail) {
     if (status === 'reconnecting') ui.setNet('Reconnecting to the table…');
@@ -271,10 +275,11 @@ S.hooks = {
 };
 D.hooks = {
   onLobby() { if (!solo()) showLobby(); },
-  onTable() { for (const id of ['title', 'solo', 'enter', 'lobby', 'end', 'out']) ui.closeOverlay(id); },
+  onTable() { for (const id of ['title', 'solo', 'enter', 'lobby', 'end', 'out']) ui.closeOverlay(id); resetEmotes(); syncEmotes(D.phase === 'playing'); },
   onOut() { ui.openOverlay('out'); },
   onOver(summary) {
     ui.closeOverlay('out');
+    syncEmotes(false);
     ui.showEnd({ ...summary, online: !solo() });
   },
 };
@@ -298,6 +303,7 @@ $('#watch-btn').addEventListener('click', () => { ui.closeOverlay('out'); ui.set
 $('#out-leave-btn').addEventListener('click', () => toTitle());
 ui.initSolo({ modes: MODE_LIST(), ...LABELS }, startSolo);
 initChat();
+initEmotes(T, { onOpen: hideChat });
 ui.initEnter();
 ui.initLobby({
   addBot: () => send({ type: 'addBot' }),
@@ -382,7 +388,7 @@ async function boot() {
   renderer.setAnimationLoop(frame);
   $('#loading').hidden = true; $('#title-menu').hidden = false;
   $('#solo-btn').focus({ preventScroll: true });
-  window.__lastcall = { D, S, quality, hooks, gun, arm, rig, camera, renderer, MODES, CATALOG, leaveTable, cards: { bodies, hands }, diceTable, T, settings, pose: { straightGrip, poseRightHand }, blood, spray };
+  window.__lastcall = { D, S, quality, hooks, gun, arm, rig, camera, renderer, MODES, CATALOG, leaveTable, cards: { bodies, hands }, diceTable, T, settings, pose: { straightGrip, poseRightHand }, blood, spray, emote: charEmote, emotes: { message: emoteMessage, bot: botEmote, arm: armEmote } };
   const room = new URLSearchParams(location.search).get('room');
   // #autoplay-<mode>[-<variant>][-<n>p]: a self-playing solo table, -2p or -3p for a smaller one
   const AUTO = { '#autoplay-devil': ['deck', 'devil'], '#autoplay-dice': ['dice', 'basic'], '#autoplay-dice-traditional': ['dice', 'traditional'], '#autoplay-auction': ['auction', 'classic'] };

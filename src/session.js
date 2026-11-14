@@ -1,6 +1,6 @@
 // The connection to a table: one transport at a time (a Room in this tab for solo play, or a
 // WebSocket to a hosted table), the lobby as the server last described it, and the routing of
-// every server message. Lobby, connection, `look` and chat news is handled at once; game messages go to the
+// every server message. Lobby, connection, `look`, chat and gesture news is handled at once; game messages go to the
 // director's queue, which plays them in order.
 import { createLocalTransport, createSocketTransport, createRoomCode } from './net/client.js';
 import { ERR, FATAL, MAX_SEATS, MIN_PLAYERS, TURN_SECONDS } from './net/protocol.js';
@@ -73,6 +73,7 @@ function route(msg) {
     case 'lobby': S.lobby = msg; setLobby(msg); return S.hooks.onLobby?.(msg);
     case 'look': return setLook(msg);
     case 'chat': case 'chatLog': return S.hooks.onChat?.(msg);
+    case 'emote': return S.hooks.onEmote?.(msg);
     case 'error':
       if (FATAL.has(msg.code)) return;
       if (msg.code === ERR.tooFast) return S.hooks.onChat?.(msg);

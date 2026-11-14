@@ -3,7 +3,7 @@
     tools/models/build.sh player_arm
 
 One skinned mesh (a dark cloth sleeve, a rolled linen shirt cuff, a bare forearm and the shared
-hand from lib/hand.py), a skeleton, sockets for what the hand holds and finger poses. The game
+hand from lib/hand.py), a skeleton, sockets for what the hand holds and finger poses (holding, and the table gestures'). The game
 (src/render/playerArm.js) solves the arm itself every frame, so there are no body clips.
 
 The arm's own space, in the rest pose: the elbow at the origin, the upper arm running up +y from it
@@ -23,6 +23,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import numpy as np
 from lib import meshkit as mk, hand as hd, pose as ps, rigkit as rk
+from lib import emotes as em
 from lib.meshkit import V, unit
 
 L2 = 0.27             # elbow to wrist (src/render/playerArm.js uses the same)
@@ -205,6 +206,8 @@ def build(out):
     for name, bone, M in socks:
         rk.add_socket(name, arm, bone, M)
     clips = dict(relaxed=RELAXED, open=hd.SPREAD, gun=poses['fist'], glass=poses['glass'], cup=cup_pose())
+    # the table gestures' hands (src/render/playerArm.js plays the gestures themselves)
+    clips.update(flat=em.FLAT, flip=em.FLIP, thumbs=em.THUMBS, point=em.POINT, cupped=em.CUPPED)
     for name, pose in clips.items():
         f = fingers(pose)
         rk.bake_action(arm, name, [f, f])

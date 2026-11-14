@@ -6,6 +6,7 @@ import { $, pick, clamp, settings } from '../util.js';
 import { smoothDamp } from '../render/motion.js';
 import { audio } from '../audio.js';
 import * as ui from '../ui.js';
+import { greet, caught, wrongCall, survived, poisoned, setOrdeal } from '../emotes.js';
 import { react, tell, poseRightHand, glassGrip, straightGrip } from '../render/characters.js';
 import { rigSip } from '../render/rig.js';
 import { rig, focusOn, centerLook, lockLook } from '../render/camera.js';
@@ -272,6 +273,7 @@ async function round(T, msg) {
     setTimeout(() => { if (token === T.token()) DT.cupTo(v, 'rest', { dur: 0.3 }); }, 750);
   }, 200 + k * 260));
   myDice(T);
+  if (msg.round === 1) greet(T);
   await T.step(1100);
   if (msg.round === 1 && g.alive[T.me]) ui.coach('dice', 'Bid how many dice on the whole table show a face. <b>Ones are wild.</b> Raise the bid, or call <b>Liar</b>.');
 }
@@ -462,6 +464,7 @@ async function challenge(T, msg) {
     ui.log(stands ? `${counted}. <b>${callerName}</b> ${verb(T, caller, 'were', 'was')} wrong.` : `Only ${word(count)}. <b>${bidderName}</b> ${verb(T, bidder, 'were', 'was')} bluffing.`);
     if (!T.isMe(bidder)) say(T, bidder, voice(T, bidder, stands ? 'honest' : 'caught'));
     if (!T.isMe(caller) && stands) setTimeout(() => say(T, caller, voice(T, caller, 'wrong')), 900);
+    if (stands) { if (!forced) wrongCall(T, bidder, caller); } else caught(T, bidder, caller);
   }
   audio.verdict(spot ? !callerRight : callerRight);
   await T.step(1500);
@@ -475,6 +478,7 @@ const nextGlass = (T, seat) => Math.min(GLASSES - 1, T.game.drinks[seat]);
 async function roulette(T, msg) {
   const { seat } = msg, token = T.token();
   T.setActor(seat);
+  setOrdeal(true);
   await pickUpGlass(T, seat);
   if (!T.isMe(seat)) return;
   if (settings.autoplay) return;
@@ -570,6 +574,7 @@ async function drink(T, msg) {
     await putBackGlass(T, seat, i);
     if (!human) react(ch, 'relief', false);
     settle(T);
+    if (!human) survived(T, seat);
     await T.step(350);
     return;
   }
@@ -590,7 +595,8 @@ async function drink(T, msg) {
     myDice(T);
     await T.step(1300);
     if (T.game.alive.filter(Boolean).length > 1) T.eliminated();
-    return settle(T);
+    settle(T);
+    return poisoned(T, seat);
   }
   react(ch, 'flinch');
   ui.toast(`${T.name(seat)} is poisoned`, 'liar');
@@ -607,6 +613,7 @@ async function drink(T, msg) {
   await T.step(1600);
   held = null;
   settle(T);
+  poisoned(T, seat);
   await T.step(400);
 }
 
@@ -633,6 +640,7 @@ async function putBackGlass(T, seat, i) {
 }
 
 function settle(T) {
+  setOrdeal(false);
   beating = false;
   audio.setTension(0); ui.setTense(false);
   rig.zoomTarget = 1; rig.rollTarget = 0; rig.leanTarget = 0; focusOn(null);
