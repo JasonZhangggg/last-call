@@ -199,7 +199,7 @@ const roundOf = (T) => T.game?.round ?? T.game?.auction ?? 0;
  * or a drink is being played out, and only now and then (`chance`). Returns whether it will.
  */
 export function botEmote(T, seat, kind, { at = null, delay = 0, chance = 1, key = null } = {}) {
-  if (seat == null || T.isMe(seat) || !T.isBot(seat) || T.absent(seat) || E.ordeal) return false;
+  if (seat == null || T.isMe(seat) || !T.isBot(seat) || T.absent(seat) || E.ordeal || T.char(seat)?.target.out) return false;
   if (Math.random() >= chance) return false;
   const round = key ?? roundOf(T);
   if (E.spent.get(seat) === round) return false;
@@ -208,7 +208,7 @@ export function botEmote(T, seat, kind, { at = null, delay = 0, chance = 1, key 
   setTimeout(() => {
     if (token !== T.token() || E.ordeal || !T.game) return;
     const v = T.view(seat);
-    E.aim[v] = at == null || at === seat ? null : { seat: at, until: performance.now() + 2600 / settings.speed };
+    E.aim[v] = at == null || at === seat ? null : { seat: at, until: performance.now() + 3400 };
     perform(T, seat, kind);
   }, delay / settings.speed);
   return true;
