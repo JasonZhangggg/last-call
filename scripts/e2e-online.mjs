@@ -160,6 +160,24 @@ await host.waitForFunction(() => document.getElementById('chat').hidden);
 assert.equal(await vis(host, 'pause'), false, 'Escape in the chat closes the chat, not the table menu');
 await guest.keyboard.press('Escape');
 await guest.waitForFunction(() => document.getElementById('chat').hidden);
+// A gesture: the guest presses G then 2; the host sees the guest's character give the finger and
+// its icon by the name, and the guest's own arm comes up with it. Typing G in the chat sends nothing.
+await guest.keyboard.press('t');
+await guest.waitForFunction(() => document.activeElement?.id === 'chat-input');
+await guest.keyboard.type('g2');
+assert.equal(await guest.evaluate(() => document.getElementById('emote-menu').hidden), true, 'G typed in the chat opens no gesture menu');
+await guest.fill('#chat-input', '');
+await guest.keyboard.press('Escape');
+await guest.waitForFunction(() => document.getElementById('chat').hidden);
+await guest.keyboard.press('g');
+await guest.waitForFunction(() => !document.getElementById('emote-menu').hidden);
+await guest.keyboard.press('2');
+await host.waitForFunction((s) => { const T = window.__lastcall.T; return T.char(s).rig?.emote === 'flip'; }, guestSeat, { polling: 50 });
+await host.waitForFunction((s) => document.querySelectorAll('#tags .tag')[window.__lastcall.T.view(s) - 1]?.querySelector('.emo.show')?.textContent === '🖕', guestSeat, { polling: 50 });
+await guest.waitForFunction(() => window.__lastcall.arm.emote?.kind === 'flip' || !window.__lastcall.arm.hidden, null, { polling: 50 });
+console.log(`  gesture: the host sees the guest's character give the finger, with its icon`);
+await host.waitForTimeout(800);
+await shot(host, '03d-guest-gestures');
 if (args['presence-only']) {
   if (problems.length) await finish(1, 'PROBLEMS:\n' + problems.join('\n'));
   console.log('e2e-online: presence passed');

@@ -80,6 +80,17 @@ artifacts/rig/before` for the old build, if a copy of the old page is kept there
 - The old Brass, same staging: 20 visible body meshes, 25,436 triangles, 51 arm vertices in the
   torso at rest, and the upper arm through the chest while drinking.
 
+## Gestures
+
+`lib/emotes.py` builds six clips for any Body (`emote_wave`, `_flip`, `_thumbs`, `_laugh`, `_shrug`,
+`_clap`), keyed aimed straight ahead with finger poses through a clip's optional `fingers_R` /
+`fingers_L` channels (`Body.solve`). Each character passes a style (Brass crisp, Noctua with a
+flourish, Gristle big with his jaw). `rig.js` plays them as additive layers through `rigEmote`,
+turns the trunk and arm toward `ch.lookTarget`, and lets the rest and fan pulls go while they play.
+A shrug with cards in hand is one-handed. `scripts/rig-shots.mjs --only emotes` and
+`scripts/arm-shots.mjs --only emotes` stage them. The player's arm plays its own gestures in
+`playerArm.js` (`armEmote`), with finger poses baked into `player_arm.glb`.
+
 ## What is next
 
 1. **Page size.** The .glb is bundled as base64, and the page went from 353 KB to 1.44 MB. Options:

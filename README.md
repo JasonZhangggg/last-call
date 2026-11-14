@@ -17,6 +17,9 @@ Live: https://last-call.jasonxyz.workers.dev
 
 Rules for all three are in `docs/RULES.md`.
 
+At any table you can gesture: wave, give the finger, thumbs up, point and laugh, shrug or slow clap
+(the Gesture button, or G then 1 to 6). Everyone sees it, and the bots gesture back.
+
 ## Run it
 
 ```bash
