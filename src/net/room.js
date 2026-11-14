@@ -11,7 +11,7 @@
 // has elapsed, move the game on) or 'auto' (a bot, a timeout, or a forced call acts for the
 // prompted seat). The timer is serialized, so a restored Room carries on where it stopped.
 import { ENGINES } from './engines.js';
-import { CHAT_BURST, CHAT_HISTORY, CHAT_RATE, DEFAULT_OPTIONS, ERR, FATAL, GAME_ACTIONS, LOOK_BURST, LOOK_RANGE, LOOK_RATE, MAX_SEATS, MIN_PLAYERS, TURN_SECONDS, cleanName, cryptoRng, parseClientMessage, randomToken, seatPlan } from './protocol.js';
+import { CHAT_BURST, CHAT_HISTORY, CHAT_RATE, DEFAULT_OPTIONS, EMOTE_BURST, EMOTE_RATE, ERR, FATAL, GAME_ACTIONS, LOOK_BURST, LOOK_RANGE, LOOK_RATE, MAX_SEATS, MIN_PLAYERS, TURN_SECONDS, cleanName, cryptoRng, parseClientMessage, randomToken, seatPlan } from './protocol.js';
 
 export const START_DELAY_MS = 500;
 export const ROULETTE_SECONDS = 20;
@@ -50,6 +50,7 @@ export class Room {
     this.timerHandle = null;
     this.lookBudget = new Map(); // clientId -> { tokens, at }: presence, never saved
     this.chatBudget = new Map();
+    this.emoteBudget = new Map();
     const s = saved || {
       code: deps.code ?? null, phase: 'lobby', options: { ...DEFAULT_OPTIONS },
       seats: Array.from({ length: MAX_SEATS }, () => EMPTY), host: null,
@@ -74,6 +75,7 @@ export class Room {
     const { msg, error } = parseClientMessage(raw);
     // A head turn is relayed and forgotten: no state changes, so nothing to save.
     if (msg?.type === 'look') return this.look(clientId, msg);
+    if (msg?.type === 'emote') return this.emote(clientId, msg.kind);
     try {
       if (error) refuse(ERR.badMessage, error);
       this.dispatch(clientId, msg);
@@ -88,6 +90,7 @@ export class Room {
   disconnect(clientId) {
     this.lookBudget.delete(clientId);
     this.chatBudget.delete(clientId);
+    this.emoteBudget.delete(clientId);
     const s = this.seatOf(clientId);
     if (s == null) return;
     this.seats[s] = { ...this.seats[s], connected: false };
@@ -103,6 +106,19 @@ export class Room {
     const r = LOOK_RANGE, round = (v) => Math.round(v * 1000) / 1000;
     const m = { type: 'look', seat, yaw: round(Math.max(-r.yaw, Math.min(r.yaw, yaw))), pitch: round(Math.max(-r.down, Math.min(r.up, pitch))), hand: hand === 'up' ? 'up' : 'down' };
     this.seats.forEach((x, s) => { if (s !== seat && x.kind === 'human' && x.connected) this.send(x.clientId, m); });
+  }
+
+  /**
+   * A gesture, relayed to everyone seated with its sender and forgotten: nothing is saved and no
+   * engine sees it. Refused outside a game or from someone without a seat; too fast, it is dropped.
+   */
+  emote(clientId, kind) {
+    const seat = this.seatOf(clientId);
+    if (seat == null) return this.send(clientId, { type: 'error', code: ERR.notSeated, message: 'Say hello first.' });
+    if (this.phase !== 'playing') return this.send(clientId, { type: 'error', code: ERR.wrongPhase, message: 'Gestures are for the table, once the game starts.' });
+    if (!spend(this.emoteBudget, clientId, this.clock.now(), EMOTE_RATE, EMOTE_BURST)) return;
+    const m = { type: 'emote', seat, kind, at: this.clock.now() };
+    this.broadcastAll(() => m);
   }
 
   /* ---------- queries ---------- */

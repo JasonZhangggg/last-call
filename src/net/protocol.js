@@ -34,6 +34,11 @@
 //                                                 dropped; 1..CHAT_MAX characters must remain. At
 //                                                 most CHAT_RATE a second (burst CHAT_BURST);
 //                                                 faster lines are refused with too-fast.
+//   emote      { kind }                           a gesture at the table: one of EMOTES. Only while a
+//                                                 game runs and only from a seated person (one who is
+//                                                 out and watching too). At most EMOTE_RATE a second
+//                                                 (burst EMOTE_BURST); extras are dropped. Presence
+//                                                 only: never stored, never seen by an engine.
 //
 // Server to client
 //   welcome   { seat, roomCode, resumeToken }     you hold `seat`; keep the token to reclaim it
@@ -51,6 +56,8 @@
 //                                                 while a game runs; not part of `state`
 //   chat      { seat, name, text, at }            a seated person's line, sent to every seated
 //                                                 person including its sender; at: server ms
+//   emote     { seat, kind, at }                  a seated person's `emote`, sent to every seated person
+//                                                 including its sender (its confirmation); at: server ms
 //   chatLog   { lines: [{ seat, name, text, at }] }  the last CHAT_HISTORY lines, oldest first,
 //                                                 sent right after welcome. Chat is never part of
 //                                                 the game: no engine sees or redacts it.
@@ -158,6 +165,7 @@ export const SERVER_KEYS = Object.freeze({
   look: ['seat', 'yaw', 'pitch', 'hand'],
   chat: ['seat', 'name', 'text', 'at'],
   chatLog: ['lines'],
+  emote: ['seat', 'kind', 'at'],
 });
 
 /** The span a seated head can turn (radians), the same as the camera rig's own limits. */
@@ -169,6 +177,10 @@ export const CHAT_MAX = 200;
 export const CHAT_RATE = 1;
 export const CHAT_BURST = 4;
 export const CHAT_HISTORY = 30;
+/** The gestures a seated person can make at the table. */
+export const EMOTES = Object.freeze(['wave', 'flip', 'thumbs', 'laugh', 'shrug', 'clap']);
+export const EMOTE_RATE = 1 / 1.5;
+export const EMOTE_BURST = 2;
 
 export const normalizeRoomCode = (raw) => String(raw ?? '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, ROOM_CODE_LENGTH);
 
@@ -235,6 +247,7 @@ const CLIENT = {
   pass: () => true,
   leave: () => true,
   chat: (m) => cleanChat(m.text) != null,
+  emote: (m) => EMOTES.includes(m.kind),
   look: (m) => Number.isFinite(m.yaw) && Number.isFinite(m.pitch) && (m.hand === undefined || m.hand === 'up' || m.hand === 'down'),
 };
 
@@ -283,5 +296,6 @@ export function parseClientMessage(raw) {
   const check = Object.hasOwn(CLIENT, m.type) ? CLIENT[m.type] : null;
   if (!check) return { error: `unknown message type ${String(m.type).slice(0, 32)}` };
   if (!check(m)) return { error: `malformed ${m.type}` };
-  return { msg: m.type === 'chat' ? { type: 'chat', text: cleanChat(m.text) } : m };
+  if (m.type === 'chat') return { msg: { type: 'chat', text: cleanChat(m.text) } };
+  return { msg: m.type === 'emote' ? { type: 'emote', kind: m.kind } : m };
 }

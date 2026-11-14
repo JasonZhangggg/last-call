@@ -550,3 +550,68 @@ test('chat: cleaned at the boundary, sent to everyone seated with the sender, ra
   assert.deepEqual(Object.keys(log.lines[0]).sort(), ['at', 'name', 'seat', 'text']);
   assert.deepEqual(back.log.map((m) => m.type).slice(0, 4), ['welcome', 'lobby', 'state', 'chatLog'], 'right after welcome, lobby and state');
 });
+
+test('emote: validated at the boundary, game only, relayed to everyone with the sender, rate-limited, and never saved', () => {
+  let saves = 0;
+  const { t, people: [a, b, c] } = seatTable({ humans: 3, opts: [{ idle: true }, { idle: true }, { idle: true }] });
+  const emotes = (p) => p.log.filter((m) => m.type === 'emote');
+
+  for (const kind of [undefined, 'dance', 'WAVE', 42, ['wave'], null]) {
+    a.send({ type: 'emote', kind });
+    assert.equal(a.last('error').code, ERR.badMessage, `refused: ${JSON.stringify(kind)}`);
+  }
+  assert.deepEqual(parseClientMessage({ type: 'emote', kind: 'wave', extra: 'x'.repeat(100) }).msg, { type: 'emote', kind: 'wave' }, 'only the kind passes the boundary');
+
+  a.send({ type: 'emote', kind: 'wave' });
+  assert.equal(a.last('error').code, ERR.wrongPhase, 'not in the lobby');
+  assert.equal(emotes(b).length, 0);
+
+  a.send({ type: 'start' });
+  t.clock.advance(1);
+  t.room.onChange = () => { saves++; };
+  const outsider = new Player(t, 'Nobody');
+  outsider.send({ type: 'emote', kind: 'flip' });
+  assert.equal(outsider.last('error').code, ERR.notSeated, 'only seated people gesture');
+
+  const at = t.clock.now();
+  a.send({ type: 'emote', kind: 'flip' });
+  const m = { type: 'emote', seat: a.seat, kind: 'flip', at };
+  for (const p of [a, b, c]) assert.deepEqual(emotes(p), [m], 'everyone seated, the sender included');
+  assert.equal(saves, 0, 'no storage write for an emote');
+  assert.equal(JSON.stringify(t.room.toJSON()).includes('flip'), false, 'not part of the saved room');
+
+  // a burst of two, then one every 1.5 s; extras are dropped without an error
+  t.clock.advance(10_000);
+  const n0 = emotes(b).length, e0 = a.errors().length;
+  for (let i = 0; i < 5; i++) a.send({ type: 'emote', kind: 'clap' });
+  assert.equal(emotes(b).length - n0, 2, 'a burst of two gets through');
+  assert.equal(a.errors().length, e0, 'dropped quietly');
+  t.clock.advance(1000);
+  a.send({ type: 'emote', kind: 'clap' });
+  assert.equal(emotes(b).length - n0, 2, 'not yet after a second');
+  t.clock.advance(600);
+  a.send({ type: 'emote', kind: 'clap' });
+  assert.equal(emotes(b).length - n0, 3, 'after 1.5 s');
+  b.send({ type: 'emote', kind: 'thumbs' });
+  assert.equal(emotes(a).at(-1).seat, b.seat, 'each connection has its own budget');
+
+  // 4 a second for 15 s: about 2 + 15 / 1.5 get through
+  t.clock.advance(10_000);
+  const n1 = emotes(c).length;
+  for (let i = 0; i < 60; i++) { a.send({ type: 'emote', kind: 'shrug' }); t.clock.t += 250; }
+  const passed = emotes(c).length - n1;
+  assert.ok(passed >= 11 && passed <= 13, `rate-limited to one per 1.5 s (${passed} of 60 in 15 s)`);
+
+  // someone who is out and watching keeps the seat, and still gestures
+  t.room.game.g.players[b.seat].alive = false;
+  t.clock.t += 5000;
+  saves = 0;
+  b.send({ type: 'emote', kind: 'laugh' });
+  assert.equal(emotes(a).at(-1).kind, 'laugh', 'from the rail');
+  assert.equal(saves, 0, 'still nothing saved');
+
+  b.disconnect();
+  t.clock.advance(5000);
+  a.send({ type: 'emote', kind: 'wave' });
+  assert.equal(emotes(b).filter((x) => x.kind === 'wave').length, 0, 'nothing to a disconnected seat');
+});
