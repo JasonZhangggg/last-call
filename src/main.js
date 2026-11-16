@@ -22,7 +22,7 @@ import { CATALOG, modeLabel, variantLabel, variantNote } from './modes/catalog.j
 import { ENGINES } from './net/engines.js';
 import { ROOM_CODE_RE, normalizeRoomCode } from './net/protocol.js';
 import { initChat, chatKey, chatMessage, syncChat, resetChat, hideChat } from './chat.js';
-import { initEmotes, emoteKey, emoteMessage, syncEmotes, emoteLook, resetEmotes, botEmote } from './emotes.js';
+import { initEmotes, ringOpen, emoteKey, emoteMessage, syncEmotes, emoteLook, resetEmotes, botEmote } from './emotes.js';
 
 const clock = new THREE.Clock(false);
 const raycaster = new THREE.Raycaster();
@@ -123,7 +123,7 @@ function updateHover(dt) {
 // Over a HUD control the head holds still rather than swinging away from the button.
 const ndcOf = (e, out) => out.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
 addEventListener('pointermove', (e) => {
-  const onCanvas = e.target === canvas;
+  const onCanvas = e.target === canvas && !ringOpen();
   if (onCanvas) ndcOf(e, pointer.ndc); else pointer.ndc.set(9, 9);
   pointer.moved = true;
   if (e.pointerType === 'mouse') {

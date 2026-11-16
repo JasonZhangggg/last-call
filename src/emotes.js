@@ -1,5 +1,5 @@
 // Table gestures: wave, the finger, thumbs up, point and laugh, shrug, slow clap. A person picks one
-// from the gesture button (or G, then 1 to 6); the server relays it to every seat, the sender too,
+// from the gesture ring (the button, or G); the server relays it to every seat, the sender too,
 // and each client plays it as it arrives: your own arm in first person, anyone else's character at
 // their seat with the gesture's icon by their name. Bots gesture too, from the same event stream
 // as their lines, so nothing extra crosses the wire for them. A gesture is presentation only: it
@@ -62,19 +62,50 @@ const E = {
   replied: new Map(), // seat -> when its bot last answered someone (ms)
   ordeal: false,      // a revolver or a drink is being played out: bots keep still
   aim: [null, null, null, null], // by view: { seat, until } while a bot gestures at someone
+  sel: -1, cx: 0, cy: 0, k: 1, heldAt: 0, // the ring: what it aims at, its centre and scale, when G went down
 };
-let btn, menu, note, noteTimer = 0;
+let btn, menu, hub, note, noteTimer = 0;
 
-/* ---------- the menu ---------- */
+/* ---------- the ring ---------- */
+// G opens a ring of the six gestures around the mouse, and the view holds still while it is open,
+// so aiming at one never turns your head. Move toward a gesture and click, press its number, or
+// hold G, aim and let go.
+
+const RING = 152;        // the ring's radius in px, at full size
+const SLOT_R = 108;      // where the gesture chips sit
+const DEAD = 34;         // nearer the hub than this, nothing is aimed at
+const HOLD_MS = 280;     // G held longer than this picks on release; a quicker tap leaves the ring open
+const mouse = { x: 0, y: 0, seen: false };
 
 export function initEmotes(T, { onOpen } = {}) {
   E.T = T; E.onOpen = onOpen;
   btn = $('#emote-btn'); menu = $('#emote-menu'); note = $('#emote-note');
-  menu.innerHTML = KINDS.map((k, i) => `<button type="button" role="menuitem" data-kind="${k}" title="${GESTURES[k].label} (${i + 1})"><kbd>${i + 1}</kbd><span class="ico" aria-hidden="true">${GESTURES[k].icon}</span><span class="nm">${GESTURES[k].label}</span></button>`).join('');
-  btn.addEventListener('click', () => (E.open ? closeMenu() : openMenu()));
+  menu.innerHTML = '<div class="hub"><b></b><span class="ring-k"></span></div>' + KINDS.map((k, i) => {
+    const a = (i * 360) / KINDS.length - 90, r = (a * Math.PI) / 180;
+    return `<button type="button" role="menuitem" data-kind="${k}" data-i="${i}" style="--dx:${(Math.cos(r) * SLOT_R).toFixed(1)}px;--dy:${(Math.sin(r) * SLOT_R).toFixed(1)}px" title="${GESTURES[k].label} (${i + 1})"><kbd>${i + 1}</kbd><span class="ico" aria-hidden="true">${GESTURES[k].icon}</span><span class="nm">${GESTURES[k].label}</span></button>`;
+  }).join('');
+  hub = menu.querySelector('.hub');
+  btn.addEventListener('click', () => (E.open ? closeMenu() : openMenu(false)));
   menu.addEventListener('click', (e) => { const b = e.target.closest('button[data-kind]'); if (b) choose(b.dataset.kind); });
-  // a tap anywhere else puts the menu away; typing a chat line does too
-  addEventListener('pointerdown', (e) => { if (E.open && !menu.contains(e.target) && !btn.contains(e.target)) closeMenu(); }, true);
+  menu.addEventListener('pointerover', (e) => { const b = e.target.closest('button[data-kind]'); if (b) aimAt(+b.dataset.i); });
+  addEventListener('pointermove', (e) => {
+    if (e.pointerType !== 'mouse') return;
+    mouse.x = e.clientX; mouse.y = e.clientY; mouse.seen = true;
+    if (E.open) aimFrom(e.clientX, e.clientY);
+  }, { passive: true });
+  // While the ring is open a click anywhere picks what is aimed at, or puts the ring away; it never reaches the table.
+  addEventListener('pointerdown', (e) => {
+    if (!E.open || btn.contains(e.target) || e.target.closest?.('#emote-menu button[data-kind]')) return;
+    e.stopPropagation(); e.preventDefault();
+    if (e.pointerType === 'mouse' && e.button === 0 && E.sel >= 0) choose(KINDS[E.sel]); else closeMenu();
+  }, true);
+  addEventListener('keyup', (e) => {
+    if ((e.key === 'g' || e.key === 'G') && E.open && E.heldAt && performance.now() - E.heldAt > HOLD_MS) {
+      if (E.sel >= 0) choose(KINDS[E.sel]); else closeMenu();
+    }
+    if (e.key === 'g' || e.key === 'G') E.heldAt = 0;
+  });
+  addEventListener('resize', () => closeMenu());
   $('#chat-input').addEventListener('focus', () => closeMenu());
   $('#chat-btn').addEventListener('click', () => closeMenu());
 }
@@ -85,26 +116,57 @@ export function syncEmotes(on) {
   if (!on) closeMenu();
 }
 
-function openMenu() {
+/** True while the ring is open: the mouse aims a gesture then, not your head. */
+export const ringOpen = () => E.open;
+
+function openMenu(atMouse) {
   if (btn.hidden) return;
+  const k = Math.min(1, (innerWidth - 16) / (RING * 2), (innerHeight - 16) / (RING * 2)), half = RING * k + 8;
+  const clamp = (v, max) => Math.min(Math.max(v, half), max - half);
+  E.cx = clamp(atMouse && mouse.seen ? mouse.x : innerWidth / 2, innerWidth);
+  E.cy = clamp(atMouse && mouse.seen ? mouse.y : innerHeight / 2, innerHeight);
+  E.k = k;
+  menu.style.setProperty('--x', `${E.cx}px`); menu.style.setProperty('--y', `${E.cy}px`); menu.style.setProperty('--k', k.toFixed(3));
+  aimAt(-1, true);
   E.open = true; menu.hidden = false; btn.setAttribute('aria-expanded', 'true');
   E.onOpen?.();
 }
 export function closeMenu() {
+  E.heldAt = 0;
   if (!E.open) return;
   E.open = false; menu.hidden = true; btn.setAttribute('aria-expanded', 'false');
   if (menu.contains(document.activeElement)) document.activeElement.blur();
 }
 
-/** The window's key handler asks first: G opens the menu, then 1 to 6 picks and Escape or G closes it. True when the key was used. */
+function aimFrom(x, y) {
+  const dx = x - E.cx, dy = y - E.cy;
+  if (Math.hypot(dx, dy) < DEAD * E.k) return aimAt(-1);
+  const deg = ((Math.atan2(dy, dx) * 180) / Math.PI + 90 + 360 + 180 / KINDS.length) % 360;
+  aimAt(Math.floor(deg / (360 / KINDS.length)));
+}
+
+function aimAt(i, force = false) {
+  if (i === E.sel && !force) return;
+  E.sel = i;
+  for (const b of menu.querySelectorAll('button[data-kind]')) b.classList.toggle('on', +b.dataset.i === i);
+  menu.classList.toggle('aimed', i >= 0);
+  if (i >= 0) menu.style.setProperty('--a', `${(i * 360) / KINDS.length}deg`);
+  hub.firstChild.textContent = i >= 0 ? GESTURES[KINDS[i]].label : 'Gesture';
+  hub.lastChild.innerHTML = i >= 0 ? (E.heldAt ? 'Release <kbd>G</kbd>' : 'Click or <kbd>Enter</kbd>') : `Aim, or <kbd>1</kbd>–<kbd>${KINDS.length}</kbd>`;
+}
+
+/** The window's key handler asks first: G opens the ring, then 1 to 6 or Enter picks and Escape or G closes it. True when the key was used. */
 export function emoteKey(e) {
   if (btn.hidden || e.ctrlKey || e.metaKey || e.altKey) return false;
+  const g = e.key === 'g' || e.key === 'G';
   if (E.open) {
     if (e.key >= '1' && e.key <= String(KINDS.length)) { e.preventDefault(); choose(KINDS[+e.key - 1]); return true; }
-    if (e.key === 'Escape' || e.key === 'g' || e.key === 'G') { e.preventDefault(); closeMenu(); return true; }
+    if (g && e.repeat) { e.preventDefault(); return true; }
+    if (e.key === 'Enter' && E.sel >= 0) { e.preventDefault(); choose(KINDS[E.sel]); return true; }
+    if (e.key === 'Escape' || g) { e.preventDefault(); closeMenu(); return true; }
     return false;
   }
-  if ((e.key === 'g' || e.key === 'G') && !e.repeat && !settings.paused && !ui.topOverlay()) { e.preventDefault(); openMenu(); return true; }
+  if (g && !e.repeat && !settings.paused && !ui.topOverlay()) { e.preventDefault(); E.heldAt = performance.now(); openMenu(true); return true; }
   return false;
 }
 
